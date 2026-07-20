@@ -12,10 +12,10 @@ services:
     plan: free
     rootDir: .
     # Install ALL deps (prisma CLI + tsc are devDependencies), generate the
-    # Prisma client, then compile TypeScript to dist/.
-    buildCommand: npm ci --include=dev && npm run prisma:generate -w apps/backend && npm run build -w apps/backend
-    # Apply pending migrations before each deploy goes live (uses DIRECT_URL).
-    preDeployCommand: npm run prisma:migrate -w apps/backend
+    # Prisma client, apply pending migrations (uses DIRECT_URL), then compile.
+    # Migrations run in the build step because Render's free tier does not
+    # support preDeployCommand.
+    buildCommand: npm ci --include=dev && npm run prisma:generate -w apps/backend && npm run prisma:migrate -w apps/backend && npm run build -w apps/backend
     startCommand: npm run start -w apps/backend
     healthCheckPath: /health
     envVars:

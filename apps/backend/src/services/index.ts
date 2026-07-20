@@ -1,0 +1,22 @@
+// Aggregation point for module services. Services hold business logic.
+export { authService } from '../modules/auth/auth.service';
+export { companiesService } from '../modules/companies/companies.service';
+export { usersService } from '../modules/users/users.service';
+export { servicesService } from '../modules/services/services.service';
+export { businessHoursService } from '../modules/business-hours/business-hours.service';
+export { faqsService } from '../modules/faqs/faqs.service';
+export { knowledgeBaseService } from '../modules/knowledge-base/knowledge-base.service';
+export { aiSettingsService } from '../modules/ai-settings/ai-settings.service';
+export { overviewService } from '../modules/overview/overview.service';
+export { customersService } from '../modules/customers/customers.service';
+export { conversationsService } from '../modules/conversations/conversations.service';
+export { messagesService } from '../modules/messages/messages.service';
+export { internalNotesService } from '../modules/internal-notes/internal-notes.service';
+export { conversationTagsService } from '../modules/conversation-tags/conversation-tags.service';
+export { assignmentsService } from '../modules/assignments/assignments.service';
+export { mockInboundService } from '../modules/mock-inbound/mock-inbound.service';
+export { aiService } from '../modules/ai/ai.service';
+export { aiUsageService } from '../modules/ai/ai-usage.service';
+export { aiContextService } from '../modules/ai/ai-context.service';
+export { aiRetrievalService } from '../modules/ai/ai-retrieval.service';
+export { aiPromptService } from '../modules/ai/ai-prompt.service';

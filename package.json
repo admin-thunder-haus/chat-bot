@@ -1,0 +1,26 @@
+{
+  "name": "ai-support-platform",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Multi-tenant AI customer support platform (Day 1 foundation)",
+  "workspaces": [
+    "apps/backend",
+    "apps/frontend"
+  ],
+  "scripts": {
+    "dev": "concurrently -n backend,frontend -c blue,magenta \"npm run dev -w apps/backend\" \"npm run dev -w apps/frontend\"",
+    "build": "npm run build -w apps/backend && npm run build -w apps/frontend",
+    "lint": "npm run lint -w apps/backend && npm run lint -w apps/frontend",
+    "format": "npm run format -w apps/backend && npm run format -w apps/frontend",
+    "test": "npm run test -w apps/backend",
+    "prisma:migrate": "npm run prisma:migrate -w apps/backend",
+    "prisma:seed": "npm run prisma:seed -w apps/backend",
+    "prisma:generate": "npm run prisma:generate -w apps/backend"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

@@ -1,0 +1,942 @@
+// Prisma schema for the AI customer support platform.
+// Day 1: multi-tenant foundation (Company, User, RefreshToken).
+// Day 2: company profile + business configuration the future AI assistant will
+//        use (services, business hours, FAQs, knowledge base, AI settings).
+// Every Day 2 model is tenant-scoped via `companyId`.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  // Direct (non-pooled) connection used by Prisma Migrate. On Neon the pooled
+  // URL is for the running app; migrations need a direct connection. Must be set
+  // wherever `prisma migrate` runs (local + Render). The runtime client ignores it.
+  directUrl = env("DIRECT_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum CompanyStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum UserRole {
+  OWNER
+  ADMIN
+  AGENT
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum ServicePriceType {
+  FIXED
+  STARTING_FROM
+  VARIABLE
+  CONTACT_US
+  FREE
+}
+
+enum DayOfWeek {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+enum ReplyTone {
+  PROFESSIONAL
+  FRIENDLY
+  CASUAL
+  FORMAL
+  CONCISE
+}
+
+// --- Day 3: conversations & messaging ---
+
+enum ChannelType {
+  WHATSAPP
+  INSTAGRAM
+  FACEBOOK
+  TELEGRAM
+  WEBCHAT
+  EMAIL
+  MANUAL
+}
+
+enum ConversationStatus {
+  OPEN
+  PENDING
+  RESOLVED
+  CLOSED
+}
+
+enum ConversationPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum MessageSenderType {
+  CUSTOMER
+  AGENT
+  SYSTEM
+  AI
+}
+
+enum MessageStatus {
+  PENDING
+  SENT
+  DELIVERED
+  READ
+  FAILED
+  RECEIVED
+}
+
+enum MessageContentType {
+  TEXT
+}
+
+enum ActivityType {
+  CONVERSATION_CREATED
+  MESSAGE_RECEIVED
+  MESSAGE_SENT
+  NOTE_ADDED
+  ASSIGNEE_CHANGED
+  STATUS_CHANGED
+  PRIORITY_CHANGED
+  TAG_ADDED
+  TAG_REMOVED
+  CUSTOMER_UPDATED
+  AI_MODE_CHANGED
+  AI_HANDOFF_REQUESTED
+}
+
+// --- Day 5 Part 1: channel integration framework ---
+
+// Lifecycle of a connected channel account (provider-agnostic).
+enum ChannelAccountStatus {
+  DRAFT
+  CONNECTED
+  DISCONNECTED
+  ERROR
+  SUSPENDED
+}
+
+// Runtime connection health, updated by manual/automated health checks.
+enum ChannelConnectionState {
+  UNKNOWN
+  HEALTHY
+  DEGRADED
+  UNAVAILABLE
+  AUTH_EXPIRED
+}
+
+// Processing lifecycle of a received webhook event.
+enum ChannelWebhookEventStatus {
+  RECEIVED
+  VERIFIED
+  NORMALIZED
+  PROCESSED
+  IGNORED
+  DUPLICATE
+  FAILED
+}
+
+// Delivery lifecycle of an outbound channel message. Dedicated enum (rather than
+// reusing MessageStatus) so channel-transport states evolve independently.
+// PENDING is retained for backward compatibility with Day 5 Part 1 rows; new
+// deliveries start QUEUED (Part 2 delivery engine).
+enum ChannelDeliveryStatus {
+  PENDING
+  QUEUED
+  SENDING
+  SENT
+  DELIVERED
+  READ
+  FAILED
+  EXPIRED
+  CANCELLED
+  UNKNOWN
+}
+
+// Classifies a delivery failure so the retry engine can decide eligibility.
+enum ChannelDeliveryFailureType {
+  NONE
+  TEMPORARY
+  PERMANENT
+}
+
+// Outcome of a single delivery attempt (retry history).
+enum ChannelDeliveryAttemptStatus {
+  SUCCESS
+  TEMPORARY_FAILURE
+  PERMANENT_FAILURE
+}
+
+// Origin of a recorded health-check sample.
+enum ChannelHealthCheckType {
+  MANUAL
+  DELIVERY
+  DIAGNOSTIC
+}
+
+// Append-only channel audit events (account- and conversation-scoped).
+enum ChannelActivityType {
+  CHANNEL_ACCOUNT_CREATED
+  CHANNEL_ACCOUNT_UPDATED
+  CHANNEL_ACCOUNT_CONNECTED
+  CHANNEL_ACCOUNT_DISCONNECTED
+  CHANNEL_HEALTH_CHANGED
+  WEBHOOK_RECEIVED
+  WEBHOOK_DUPLICATE
+  CHANNEL_MESSAGE_SENT
+  CHANNEL_MESSAGE_FAILED
+  DELIVERY_STATUS_CHANGED
+  DELIVERY_RETRY_SCHEDULED
+  DELIVERY_RECOVERED
+  DELIVERY_EXPIRED
+  DELIVERY_CANCELLED
+  CHANNEL_DEGRADED
+  CHANNEL_RECOVERED
+}
+
+// --- Day 4: AI response engine ---
+
+enum AIConversationMode {
+  ENABLED
+  PAUSED
+  HUMAN_ONLY
+}
+
+enum AIGenerationType {
+  DRAFT
+  AUTO_REPLY
+  PLAYGROUND
+  REGENERATE
+}
+
+enum AIGenerationStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+// ---------------------------------------------------------------------------
+// Core tenant models
+// ---------------------------------------------------------------------------
+
+model Company {
+  id     String        @id @default(uuid()) @db.Uuid
+  name   String
+  slug   String        @unique
+  status CompanyStatus @default(ACTIVE)
+
+  // --- Day 2 profile fields (all optional so Day 1 companies keep working) ---
+  displayName      String?
+  description      String?
+  industry         String?
+  email            String?
+  phone            String?
+  whatsappNumber   String?
+  websiteUrl       String?
+  address          String?
+  city             String?
+  country          String?
+  // Fields below carry sensible defaults, so existing rows are backfilled
+  // automatically by the migration and never end up null.
+  timezone         String  @default("Asia/Amman")
+  defaultLanguage  String  @default("ar")
+  responseLanguage String  @default("auto")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users                   User[]
+  services                BusinessService[]
+  businessHours           BusinessHour[]
+  faqs                    FrequentlyAskedQuestion[]
+  knowledgeBaseEntries    KnowledgeBaseEntry[]
+  aiSettings              CompanyAISettings?
+  customers               Customer[]
+  conversations           Conversation[]
+  messages                Message[]
+  internalNotes           InternalNote[]
+  conversationTags        ConversationTag[]
+  tagAssignments          ConversationTagAssignment[]
+  activities              ConversationActivity[]
+  aiGenerations           AIResponseGeneration[]
+  aiUsageDaily            AIUsageDaily[]
+  channelAccounts         ChannelAccount[]
+  channelCredentials      ChannelCredential[]
+  channelWebhookEvents    ChannelWebhookEvent[]
+  channelDeliveries       ChannelDelivery[]
+  channelDeliveryAttempts ChannelDeliveryAttempt[]
+  channelHealthChecks     ChannelHealthCheck[]
+  channelActivities       ChannelActivity[]
+
+  @@map("companies")
+}
+
+model User {
+  id           String     @id @default(uuid()) @db.Uuid
+  companyId    String     @db.Uuid
+  fullName     String
+  email        String     @unique
+  passwordHash String
+  role         UserRole   @default(AGENT)
+  status       UserStatus @default(ACTIVE)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  company       Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  refreshTokens RefreshToken[]
+
+  assignedConversations Conversation[]         @relation("AssignedConversations")
+  sentMessages          Message[]              @relation("SentMessages")
+  authoredNotes         InternalNote[]         @relation("AuthoredNotes")
+  activities            ConversationActivity[] @relation("ActivityActor")
+
+  @@index([companyId])
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  // Only a hash of the refresh token is stored, never the raw token.
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+// ---------------------------------------------------------------------------
+// Day 2: business configuration (all tenant-scoped)
+// ---------------------------------------------------------------------------
+
+model BusinessService {
+  id              String           @id @default(uuid()) @db.Uuid
+  companyId       String           @db.Uuid
+  name            String
+  description     String?
+  // Money is stored as Decimal to avoid floating-point drift. Null for
+  // VARIABLE / CONTACT_US / FREE price types.
+  price           Decimal?         @db.Decimal(12, 2)
+  currency        String           @default("JOD")
+  priceType       ServicePriceType @default(FIXED)
+  durationMinutes Int?
+  isActive        Boolean          @default(true)
+  sortOrder       Int              @default(0)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Service names are unique within a company.
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@index([companyId, isActive])
+  @@map("business_services")
+}
+
+model BusinessHour {
+  id        String    @id @default(uuid()) @db.Uuid
+  companyId String    @db.Uuid
+  dayOfWeek DayOfWeek
+  isClosed  Boolean   @default(false)
+  // Times stored as validated "HH:mm" strings; null when the day is closed.
+  openTime  String?
+  closeTime String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // One row per day per company.
+  @@unique([companyId, dayOfWeek])
+  @@index([companyId])
+  @@map("business_hours")
+}
+
+model FrequentlyAskedQuestion {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @db.Uuid
+  question  String
+  answer    String
+  category  String?
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([companyId, isActive])
+  @@map("faqs")
+}
+
+model KnowledgeBaseEntry {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @db.Uuid
+  title     String
+  content   String
+  category  String?
+  // Native Postgres text array — supported cleanly by Prisma; no join table
+  // needed for the simple tag use case in Day 2.
+  tags      String[] @default([])
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([companyId, isActive])
+  @@map("knowledge_base_entries")
+}
+
+model CompanyAISettings {
+  id                  String    @id @default(uuid()) @db.Uuid
+  companyId           String    @unique @db.Uuid
+  assistantName       String?
+  systemInstructions  String?
+  replyTone           ReplyTone @default(PROFESSIONAL)
+  preferredLanguage   String    @default("auto")
+  fallbackMessage     String    @default("Sorry, I couldn't understand that. Could you rephrase?")
+  humanHandoffMessage String    @default("Let me connect you with a member of our team.")
+  maxReplyLength      Int?
+  useEmojis           Boolean   @default(false)
+  // Stays false until AI + channel integrations exist in a later phase.
+  autoReplyEnabled    Boolean   @default(false)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@map("company_ai_settings")
+}
+
+// ---------------------------------------------------------------------------
+// Day 3: customers, conversations, messages (all tenant-scoped by companyId)
+// ---------------------------------------------------------------------------
+
+model Customer {
+  id          String      @id @default(uuid()) @db.Uuid
+  companyId   String      @db.Uuid
+  externalId  String?
+  channelType ChannelType
+  fullName    String?
+  firstName   String?
+  lastName    String?
+  phone       String?
+  email       String?
+  username    String?
+  avatarUrl   String?
+  notes       String?
+  metadata    Json?
+  firstSeenAt DateTime    @default(now())
+  lastSeenAt  DateTime    @default(now())
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  company       Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  conversations Conversation[]
+  messages      Message[]
+
+  // Same externalId may exist in different companies/channels; null allowed for
+  // manually created customers (Postgres treats NULLs as distinct).
+  @@unique([companyId, channelType, externalId])
+  @@index([companyId])
+  @@index([companyId, channelType])
+  @@index([companyId, email])
+  @@index([companyId, phone])
+  @@map("customers")
+}
+
+model Conversation {
+  id                     String               @id @default(uuid()) @db.Uuid
+  companyId              String               @db.Uuid
+  customerId             String               @db.Uuid
+  channelType            ChannelType
+  // --- Day 5: optional link to the channel account that owns this thread.
+  // Null for manual/legacy conversations, which keep working unchanged. ---
+  channelAccountId       String?              @db.Uuid
+  providerKey            String?
+  externalConversationId String?
+  status                 ConversationStatus   @default(OPEN)
+  priority               ConversationPriority @default(NORMAL)
+  assignedUserId         String?              @db.Uuid
+  subject                String?
+  lastMessageAt          DateTime?
+  lastInboundMessageAt   DateTime?
+  lastOutboundMessageAt  DateTime?
+  unreadCount            Int                  @default(0)
+  isArchived             Boolean              @default(false)
+  resolvedAt             DateTime?
+  closedAt               DateTime?
+  // --- Day 4: AI mode / human handoff ---
+  aiMode                 AIConversationMode   @default(ENABLED)
+  aiPausedAt             DateTime?
+  aiPausedByUserId       String?              @db.Uuid
+  handoffRequestedAt     DateTime?
+  handoffReason          String?
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
+
+  company        Company                     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customer       Customer                    @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  assignedUser   User?                       @relation("AssignedConversations", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  channelAccount ChannelAccount?             @relation(fields: [channelAccountId], references: [id], onDelete: SetNull)
+  messages       Message[]
+  notes          InternalNote[]
+  activities     ConversationActivity[]
+  tagAssignments ConversationTagAssignment[]
+  aiGenerations  AIResponseGeneration[]
+
+  @@unique([companyId, channelType, externalConversationId])
+  @@index([companyId])
+  @@index([companyId, status])
+  @@index([companyId, assignedUserId])
+  @@index([companyId, lastMessageAt])
+  @@index([companyId, priority])
+  @@index([companyId, channelAccountId])
+  @@index([customerId])
+  @@map("conversations")
+}
+
+model Message {
+  id                String             @id @default(uuid()) @db.Uuid
+  companyId         String             @db.Uuid
+  conversationId    String             @db.Uuid
+  customerId        String?            @db.Uuid
+  senderUserId      String?            @db.Uuid
+  direction         MessageDirection
+  senderType        MessageSenderType
+  contentType       MessageContentType @default(TEXT)
+  content           String
+  status            MessageStatus      @default(SENT)
+  externalMessageId String?
+  replyToMessageId  String?            @db.Uuid
+  metadata          Json?
+  sentAt            DateTime?
+  deliveredAt       DateTime?
+  readAt            DateTime?
+  failedAt          DateTime?
+  failureReason     String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  company      Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  conversation Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  customer     Customer?        @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  senderUser   User?            @relation("SentMessages", fields: [senderUserId], references: [id], onDelete: SetNull)
+  replyTo      Message?         @relation("MessageReplies", fields: [replyToMessageId], references: [id], onDelete: SetNull)
+  replies      Message[]        @relation("MessageReplies")
+  delivery     ChannelDelivery?
+
+  // Idempotency for (future) webhook retries: a given externalMessageId is
+  // unique within a company. Null allowed (manual/outbound messages).
+  @@unique([companyId, externalMessageId])
+  @@index([companyId])
+  @@index([conversationId, createdAt])
+  @@index([externalMessageId])
+  @@index([senderUserId])
+  @@map("messages")
+}
+
+model InternalNote {
+  id             String   @id @default(uuid()) @db.Uuid
+  companyId      String   @db.Uuid
+  conversationId String   @db.Uuid
+  authorUserId   String   @db.Uuid
+  content        String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  company      Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  author       User         @relation("AuthoredNotes", fields: [authorUserId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([conversationId, createdAt])
+  @@map("internal_notes")
+}
+
+model ConversationTag {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @db.Uuid
+  name      String
+  color     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company     Company                     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  assignments ConversationTagAssignment[]
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("conversation_tags")
+}
+
+model ConversationTagAssignment {
+  conversationId String   @db.Uuid
+  tagId          String   @db.Uuid
+  companyId      String   @db.Uuid
+  createdAt      DateTime @default(now())
+
+  conversation Conversation    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  tag          ConversationTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  company      Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@id([conversationId, tagId])
+  @@index([companyId])
+  @@index([tagId])
+  @@map("conversation_tag_assignments")
+}
+
+model ConversationActivity {
+  id             String       @id @default(uuid()) @db.Uuid
+  companyId      String       @db.Uuid
+  conversationId String       @db.Uuid
+  actorUserId    String?      @db.Uuid
+  activityType   ActivityType
+  previousValue  Json?
+  newValue       Json?
+  metadata       Json?
+  createdAt      DateTime     @default(now())
+
+  company      Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  actor        User?        @relation("ActivityActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([companyId])
+  @@index([conversationId, createdAt])
+  @@map("conversation_activities")
+}
+
+// ---------------------------------------------------------------------------
+// Day 4: AI generation audit + usage accounting (tenant-scoped by companyId)
+// ---------------------------------------------------------------------------
+
+model AIResponseGeneration {
+  id                 String             @id @default(uuid()) @db.Uuid
+  companyId          String             @db.Uuid
+  // conversationId is a relation; the *MessageId / userId fields are plain
+  // scalar columns (no FK) to keep the audit trail robust to record deletion.
+  conversationId     String?            @db.Uuid
+  sourceMessageId    String?            @db.Uuid
+  generatedMessageId String?            @db.Uuid
+  requestedByUserId  String?            @db.Uuid
+  generationType     AIGenerationType
+  status             AIGenerationStatus @default(PENDING)
+  provider           String
+  model              String
+  promptVersion      String
+  inputTokenCount    Int?
+  outputTokenCount   Int?
+  totalTokenCount    Int?
+  estimatedCostUsd   Decimal?           @db.Decimal(12, 6)
+  latencyMs          Int?
+  responseText       String?
+  failureCode        String?
+  failureMessage     String?
+  providerResponseId String?
+  // Safe, non-sensitive summary (counts + source ids only) — never full prompts.
+  contextSummary     Json?
+  createdAt          DateTime           @default(now())
+  completedAt        DateTime?
+  failedAt           DateTime?
+
+  company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  @@index([companyId])
+  @@index([companyId, createdAt])
+  @@index([conversationId, createdAt])
+  @@index([companyId, generationType])
+  @@map("ai_response_generations")
+}
+
+model AIUsageDaily {
+  id               String   @id @default(uuid()) @db.Uuid
+  companyId        String   @db.Uuid
+  date             DateTime @db.Date
+  requestCount     Int      @default(0)
+  inputTokenCount  Int      @default(0)
+  outputTokenCount Int      @default(0)
+  totalTokenCount  Int      @default(0)
+  estimatedCostUsd Decimal  @default(0) @db.Decimal(14, 6)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, date])
+  @@index([companyId])
+  @@map("ai_usage_daily")
+}
+
+// ---------------------------------------------------------------------------
+// Day 5 Part 1: channel integration framework (all tenant-scoped by companyId)
+// ---------------------------------------------------------------------------
+
+// A connected (or draft) channel account. Provider-agnostic: platform-specific
+// behavior lives in the provider adapter, never here.
+model ChannelAccount {
+  id                       String                 @id @default(uuid()) @db.Uuid
+  companyId                String                 @db.Uuid
+  providerKey              String
+  channelType              ChannelType
+  displayName              String
+  externalAccountId        String?
+  externalPageId           String?
+  // Public, non-secret identifier for browser-embeddable channels (Web Chat
+  // widget key). Globally unique so a widget request resolves its tenant.
+  publicId                 String?                @unique
+  status                   ChannelAccountStatus   @default(DRAFT)
+  connectionState          ChannelConnectionState @default(UNKNOWN)
+  isEnabled                Boolean                @default(true)
+  isDefault                Boolean                @default(false)
+  // Snapshot of provider capabilities at connect time (non-sensitive).
+  capabilities             Json?
+  // Safe, non-sensitive account metadata (never credentials).
+  metadata                 Json?
+  connectedAt              DateTime?
+  disconnectedAt           DateTime?
+  lastHealthCheckAt        DateTime?
+  lastHealthyAt            DateTime?
+  lastErrorCode            String?
+  lastErrorMessage         String?
+  // --- Day 5 Part 2: health monitoring counters (0..100 score) ---
+  healthScore              Int                    @default(100)
+  successCount             Int                    @default(0)
+  failureCount             Int                    @default(0)
+  consecutiveFailures      Int                    @default(0)
+  lastSuccessfulDeliveryAt DateTime?
+  lastFailedDeliveryAt     DateTime?
+  createdAt                DateTime               @default(now())
+  updatedAt                DateTime               @updatedAt
+
+  company          Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  credential       ChannelCredential?
+  conversations    Conversation[]
+  deliveries       ChannelDelivery[]
+  deliveryAttempts ChannelDeliveryAttempt[]
+  healthChecks     ChannelHealthCheck[]
+  webhookEvents    ChannelWebhookEvent[]
+  activities       ChannelActivity[]
+
+  // Same external account id may exist in different companies (Postgres treats
+  // NULLs as distinct, so multiple draft accounts of the same type are allowed).
+  @@unique([companyId, providerKey, externalAccountId])
+  @@index([companyId])
+  @@index([companyId, channelType])
+  @@index([companyId, providerKey])
+  @@index([companyId, status])
+  @@map("channel_accounts")
+}
+
+// Encrypted provider credentials. The plaintext token NEVER touches this table:
+// only an authenticated-encryption (AES-256-GCM) payload is stored, and it is
+// never returned by any API serializer.
+model ChannelCredential {
+  id                String    @id @default(uuid()) @db.Uuid
+  companyId         String    @db.Uuid
+  channelAccountId  String    @unique @db.Uuid
+  encryptedPayload  String
+  encryptionVersion String
+  keyVersion        String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  rotatedAt         DateTime?
+
+  company        Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  channelAccount ChannelAccount @relation(fields: [channelAccountId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@map("channel_credentials")
+}
+
+// Durable record of every received webhook event. Stores only a hash of the raw
+// payload plus a safe normalized summary — never raw credentials or auth headers.
+model ChannelWebhookEvent {
+  id                String                    @id @default(uuid()) @db.Uuid
+  // companyId/channelAccountId are optional: they may be unresolved when a
+  // request cannot be attributed to a tenant (e.g. unknown account).
+  companyId         String?                   @db.Uuid
+  channelAccountId  String?                   @db.Uuid
+  providerKey       String
+  eventType         String
+  externalEventId   String?
+  status            ChannelWebhookEventStatus @default(RECEIVED)
+  rawPayloadHash    String
+  normalizedPayload Json?
+  receivedAt        DateTime                  @default(now())
+  processedAt       DateTime?
+  failedAt          DateTime?
+  failureCode       String?
+  failureMessage    String?
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+
+  company        Company?        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  channelAccount ChannelAccount? @relation(fields: [channelAccountId], references: [id], onDelete: Cascade)
+
+  // Idempotency key: a given external event id is processed once per account.
+  // Different accounts/companies may reuse the same external id without clashing.
+  @@unique([channelAccountId, providerKey, externalEventId])
+  @@index([companyId])
+  @@index([channelAccountId])
+  @@index([providerKey])
+  @@index([status])
+  @@index([receivedAt])
+  @@map("channel_webhook_events")
+}
+
+// Outbound delivery record for a channel message. One per outbound Message that
+// is dispatched through a provider (manual/local messages have no delivery row).
+model ChannelDelivery {
+  id                String                     @id @default(uuid()) @db.Uuid
+  companyId         String                     @db.Uuid
+  channelAccountId  String                     @db.Uuid
+  messageId         String                     @unique @db.Uuid
+  providerKey       String
+  externalMessageId String?
+  // DB default stays PENDING (a Part 1 value) so this migration never uses a
+  // newly-added enum value in a DEFAULT clause (PostgreSQL forbids that in the
+  // same transaction). The delivery engine always sets status explicitly.
+  status            ChannelDeliveryStatus      @default(PENDING)
+  requestedAt       DateTime                   @default(now())
+  sentAt            DateTime?
+  deliveredAt       DateTime?
+  readAt            DateTime?
+  failedAt          DateTime?
+  failureCode       String?
+  failureMessage    String?
+  providerMetadata  Json?
+  // --- Day 5 Part 2: retry engine metadata ---
+  attemptCount      Int                        @default(0)
+  maxAttempts       Int                        @default(3)
+  failureType       ChannelDeliveryFailureType @default(NONE)
+  lastAttemptAt     DateTime?
+  nextAttemptAt     DateTime?
+  expiresAt         DateTime?
+  // Idempotency key for the outbound request (company-scoped, unique).
+  idempotencyKey    String?
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
+
+  company        Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  channelAccount ChannelAccount           @relation(fields: [channelAccountId], references: [id], onDelete: Cascade)
+  message        Message                  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  attempts       ChannelDeliveryAttempt[]
+
+  @@unique([companyId, idempotencyKey])
+  @@index([companyId])
+  @@index([channelAccountId])
+  @@index([status])
+  // Due-retry scan: find QUEUED deliveries whose nextAttemptAt has elapsed.
+  @@index([status, nextAttemptAt])
+  @@map("channel_deliveries")
+}
+
+// One row per delivery attempt — the retry history. Append-only.
+model ChannelDeliveryAttempt {
+  id               String                       @id @default(uuid()) @db.Uuid
+  companyId        String                       @db.Uuid
+  channelAccountId String                       @db.Uuid
+  deliveryId       String                       @db.Uuid
+  attemptNumber    Int
+  status           ChannelDeliveryAttemptStatus
+  providerKey      String
+  failureType      ChannelDeliveryFailureType   @default(NONE)
+  errorCode        String?
+  // Safe, user-presentable summary only — never provider internals/credentials.
+  errorMessage     String?
+  latencyMs        Int?
+  providerMetadata Json?
+  startedAt        DateTime                     @default(now())
+  completedAt      DateTime?
+  createdAt        DateTime                     @default(now())
+
+  company        Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  channelAccount ChannelAccount  @relation(fields: [channelAccountId], references: [id], onDelete: Cascade)
+  delivery       ChannelDelivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([deliveryId])
+  @@index([channelAccountId, createdAt])
+  @@map("channel_delivery_attempts")
+}
+
+// Health-check history samples for a channel account. Append-only; each row is a
+// point-in-time observation (manual check or delivery-derived).
+model ChannelHealthCheck {
+  id               String                 @id @default(uuid()) @db.Uuid
+  companyId        String                 @db.Uuid
+  channelAccountId String                 @db.Uuid
+  checkType        ChannelHealthCheckType
+  state            ChannelConnectionState
+  healthy          Boolean
+  healthScore      Int
+  latencyMs        Int?
+  errorCode        String?
+  errorMessage     String?
+  source           String?
+  createdAt        DateTime               @default(now())
+
+  company        Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  channelAccount ChannelAccount @relation(fields: [channelAccountId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([channelAccountId, createdAt])
+  @@map("channel_health_checks")
+}
+
+// Append-only channel audit trail. Kept separate from ConversationActivity so
+// account-level events (connect, health) need not belong to a conversation.
+model ChannelActivity {
+  id               String              @id @default(uuid()) @db.Uuid
+  companyId        String              @db.Uuid
+  channelAccountId String?             @db.Uuid
+  conversationId   String?             @db.Uuid
+  actorUserId      String?             @db.Uuid
+  activityType     ChannelActivityType
+  // Safe, non-sensitive summary only — never raw payloads or credentials.
+  metadata         Json?
+  createdAt        DateTime            @default(now())
+
+  company        Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  channelAccount ChannelAccount? @relation(fields: [channelAccountId], references: [id], onDelete: SetNull)
+
+  @@index([companyId])
+  @@index([companyId, channelAccountId])
+  @@index([companyId, createdAt])
+  @@map("channel_activities")
+}

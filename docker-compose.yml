@@ -1,0 +1,135 @@
+# Development stack: Postgres + Backend (Express) + Frontend (Next.js).
+# Usage: docker compose up --build
+#   Frontend -> http://localhost:3000
+#   Backend  -> http://localhost:4000
+#   Postgres -> localhost:${POSTGRES_HOST_PORT:-5433} (internal: postgres:5432)
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ai_support_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ai_support}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      # Exposed on 5433 locally to avoid clashing with a host Postgres.
+      - '${POSTGRES_HOST_PORT:-5433}:5432'
+    volumes:
+      # Persistent named volume — data survives restarts and is never reset.
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-ai_support}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./apps/backend
+      dockerfile: Dockerfile
+    container_name: ai_support_backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      BACKEND_PORT: ${BACKEND_PORT:-4000}
+      # Inside the compose network the DB host is the service name `postgres`.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ai_support}?schema=public
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN:-15m}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-30d}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      COOKIE_SAME_SITE: ${COOKIE_SAME_SITE:-lax}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      BCRYPT_SALT_ROUNDS: ${BCRYPT_SALT_ROUNDS:-12}
+      JSON_BODY_LIMIT: ${JSON_BODY_LIMIT:-100kb}
+      RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS:-900000}
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-500}
+      AUTH_RATE_LIMIT_WINDOW_MS: ${AUTH_RATE_LIMIT_WINDOW_MS:-900000}
+      AUTH_RATE_LIMIT_MAX: ${AUTH_RATE_LIMIT_MAX:-20}
+      REFRESH_RATE_LIMIT_WINDOW_MS: ${REFRESH_RATE_LIMIT_WINDOW_MS:-60000}
+      REFRESH_RATE_LIMIT_MAX: ${REFRESH_RATE_LIMIT_MAX:-60}
+      # --- Day 4: AI (OpenAI). Key is provided at server level only. ---
+      AI_FEATURE_ENABLED: ${AI_FEATURE_ENABLED:-false}
+      AI_AUTO_REPLY_ENABLED: ${AI_AUTO_REPLY_ENABLED:-false}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      OPENAI_TIMEOUT_MS: ${OPENAI_TIMEOUT_MS:-30000}
+      OPENAI_MAX_OUTPUT_TOKENS: ${OPENAI_MAX_OUTPUT_TOKENS:-500}
+      OPENAI_MAX_RETRIES: ${OPENAI_MAX_RETRIES:-2}
+      OPENAI_TEMPERATURE: ${OPENAI_TEMPERATURE:-0.3}
+      AI_CONTEXT_MAX_CHARACTERS: ${AI_CONTEXT_MAX_CHARACTERS:-30000}
+      AI_CONVERSATION_HISTORY_LIMIT: ${AI_CONVERSATION_HISTORY_LIMIT:-12}
+      AI_DAILY_COMPANY_REQUEST_LIMIT: ${AI_DAILY_COMPANY_REQUEST_LIMIT:-1000}
+      AI_MONTHLY_COMPANY_TOKEN_LIMIT: ${AI_MONTHLY_COMPANY_TOKEN_LIMIT:-1000000}
+      AI_RATE_LIMIT_WINDOW_MS: ${AI_RATE_LIMIT_WINDOW_MS:-60000}
+      AI_RATE_LIMIT_MAX: ${AI_RATE_LIMIT_MAX:-30}
+      # --- Day 5 Part 1: channel framework (secrets stay backend-only) ---
+      CHANNEL_CREDENTIAL_ENCRYPTION_KEY: ${CHANNEL_CREDENTIAL_ENCRYPTION_KEY:-}
+      CHANNEL_CREDENTIAL_ENCRYPTION_VERSION: ${CHANNEL_CREDENTIAL_ENCRYPTION_VERSION:-v1}
+      WEBHOOK_RATE_LIMIT_WINDOW_MS: ${WEBHOOK_RATE_LIMIT_WINDOW_MS:-60000}
+      WEBHOOK_RATE_LIMIT_MAX: ${WEBHOOK_RATE_LIMIT_MAX:-300}
+      FAKE_CHANNEL_ENABLED: ${FAKE_CHANNEL_ENABLED:-false}
+      FAKE_CHANNEL_WEBHOOK_SECRET: ${FAKE_CHANNEL_WEBHOOK_SECRET:-}
+      FAKE_CHANNEL_VERIFY_TOKEN: ${FAKE_CHANNEL_VERIFY_TOKEN:-}
+      # --- Day 5 Part 2: delivery engine / retry policy ---
+      CHANNEL_DELIVERY_MAX_ATTEMPTS: ${CHANNEL_DELIVERY_MAX_ATTEMPTS:-3}
+      CHANNEL_DELIVERY_BACKOFF_BASE_MS: ${CHANNEL_DELIVERY_BACKOFF_BASE_MS:-1000}
+      CHANNEL_DELIVERY_BACKOFF_FACTOR: ${CHANNEL_DELIVERY_BACKOFF_FACTOR:-2}
+      CHANNEL_DELIVERY_BACKOFF_MAX_MS: ${CHANNEL_DELIVERY_BACKOFF_MAX_MS:-300000}
+      CHANNEL_DELIVERY_BACKOFF_JITTER: ${CHANNEL_DELIVERY_BACKOFF_JITTER:-0.2}
+      CHANNEL_DELIVERY_TTL_MS: ${CHANNEL_DELIVERY_TTL_MS:-86400000}
+      # --- Day 5 Part 3: Web Chat widget (secret stays backend-only) ---
+      WIDGET_SESSION_SECRET: ${WIDGET_SESSION_SECRET:-}
+      WIDGET_SESSION_TTL_MS: ${WIDGET_SESSION_TTL_MS:-2592000000}
+      WIDGET_RATE_LIMIT_WINDOW_MS: ${WIDGET_RATE_LIMIT_WINDOW_MS:-60000}
+      WIDGET_RATE_LIMIT_MAX: ${WIDGET_RATE_LIMIT_MAX:-240}
+      # --- Day 6: WhatsApp Cloud API (non-secret global config only) ---
+      WHATSAPP_API_BASE_URL: ${WHATSAPP_API_BASE_URL:-https://graph.facebook.com}
+      WHATSAPP_API_VERSION: ${WHATSAPP_API_VERSION:-v21.0}
+      WHATSAPP_REQUEST_TIMEOUT_MS: ${WHATSAPP_REQUEST_TIMEOUT_MS:-15000}
+    ports:
+      - '${BACKEND_PORT:-4000}:4000'
+    volumes:
+      - ./apps/backend:/app
+      # Keep the image's node_modules (with the generated Prisma client).
+      - backend_node_modules:/app/node_modules
+    # Regenerate the Prisma client into the mounted node_modules volume (so a
+    # schema change is always reflected even though the volume shadows the image),
+    # apply committed migrations (never resets), then start with hot reload.
+    command: sh -c "npx prisma generate && npx prisma migrate deploy && npm run dev"
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:4000/health || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  frontend:
+    build:
+      context: ./apps/frontend
+      dockerfile: Dockerfile
+    container_name: ai_support_frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      # Browser-facing URL, so it must be localhost (not the service name).
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
+    ports:
+      - '${FRONTEND_PORT:-3000}:3000'
+    volumes:
+      - ./apps/frontend:/app
+      - frontend_node_modules:/app/node_modules
+      - frontend_next:/app/.next
+
+volumes:
+  pgdata:
+  backend_node_modules:
+  frontend_node_modules:
+  frontend_next:

@@ -1,0 +1,56 @@
+# Render Blueprint for the AI customer support backend.
+# Docs: https://render.com/docs/blueprint-spec
+#
+# This deploys the BACKEND (Express API) as a Node web service from the monorepo
+# root. The frontend is NOT deployed here (run it locally, or add a second
+# service later). Secrets are marked `sync: false` — set them in the Render
+# dashboard by pasting apps/backend/.env.render (Environment → "Add from .env").
+services:
+  - type: web
+    name: ai-support-backend
+    runtime: node
+    plan: free
+    rootDir: .
+    # Install ALL deps (prisma CLI + tsc are devDependencies), generate the
+    # Prisma client, then compile TypeScript to dist/.
+    buildCommand: npm ci --include=dev && npm run prisma:generate -w apps/backend && npm run build -w apps/backend
+    # Apply pending migrations before each deploy goes live (uses DIRECT_URL).
+    preDeployCommand: npm run prisma:migrate -w apps/backend
+    startCommand: npm run start -w apps/backend
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Render assigns the port; the app reads BACKEND_PORT. Render's default is 10000.
+      - key: BACKEND_PORT
+        value: 10000
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: COOKIE_SAME_SITE
+        value: none
+      - key: CORS_ORIGINS
+        value: http://localhost:3000
+      # --- secrets: set these in the dashboard from apps/backend/.env.render ---
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: JWT_ACCESS_SECRET
+        sync: false
+      - key: JWT_REFRESH_SECRET
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: CHANNEL_CREDENTIAL_ENCRYPTION_KEY
+        sync: false
+      - key: WIDGET_SESSION_SECRET
+        sync: false
+      # --- non-secret app config ---
+      - key: AI_FEATURE_ENABLED
+        value: "true"
+      - key: AI_AUTO_REPLY_ENABLED
+        value: "false"
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: FAKE_CHANNEL_ENABLED
+        value: "false"

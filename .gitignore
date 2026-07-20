@@ -1,0 +1,55 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Environment
+.env
+.env.local
+.env.*.local
+*.env
+!.env.example
+# Real production env files with live secrets (copy-paste into Render dashboard).
+.env.render
+.env.production
+!.env.render.example
+!.env.production.example
+
+# Build output
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+
+# Prisma
+apps/backend/prisma/*.db
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Testing
+coverage/
+.nyc_output/
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Claude Code local settings (may contain machine-specific commands/secrets)
+.claude/settings.local.json
+
+# Local auth/session artifacts (dev only — never commit)
+cookies.txt
+cookies-new.txt
+*.cookies
+
+# Docker
+docker-data/

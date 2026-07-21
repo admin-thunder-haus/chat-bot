@@ -48,5 +48,19 @@ export type {
   InstagramCredentials,
   InstagramErrorCategory,
 } from './providers/instagram';
+export {
+  FacebookChannelProvider,
+  FACEBOOK_PROVIDER_KEY,
+  FACEBOOK_SIGNATURE_HEADER,
+  setFacebookTransportForTesting,
+  normalizeFacebookWebhook,
+  classifyFacebookHttp,
+} from './providers/facebook';
+export type {
+  FacebookTransport,
+  FacebookConfig,
+  FacebookCredentials,
+  FacebookErrorCategory,
+} from './providers/facebook';
 export { channelCredentialsService } from './channel-credentials.service';
 export type { ChannelProvider } from './providers/channel-provider.interface';

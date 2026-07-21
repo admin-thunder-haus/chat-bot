@@ -1,6 +1,10 @@
 import type { ChannelType } from '@prisma/client';
 import { AppError } from '../../utils/AppError';
-import { isFakeChannelEnabled, isInstagramEnabled } from '../../config/env';
+import {
+  isFakeChannelEnabled,
+  isInstagramEnabled,
+  isFacebookEnabled,
+} from '../../config/env';
 import type {
   ChannelCapabilities,
   ChannelProvider,
@@ -10,6 +14,7 @@ import { FakeChannelProvider } from './providers/fake-channel.provider';
 import { WebChatChannelProvider } from './providers/webchat-channel.provider';
 import { WhatsAppChannelProvider } from './providers/whatsapp';
 import { InstagramChannelProvider } from './providers/instagram';
+import { FacebookChannelProvider } from './providers/facebook';
 
 /**
  * Public, safe descriptor of a provider for the dashboard "Channels" page.
@@ -33,16 +38,6 @@ export interface ChannelProviderDescriptor {
  * provider classes are added (and registered) in later phases.
  */
 const FUTURE_PROVIDERS: ChannelProviderDescriptor[] = [
-  {
-    key: 'facebook',
-    displayName: 'Facebook Messenger',
-    channelType: 'FACEBOOK',
-    capabilities: { ...NO_CAPABILITIES },
-    available: false,
-    developmentOnly: false,
-    configurationComplete: false,
-    comingSoon: true,
-  },
   {
     key: 'telegram',
     displayName: 'Telegram',
@@ -139,6 +134,7 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   webchat: 'Web Chat',
   whatsapp: 'WhatsApp',
   instagram: 'Instagram',
+  facebook: 'Facebook Messenger',
 };
 
 function capitalize(s: string): string {
@@ -167,6 +163,11 @@ export function registerBuiltInProviders(): void {
   // so an environment can turn it off without code changes.
   if (isInstagramEnabled && !channelRegistry.has('instagram')) {
     channelRegistry.register(new InstagramChannelProvider());
+  }
+  // Facebook Messenger (Meta) — a REAL provider. Per-account credentials at
+  // connect time (never via env). Gated by FACEBOOK_PROVIDER_ENABLED.
+  if (isFacebookEnabled && !channelRegistry.has('facebook')) {
+    channelRegistry.register(new FacebookChannelProvider());
   }
   // The fake/test provider is dev-only and never registered in production.
   if (isFakeChannelEnabled && !channelRegistry.has('fake')) {

@@ -560,6 +560,16 @@ export interface InstagramConnectInput {
   verifyToken: string;
 }
 
+export interface FacebookConnectInput {
+  displayName: string;
+  pageId: string;
+  pageName?: string;
+  businessName?: string;
+  accessToken: string;
+  appSecret: string;
+  verifyToken: string;
+}
+
 export interface ChannelAccount {
   id: string;
   providerKey: string;

@@ -67,6 +67,7 @@ others.
 
 ## Table of contents
 
+- [Day 8 — Facebook Messenger (Meta)](#day-8--facebook-messenger-meta)
 - [Day 7 — Instagram Messaging (Meta)](#day-7--instagram-messaging-meta)
 - [Day 6 — WhatsApp Business Cloud API](#day-6--whatsapp-business-cloud-api)
 - [Day 5 Part 3 — Web Chat provider & website widget](#day-5-part-3--web-chat-provider--website-widget)
@@ -89,6 +90,62 @@ others.
 - [Demo credentials](#demo-credentials)
 - [Security notes](#security-notes)
 - [Troubleshooting](#troubleshooting)
+
+---
+
+## Day 8 — Facebook Messenger (Meta)
+
+Day 8 adds the **third real Meta platform — Facebook Messenger** — again on the
+generic Channel Framework with **zero schema changes**. Messenger DMs flow through
+the same Unified Inbox, AI, delivery, retry, health, and activity machinery.
+
+- **Account model:** one ChannelAccount == one Facebook Page.
+  `externalAccountId` = `externalPageId` = the Page ID (stable routing + send
+  target). `metadata.facebook` holds page name / business name (display only).
+  Secrets (Page access token, app secret, verify token) → encrypted
+  `ChannelCredential`, never returned.
+- **Webhook:** object `page`, Messenger-style `entry[].messaging[]`. URL:
+  `…/api/v1/webhooks/facebook/<CHANNEL_ACCOUNT_ID>`. `GET` verifies the challenge;
+  `POST` validates X-Hub-Signature-256 (app secret) before trusting the payload.
+- **Capabilities (honest):** text, inbound, outbound, replies,
+  **deliveryReceipts: true** (Messenger sends per-mid `delivery` events →
+  delivery_status), webhook verify + signatures. **readReceipts: false**
+  (Messenger read is watermark-based, not per-message — recorded as unsupported).
+  media / templates / reactions off.
+- **Send:** `POST https://graph.facebook.com/v21.0/{PAGE_ID}/messages`
+  `{recipient:{id: PSID}, message:{text}}` with a Page access token.
+- **Health:** `GET /{PAGE_ID}?fields=id,name`; a 200 proves the token controls
+  the Page. Invalid token → `AUTH_EXPIRED`, permission/temporary → `DEGRADED`.
+- **Connect:** `POST /api/v1/channels/facebook/connect` (OWNER/ADMIN) →
+  `displayName`, `pageId`, `pageName?`, `businessName?`, `accessToken`,
+  `appSecret`, `verifyToken`. `.strict()` rejects `companyId`/unknown fields.
+  Validated on connect → honest state (never a blind "connected").
+- **Env:** `FACEBOOK_PROVIDER_ENABLED` (default true),
+  `FACEBOOK_GRAPH_API_BASE_URL` (`https://graph.facebook.com`),
+  `FACEBOOK_GRAPH_API_VERSION` (`v21.0`), `FACEBOOK_API_TIMEOUT_MS`.
+- **No migration required.**
+
+### Channel management: permanent delete
+
+A channel account can now be **hard-deleted** (`DELETE
+/api/v1/channels/:id/permanent`, OWNER/ADMIN), freeing its
+`(company, provider, externalAccountId)` slot so the same account can be
+reconnected with fresh data. Encrypted credentials, deliveries, webhook events,
+and health checks cascade; **conversation history is preserved** (the FK sets the
+conversation's `channelAccountId` to NULL). The UI shows a **Delete** button on
+channel cards. Soft **Disconnect** (which preserves the row) remains available.
+
+### Tests
+
+`tests/facebook-provider.test.ts` + `tests/facebook.test.ts` (incl. per-mid
+delivery receipts, hard-delete → reconnect, history preservation, tenant
+isolation). Full suite: **37 suites / 362 tests passing** (was 332).
+
+### Not implemented
+
+Embedded Signup / OAuth (postponed), Telegram (next), media/attachments,
+handover protocol, personas, message tags beyond `RESPONSE`, watermark read
+receipts.
 
 ---
 

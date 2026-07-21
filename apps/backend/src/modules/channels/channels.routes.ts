@@ -5,6 +5,7 @@ import {
   channelStatusSchema,
   createChannelAccountSchema,
   deliveryRetryParamsSchema,
+  facebookConnectSchema,
   instagramConnectSchema,
   updateChannelAccountSchema,
   webChatConfigSchema,
@@ -41,6 +42,14 @@ router.post(
   manageRoles,
   validate({ body: instagramConnectSchema }),
   asyncHandler(channelsController.connectInstagram),
+);
+
+// Facebook Messenger connect (credentialed) — OWNER/ADMIN.
+router.post(
+  '/facebook/connect',
+  manageRoles,
+  validate({ body: facebookConnectSchema }),
+  asyncHandler(channelsController.connectFacebook),
 );
 
 // Channel accounts (list/get: all roles; writes: OWNER/ADMIN).
@@ -82,6 +91,15 @@ router.delete(
   manageRoles,
   validate({ params: channelIdParam }),
   asyncHandler(channelsController.remove),
+);
+
+// Permanent hard-delete (frees the account slot so it can be reconnected).
+// OWNER/ADMIN only. Credentials/deliveries/webhooks cascade; conversations kept.
+router.delete(
+  '/:channelAccountId/permanent',
+  manageRoles,
+  validate({ params: channelIdParam }),
+  asyncHandler(channelsController.deletePermanently),
 );
 
 router.post(

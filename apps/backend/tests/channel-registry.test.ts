@@ -68,12 +68,15 @@ describe('Channel provider registry', () => {
     // WhatsApp is a REAL provider (Day 6) — available, not dev-only.
     expect(whatsapp?.available).toBe(true);
     expect(whatsapp?.developmentOnly).toBe(false);
-    // Instagram is a REAL provider (Day 7) — available, not dev-only.
+    // Instagram (Day 7) + Facebook Messenger (Day 8) are REAL providers.
     expect(instagram?.available).toBe(true);
     expect(instagram?.developmentOnly).toBe(false);
     expect(instagram?.comingSoon).toBe(false);
+    const facebook = catalog.find((p) => p.key === 'facebook');
+    expect(facebook?.available).toBe(true);
+    expect(facebook?.comingSoon).toBe(false);
     // Remaining platforms are honestly represented, never "connected".
-    for (const key of ['facebook', 'telegram']) {
+    for (const key of ['telegram']) {
       expect(catalog.find((p) => p.key === key)?.available).toBe(false);
       expect(catalog.find((p) => p.key === key)?.comingSoon).toBe(true);
     }

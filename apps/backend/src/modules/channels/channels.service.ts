@@ -406,4 +406,21 @@ export const channelsService = {
     });
     return serializeChannelAccount(account as ChannelAccount);
   },
+
+  /**
+   * Hard-delete a channel account permanently. Encrypted credentials, deliveries,
+   * delivery attempts, webhook events, and health checks are removed via DB
+   * cascade; conversations are preserved (their channelAccountId is set NULL by
+   * the FK). This frees the (companyId, providerKey, externalAccountId) unique
+   * slot so the same account can be reconnected with fresh data. OWNER/ADMIN only.
+   */
+  async deletePermanently(
+    companyId: string,
+    id: string,
+  ): Promise<void> {
+    const existing = await channelsRepository.findByIdScoped(companyId, id);
+    if (!existing) throw AppError.notFound('Channel account not found');
+    // Tenant-scoped delete; cascades + SetNull are enforced by the schema FKs.
+    await prisma.channelAccount.deleteMany({ where: { id, companyId } });
+  },
 };

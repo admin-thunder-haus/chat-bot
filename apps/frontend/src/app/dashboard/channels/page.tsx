@@ -11,6 +11,7 @@ import { fullTime } from '@/lib/format';
 import { ChannelDiagnosticsModal } from './ChannelDiagnosticsModal';
 import { WhatsAppConnectModal } from './WhatsAppConnectModal';
 import { InstagramConnectModal } from './InstagramConnectModal';
+import { FacebookConnectModal } from './FacebookConnectModal';
 import type {
   ChannelAccount,
   ChannelConnectionState,
@@ -60,6 +61,15 @@ function instagramConfig(
   );
 }
 
+/** Safe Facebook config from account metadata (never a secret). */
+function facebookConfig(
+  a: ChannelAccount,
+): { pageName?: string } | null {
+  return (
+    (a.metadata as { facebook?: { pageName?: string } } | null)?.facebook ?? null
+  );
+}
+
 const CAPABILITY_LABELS: { key: keyof NonNullable<ChannelAccount['capabilities']>; label: string }[] =
   [
     { key: 'textMessages', label: 'Text' },
@@ -91,11 +101,13 @@ export default function ChannelsPage() {
   const [confirmDisconnect, setConfirmDisconnect] = useState<ChannelAccount | null>(
     null,
   );
+  const [confirmDelete, setConfirmDelete] = useState<ChannelAccount | null>(null);
   const [diagnosticsFor, setDiagnosticsFor] = useState<ChannelAccount | null>(
     null,
   );
   const [whatsAppOpen, setWhatsAppOpen] = useState(false);
   const [instagramOpen, setInstagramOpen] = useState(false);
+  const [facebookOpen, setFacebookOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -183,6 +195,20 @@ export default function ChannelsPage() {
     }
   }
 
+  async function doDelete(account: ChannelAccount) {
+    setBusyId(account.id);
+    try {
+      await channelsApi.deletePermanently(account.id);
+      setAccounts((prev) => prev.filter((a) => a.id !== account.id));
+      notify('Channel deleted', 'success');
+    } catch (err) {
+      notify(parseApiError(err).message, 'error');
+    } finally {
+      setBusyId(null);
+      setConfirmDelete(null);
+    }
+  }
+
   return (
     <div>
       <PageHeader
@@ -197,11 +223,12 @@ export default function ChannelsPage() {
 
       <div className="mb-4">
         <Alert variant="info">
-          <strong>Web Chat</strong>, <strong>WhatsApp</strong>, and{' '}
-          <strong>Instagram</strong> are live and flow through the same pipeline.
-          Facebook Messenger and Telegram are honest placeholders for a later
-          phase. The Fake / Test channel is a development-only provider that
-          exercises the full framework without any external service.
+          <strong>Web Chat</strong>, <strong>WhatsApp</strong>,{' '}
+          <strong>Instagram</strong>, and <strong>Facebook Messenger</strong> are
+          live and flow through the same pipeline. Telegram is an honest
+          placeholder for a later phase. The Fake / Test channel is a
+          development-only provider that exercises the full framework without any
+          external service.
         </Alert>
       </div>
 
@@ -251,6 +278,10 @@ export default function ChannelsPage() {
                 ) : p.key === 'instagram' && p.available && !readOnly ? (
                   <Button size="sm" variant="secondary" onClick={() => setInstagramOpen(true)}>
                     Connect Instagram
+                  </Button>
+                ) : p.key === 'facebook' && p.available && !readOnly ? (
+                  <Button size="sm" variant="secondary" onClick={() => setFacebookOpen(true)}>
+                    Connect Facebook
                   </Button>
                 ) : p.available && p.developmentOnly && !readOnly ? (
                   <Button size="sm" variant="secondary" onClick={() => setAddOpen(true)}>
@@ -321,6 +352,14 @@ export default function ChannelsPage() {
                             : a.externalAccountId}
                         </div>
                         <div>Page: {a.externalPageId ?? '—'}</div>
+                      </>
+                    ) : a.providerKey === 'facebook' ? (
+                      <>
+                        <div>
+                          Page:{' '}
+                          {facebookConfig(a)?.pageName ?? a.externalAccountId}
+                        </div>
+                        <div>Page ID: {a.externalAccountId ?? '—'}</div>
                       </>
                     ) : (
                       <>
@@ -394,6 +433,14 @@ export default function ChannelsPage() {
                           Disconnect
                         </Button>
                       )}
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        disabled={busyId === a.id}
+                        onClick={() => setConfirmDelete(a)}
+                      >
+                        Delete
+                      </Button>
                     </>
                   )}
                 </div>
@@ -465,6 +512,22 @@ export default function ChannelsPage() {
         open={instagramOpen}
         onClose={() => setInstagramOpen(false)}
         onConnected={() => void load()}
+      />
+
+      <FacebookConnectModal
+        open={facebookOpen}
+        onClose={() => setFacebookOpen(false)}
+        onConnected={() => void load()}
+      />
+
+      <ConfirmDialog
+        open={!!confirmDelete}
+        title="Delete channel permanently?"
+        message="The channel account and its stored credentials are permanently removed, freeing it to be reconnected. Conversation and message history are preserved."
+        confirmLabel="Delete permanently"
+        loading={busyId === confirmDelete?.id}
+        onConfirm={() => confirmDelete && void doDelete(confirmDelete)}
+        onCancel={() => setConfirmDelete(null)}
       />
 
       <ConfirmDialog

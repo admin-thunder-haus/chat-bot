@@ -144,6 +144,26 @@ export const instagramConnectSchema = z
 
 export type InstagramConnectInput = z.infer<typeof instagramConnectSchema>;
 
+/**
+ * Facebook Messenger connect request. Collects the Meta Page identifiers +
+ * secrets. Secrets (accessToken, appSecret, verifyToken) are encrypted
+ * server-side and never returned. Routing uses the stable Page id.
+ * `.strict()` rejects unknown fields (incl. companyId).
+ */
+export const facebookConnectSchema = z
+  .object({
+    displayName: z.string().trim().min(1).max(120),
+    pageId: z.string().trim().min(1).max(64),
+    pageName: z.string().trim().min(1).max(120).optional(),
+    businessName: z.string().trim().min(1).max(120).optional(),
+    accessToken: z.string().trim().min(20).max(1000),
+    appSecret: z.string().trim().min(16).max(256),
+    verifyToken: z.string().trim().min(6).max(256),
+  })
+  .strict();
+
+export type FacebookConnectInput = z.infer<typeof facebookConnectSchema>;
+
 export type CreateChannelAccountInput = z.infer<
   typeof createChannelAccountSchema
 >;

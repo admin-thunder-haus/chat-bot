@@ -82,6 +82,35 @@ export const channelsController = {
     sendSuccess(res, { account }, message, 201);
   },
 
+  async connectFacebook(req: Request, res: Response): Promise<void> {
+    const { displayName, ...payload } = req.body as {
+      displayName: string;
+      [k: string]: unknown;
+    };
+    const created = await channelsService.connectCredentialedProvider(
+      req.user!.companyId,
+      req.user!.id,
+      'facebook',
+      displayName,
+      payload,
+    );
+    // Validate against the Graph API so the reported state is honest.
+    const account = await channelHealthService.runHealthCheck(
+      req.user!.companyId,
+      created.id,
+      req.user!.id,
+    );
+    const message =
+      account.connectionState === 'HEALTHY'
+        ? 'Facebook Messenger connection verified and active'
+        : account.connectionState === 'AUTH_EXPIRED'
+          ? 'Facebook credentials saved, but authentication failed — check the Page access token'
+          : account.connectionState === 'UNAVAILABLE'
+            ? 'Facebook credentials saved, but the Page could not be verified'
+            : 'Facebook credentials saved; verification pending';
+    sendSuccess(res, { account }, message, 201);
+  },
+
   async update(req: Request, res: Response): Promise<void> {
     const account = await channelsService.updateAccount(
       req.user!.companyId,
@@ -109,6 +138,14 @@ export const channelsController = {
       req.user!.id,
     );
     sendSuccess(res, { account }, 'Channel account disconnected successfully');
+  },
+
+  async deletePermanently(req: Request, res: Response): Promise<void> {
+    await channelsService.deletePermanently(
+      req.user!.companyId,
+      req.params.channelAccountId,
+    );
+    sendSuccess(res, null, 'Channel account deleted permanently');
   },
 
   async healthCheck(req: Request, res: Response): Promise<void> {

@@ -59,7 +59,7 @@ describe('Channel accounts API', () => {
     const res = await request(app)
       .post('/api/v1/channels')
       .set(authHeader(acme.tokens.owner))
-      .send({ providerKey: 'facebook', displayName: 'FB' });
+      .send({ providerKey: 'telegram', displayName: 'TG' });
     expect(res.status).toBe(400);
     expect(res.body.message).toMatch(/not available yet/i);
   });

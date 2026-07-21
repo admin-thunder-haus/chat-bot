@@ -5,6 +5,7 @@ import type {
   ChannelDiagnostics,
   ChannelProviderDescriptor,
   DeliveryRetryResult,
+  FacebookConnectInput,
   InstagramConnectInput,
   WebChatConfig,
   WhatsAppConnectInput,
@@ -54,6 +55,15 @@ export const channelsApi = {
       auth: true,
     });
   },
+  connectFacebook(
+    input: FacebookConnectInput,
+  ): Promise<{ account: ChannelAccount }> {
+    return request('/channels/facebook/connect', {
+      method: 'POST',
+      body: input,
+      auth: true,
+    });
+  },
   update(
     id: string,
     input: UpdateChannelInput,
@@ -76,6 +86,9 @@ export const channelsApi = {
   },
   disconnect(id: string): Promise<{ account: ChannelAccount }> {
     return request(`/channels/${id}`, { method: 'DELETE', auth: true });
+  },
+  deletePermanently(id: string): Promise<null> {
+    return request(`/channels/${id}/permanent`, { method: 'DELETE', auth: true });
   },
   healthCheck(id: string): Promise<{ account: ChannelAccount }> {
     return request(`/channels/${id}/health-check`, {

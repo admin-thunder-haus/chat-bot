@@ -182,16 +182,12 @@ export const instagramApiClient = {
         timeoutMs: env.INSTAGRAM_API_TIMEOUT_MS,
       });
       if (res.ok) {
+        // A 200 from GET /{account-id} already proves the token controls this
+        // account (the Graph API returns 403/permission otherwise). No strict
+        // id-equality check: Instagram Login exposes both an `id` and a
+        // `user_id` for the same account, so a returned id may legitimately
+        // differ from the one the tenant entered — that is not a mismatch.
         const j = res.json as InstagramAccountResponse | null;
-        // Identity match guard: if Meta returns a different id, the token does
-        // not actually control the claimed account.
-        if (j?.id && j.id !== input.instagramAccountId) {
-          return {
-            state: 'UNAVAILABLE',
-            code: 'IG_ACCOUNT_MISMATCH',
-            reason: 'Token does not match the connected Instagram account',
-          };
-        }
         return {
           state: 'HEALTHY',
           username: j?.username ?? null,

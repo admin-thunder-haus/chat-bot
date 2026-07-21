@@ -282,13 +282,14 @@ describe('Instagram provider — health check', () => {
     expect((await provider.checkConnection({ externalAccountId: IG.instagramAccountId, credentials: creds })).state).toBe('DEGRADED');
   });
 
-  it('returns UNAVAILABLE when the token controls a different account', async () => {
+  it('treats any successful account read as HEALTHY (Instagram Login exposes id + user_id)', async () => {
+    // A 200 proves the token controls the queried account; a returned id that
+    // differs from the entered one (id vs user_id) is NOT a mismatch.
     setInstagramTransportForTesting(
       makeInstagramTransport({ check: () => ({ status: 200, ok: true, json: { id: '999', username: 'other' } }) }).transport,
     );
     const res = await provider.checkConnection({ externalAccountId: IG.instagramAccountId, credentials: creds });
-    expect(res.state).toBe('UNAVAILABLE');
-    expect(res.errorCode).toBe('IG_ACCOUNT_MISMATCH');
+    expect(res.state).toBe('HEALTHY');
   });
 });
 

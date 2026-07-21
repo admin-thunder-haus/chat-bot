@@ -50,6 +50,38 @@ export const channelsController = {
     sendSuccess(res, { account }, 'WhatsApp connected successfully', 201);
   },
 
+  async connectInstagram(req: Request, res: Response): Promise<void> {
+    const { displayName, ...payload } = req.body as {
+      displayName: string;
+      [k: string]: unknown;
+    };
+    // Store encrypted credentials + create the account (state UNKNOWN).
+    const created = await channelsService.connectCredentialedProvider(
+      req.user!.companyId,
+      req.user!.id,
+      'instagram',
+      displayName,
+      payload,
+    );
+    // Immediately validate against the Graph API so the reported state is
+    // honest (never a false "connected"). The account is preserved in whatever
+    // state the probe yields (HEALTHY / AUTH_EXPIRED / DEGRADED / UNAVAILABLE).
+    const account = await channelHealthService.runHealthCheck(
+      req.user!.companyId,
+      created.id,
+      req.user!.id,
+    );
+    const message =
+      account.connectionState === 'HEALTHY'
+        ? 'Instagram connection verified and active'
+        : account.connectionState === 'AUTH_EXPIRED'
+          ? 'Instagram credentials saved, but authentication failed — check the access token'
+          : account.connectionState === 'UNAVAILABLE'
+            ? 'Instagram credentials saved, but the account could not be verified'
+            : 'Instagram credentials saved; verification pending';
+    sendSuccess(res, { account }, message, 201);
+  },
+
   async update(req: Request, res: Response): Promise<void> {
     const account = await channelsService.updateAccount(
       req.user!.companyId,

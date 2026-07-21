@@ -5,6 +5,7 @@ import {
   channelStatusSchema,
   createChannelAccountSchema,
   deliveryRetryParamsSchema,
+  instagramConnectSchema,
   updateChannelAccountSchema,
   webChatConfigSchema,
   whatsAppConnectSchema,
@@ -31,6 +32,15 @@ router.post(
   manageRoles,
   validate({ body: whatsAppConnectSchema }),
   asyncHandler(channelsController.connectWhatsApp),
+);
+
+// Instagram connect (credentialed) — OWNER/ADMIN. Literal path before the
+// `/:channelAccountId` param routes so it always wins.
+router.post(
+  '/instagram/connect',
+  manageRoles,
+  validate({ body: instagramConnectSchema }),
+  asyncHandler(channelsController.connectInstagram),
 );
 
 // Channel accounts (list/get: all roles; writes: OWNER/ADMIN).

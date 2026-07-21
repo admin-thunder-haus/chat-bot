@@ -34,5 +34,19 @@ export type {
   WhatsAppConfig,
   WhatsAppCredentials,
 } from './providers/whatsapp';
+export {
+  InstagramChannelProvider,
+  INSTAGRAM_PROVIDER_KEY,
+  INSTAGRAM_SIGNATURE_HEADER,
+  setInstagramTransportForTesting,
+  normalizeInstagramWebhook,
+  classifyInstagramHttp,
+} from './providers/instagram';
+export type {
+  InstagramTransport,
+  InstagramConfig,
+  InstagramCredentials,
+  InstagramErrorCategory,
+} from './providers/instagram';
 export { channelCredentialsService } from './channel-credentials.service';
 export type { ChannelProvider } from './providers/channel-provider.interface';

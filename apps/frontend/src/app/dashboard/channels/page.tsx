@@ -10,6 +10,7 @@ import { useToast } from '@/components/toast';
 import { fullTime } from '@/lib/format';
 import { ChannelDiagnosticsModal } from './ChannelDiagnosticsModal';
 import { WhatsAppConnectModal } from './WhatsAppConnectModal';
+import { InstagramConnectModal } from './InstagramConnectModal';
 import type {
   ChannelAccount,
   ChannelConnectionState,
@@ -48,6 +49,17 @@ function whatsAppDisplay(a: ChannelAccount): string | null {
   return wa?.displayPhoneNumber ?? null;
 }
 
+/** Safe Instagram config from account metadata (never a secret). */
+function instagramConfig(
+  a: ChannelAccount,
+): { instagramUsername?: string; facebookPageId?: string } | null {
+  return (
+    (a.metadata as {
+      instagram?: { instagramUsername?: string; facebookPageId?: string };
+    } | null)?.instagram ?? null
+  );
+}
+
 const CAPABILITY_LABELS: { key: keyof NonNullable<ChannelAccount['capabilities']>; label: string }[] =
   [
     { key: 'textMessages', label: 'Text' },
@@ -83,6 +95,7 @@ export default function ChannelsPage() {
     null,
   );
   const [whatsAppOpen, setWhatsAppOpen] = useState(false);
+  const [instagramOpen, setInstagramOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -184,11 +197,11 @@ export default function ChannelsPage() {
 
       <div className="mb-4">
         <Alert variant="info">
-          <strong>Web Chat</strong> and <strong>WhatsApp</strong> are live and
-          flow through the same pipeline. Instagram, Facebook Messenger, and
-          Telegram are honest placeholders for a later phase. The Fake / Test
-          channel is a development-only provider that exercises the full framework
-          without any external service.
+          <strong>Web Chat</strong>, <strong>WhatsApp</strong>, and{' '}
+          <strong>Instagram</strong> are live and flow through the same pipeline.
+          Facebook Messenger and Telegram are honest placeholders for a later
+          phase. The Fake / Test channel is a development-only provider that
+          exercises the full framework without any external service.
         </Alert>
       </div>
 
@@ -234,6 +247,10 @@ export default function ChannelsPage() {
                 {p.key === 'whatsapp' && p.available && !readOnly ? (
                   <Button size="sm" variant="secondary" onClick={() => setWhatsAppOpen(true)}>
                     Connect WhatsApp
+                  </Button>
+                ) : p.key === 'instagram' && p.available && !readOnly ? (
+                  <Button size="sm" variant="secondary" onClick={() => setInstagramOpen(true)}>
+                    Connect Instagram
                   </Button>
                 ) : p.available && p.developmentOnly && !readOnly ? (
                   <Button size="sm" variant="secondary" onClick={() => setAddOpen(true)}>
@@ -294,6 +311,16 @@ export default function ChannelsPage() {
                       <>
                         <div>Phone: {whatsAppDisplay(a) ?? a.externalAccountId}</div>
                         <div>WABA: {a.externalPageId ?? '—'}</div>
+                      </>
+                    ) : a.providerKey === 'instagram' ? (
+                      <>
+                        <div>
+                          Account:{' '}
+                          {instagramConfig(a)?.instagramUsername
+                            ? `@${instagramConfig(a)?.instagramUsername}`
+                            : a.externalAccountId}
+                        </div>
+                        <div>Page: {a.externalPageId ?? '—'}</div>
                       </>
                     ) : (
                       <>
@@ -431,6 +458,12 @@ export default function ChannelsPage() {
       <WhatsAppConnectModal
         open={whatsAppOpen}
         onClose={() => setWhatsAppOpen(false)}
+        onConnected={() => void load()}
+      />
+
+      <InstagramConnectModal
+        open={instagramOpen}
+        onClose={() => setInstagramOpen(false)}
         onConnected={() => void load()}
       />
 

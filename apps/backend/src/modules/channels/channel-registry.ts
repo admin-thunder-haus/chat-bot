@@ -1,6 +1,6 @@
 import type { ChannelType } from '@prisma/client';
 import { AppError } from '../../utils/AppError';
-import { isFakeChannelEnabled } from '../../config/env';
+import { isFakeChannelEnabled, isInstagramEnabled } from '../../config/env';
 import type {
   ChannelCapabilities,
   ChannelProvider,
@@ -9,6 +9,7 @@ import { NO_CAPABILITIES } from './providers/channel-provider.interface';
 import { FakeChannelProvider } from './providers/fake-channel.provider';
 import { WebChatChannelProvider } from './providers/webchat-channel.provider';
 import { WhatsAppChannelProvider } from './providers/whatsapp';
+import { InstagramChannelProvider } from './providers/instagram';
 
 /**
  * Public, safe descriptor of a provider for the dashboard "Channels" page.
@@ -32,16 +33,6 @@ export interface ChannelProviderDescriptor {
  * provider classes are added (and registered) in later phases.
  */
 const FUTURE_PROVIDERS: ChannelProviderDescriptor[] = [
-  {
-    key: 'instagram',
-    displayName: 'Instagram',
-    channelType: 'INSTAGRAM',
-    capabilities: { ...NO_CAPABILITIES },
-    available: false,
-    developmentOnly: false,
-    configurationComplete: false,
-    comingSoon: true,
-  },
   {
     key: 'facebook',
     displayName: 'Facebook Messenger',
@@ -147,6 +138,7 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   fake: 'Fake / Test Channel',
   webchat: 'Web Chat',
   whatsapp: 'WhatsApp',
+  instagram: 'Instagram',
 };
 
 function capitalize(s: string): string {
@@ -169,6 +161,12 @@ export function registerBuiltInProviders(): void {
   // credentials are supplied at connect time (never via env).
   if (!channelRegistry.has('whatsapp')) {
     channelRegistry.register(new WhatsAppChannelProvider());
+  }
+  // Instagram Messaging (Meta) — a REAL provider. Per-account credentials are
+  // supplied at connect time (never via env). Gated by INSTAGRAM_PROVIDER_ENABLED
+  // so an environment can turn it off without code changes.
+  if (isInstagramEnabled && !channelRegistry.has('instagram')) {
+    channelRegistry.register(new InstagramChannelProvider());
   }
   // The fake/test provider is dev-only and never registered in production.
   if (isFakeChannelEnabled && !channelRegistry.has('fake')) {

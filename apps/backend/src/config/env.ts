@@ -202,6 +202,29 @@ const envSchema = z.object({
     .min(1000)
     .max(60000)
     .default(15000),
+
+  // --- Day 7: Instagram Messaging (Meta) ---
+  // NON-secret global config only. Per-account secrets (access token, app secret,
+  // verify token) are supplied at connect time and stored ENCRYPTED per account
+  // (never via env). The provider can be disabled entirely for an environment.
+  INSTAGRAM_PROVIDER_ENABLED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((v) => v === 'true'),
+  INSTAGRAM_GRAPH_API_BASE_URL: z
+    .string()
+    .url()
+    .default('https://graph.facebook.com'),
+  INSTAGRAM_GRAPH_API_VERSION: z
+    .string()
+    .regex(/^v\d+\.\d+$/, 'Must be a Graph API version like v21.0')
+    .default('v21.0'),
+  INSTAGRAM_API_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(1000)
+    .max(60000)
+    .default(15000),
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -261,3 +284,6 @@ export const isAIEnabled = env.AI_FEATURE_ENABLED;
  * public webhook surface, so production can never expose test functionality.
  */
 export const isFakeChannelEnabled = env.FAKE_CHANNEL_ENABLED && !isProduction;
+
+/** Instagram provider is registered only when enabled for this environment. */
+export const isInstagramEnabled = env.INSTAGRAM_PROVIDER_ENABLED;

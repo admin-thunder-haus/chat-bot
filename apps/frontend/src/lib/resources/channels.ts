@@ -5,6 +5,7 @@ import type {
   ChannelDiagnostics,
   ChannelProviderDescriptor,
   DeliveryRetryResult,
+  InstagramConnectInput,
   WebChatConfig,
   WhatsAppConnectInput,
 } from '../types';
@@ -39,6 +40,15 @@ export const channelsApi = {
     input: WhatsAppConnectInput,
   ): Promise<{ account: ChannelAccount }> {
     return request('/channels/whatsapp/connect', {
+      method: 'POST',
+      body: input,
+      auth: true,
+    });
+  },
+  connectInstagram(
+    input: InstagramConnectInput,
+  ): Promise<{ account: ChannelAccount }> {
+    return request('/channels/instagram/connect', {
       method: 'POST',
       body: input,
       auth: true,

@@ -549,6 +549,17 @@ export interface WhatsAppConnectInput {
   verifyToken: string;
 }
 
+export interface InstagramConnectInput {
+  displayName: string;
+  instagramAccountId: string;
+  instagramUsername?: string;
+  facebookPageId?: string;
+  businessName?: string;
+  accessToken: string;
+  appSecret: string;
+  verifyToken: string;
+}
+
 export interface ChannelAccount {
   id: string;
   providerKey: string;

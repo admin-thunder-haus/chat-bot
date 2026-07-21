@@ -67,6 +67,7 @@ others.
 
 ## Table of contents
 
+- [Day 7 — Instagram Messaging (Meta)](#day-7--instagram-messaging-meta)
 - [Day 6 — WhatsApp Business Cloud API](#day-6--whatsapp-business-cloud-api)
 - [Day 5 Part 3 — Web Chat provider & website widget](#day-5-part-3--web-chat-provider--website-widget)
 - [Day 5 Part 2 — delivery engine & health monitoring](#day-5-part-2--delivery-engine--health-monitoring)
@@ -88,6 +89,187 @@ others.
 - [Demo credentials](#demo-credentials)
 - [Security notes](#security-notes)
 - [Troubleshooting](#troubleshooting)
+
+---
+
+## Day 7 — Instagram Messaging (Meta)
+
+Day 7 ships the **second real Meta platform — Instagram Messaging** — the first
+provider added *entirely on top of* the existing generic Channel Framework with
+**zero schema changes**. Instagram Direct Messages flow through the exact same
+Unified Inbox, AI, delivery, retry, health, and activity machinery as Web Chat
+and WhatsApp. All Instagram-specific behavior is confined to the provider module.
+
+```
+Instagram customer → Meta webhook → Instagram provider → normalized event
+  → generic incoming pipeline → Customer + Conversation + Message
+  → optional AI reply → generic delivery engine → Instagram provider → customer
+```
+
+### Meta account model
+
+Instagram messaging spans several Meta objects. Day 7 stores each in the correct
+safe field and **routes only by stable IDs — never the @username**:
+
+| Concept | Stored as | Notes |
+| --- | --- | --- |
+| Instagram professional account ID | `ChannelAccount.externalAccountId` | Stable routing + send target |
+| Facebook Page ID | `ChannelAccount.externalPageId` | Optional, where the setup links a Page |
+| Instagram @username | `metadata.instagram.instagramUsername` | Display only, never a routing key |
+| Business name | `metadata.instagram.businessName` | Display only |
+| Access token / App secret / Verify token | encrypted `ChannelCredential` | AES-256-GCM, never returned |
+
+### Capabilities (honest)
+
+`textMessages`, `inboundMessaging`, `outboundMessaging`, `messageReplies`,
+`readReceipts`, `customerProfiles`, `webhookVerification`, `webhookSignatures` →
+**true**. `deliveryReceipts` → **false** (Instagram DMs do not emit delivery
+callbacks; only `read`). `mediaMessages`, `templates`, `reactions`,
+`typingIndicators` → **false** (architecture-ready; inbound media/reactions are
+recorded as `unsupported`, never processed). The Inbox hides controls for
+unsupported capabilities automatically.
+
+### Required account prerequisites
+
+- An eligible Instagram **professional** (Business or Creator) account
+- A connected **Facebook Page** (where the setup requires it)
+- A **Meta app** with the Instagram messaging product + `instagram_manage_messages`
+- A valid **access token**; **app secret**; and a **verify token** you choose
+- The Meta **webhook** configured for this channel's URL and subscribed to `messages`
+
+### Manual developer connection
+
+`POST /api/v1/channels/instagram/connect` (OWNER/ADMIN). Body fields:
+`displayName`, `instagramAccountId` (required), `instagramUsername?`,
+`facebookPageId?`, `businessName?`, `accessToken`, `appSecret`, `verifyToken`.
+`companyId` and any other unknown field are **rejected** (`.strict()`); the tenant
+is always derived server-side from the JWT. On connect the backend stores the
+encrypted credentials **and immediately validates them against the Graph API**,
+so the reported state is honest — `HEALTHY` ("verified and active"),
+`AUTH_EXPIRED`, or a saved-but-pending state — never a blind "connected".
+
+> Embedded Signup / OAuth onboarding is **postponed** to the shared onboarding
+> phase. Day 7 uses the manual developer flow only.
+
+### Credential encryption
+
+Secrets are encrypted with the existing per-account `ChannelCredential`
+(AES-256-GCM via `CHANNEL_CREDENTIAL_ENCRYPTION_KEY`), decrypted only inside
+backend integration services, never cached globally, and **never** placed in
+metadata, API responses, diagnostics, logs, activity, errors, or the frontend.
+
+### Webhook
+
+- URL: `https://<PUBLIC_BACKEND>/api/v1/webhooks/instagram/<CHANNEL_ACCOUNT_ID>`
+- `GET` verifies `hub.challenge` against the account's **verify token**.
+- `POST` validates the Meta **X-Hub-Signature-256** HMAC (app secret) over the
+  raw body **before** the payload is trusted; unknown accounts and bad signatures
+  return a generic response and never reveal whether an account id exists.
+- Reuses the generic public webhook engine + its dedicated rate limiter (no JWT).
+- Instagram uses the Messenger-style `entry[].messaging[]` shape (object
+  `instagram`); the parser is fully defensive and never throws on unknown fields.
+
+### Incoming / outgoing / AI
+
+Incoming: signature → parse → normalize → idempotency (per company + account +
+external id) → resolve/create customer (by IGSID) → create/reopen conversation
+linked to the Instagram account → inbound message → activity → optional AI
+auto-reply through the existing AI flow. Outgoing (agent or AI): the generic
+delivery engine calls the provider's Graph API client
+(`POST /{IG_ID}/messages` `{recipient:{id},message:{text}}`); the external
+message id is stored; internal notes are never sent; empty messages are rejected;
+retry/failure classification reuses the Day 5 engine.
+
+### Retry classification
+
+`instagram-error-classifier.ts` maps Meta `code`/`error_subcode` + HTTP status →
+`AUTHENTICATION`, `AUTHORIZATION`, `RATE_LIMIT`, `TEMPORARY_PROVIDER_FAILURE`,
+`NETWORK_FAILURE`, `TIMEOUT`, `INVALID_RECIPIENT`, `INVALID_REQUEST`,
+`PERMANENT_PROVIDER_FAILURE`, `UNKNOWN_PROVIDER_FAILURE`. 429 / 5xx / network /
+timeout are retryable; invalid token, missing permission, and invalid
+recipient/request are permanent.
+
+### Health & diagnostics
+
+Health check reads the Instagram account node (`GET /{IG_ID}?fields=id,username,name`)
+with the decrypted token, verifies an **identity match**, and updates the existing
+health fields (`connectionState`, `lastHealthCheckAt`, `lastHealthyAt`,
+`lastErrorCode/Message`, health score/counters/history). Invalid token →
+`AUTH_EXPIRED`; missing permission / temporary Meta issue → `DEGRADED`;
+inaccessible / mismatched account → `UNAVAILABLE`; success → `HEALTHY`.
+Diagnostics reuse the generic screen and never expose secrets.
+
+### API routes
+
+| Method | Route | Role |
+| --- | --- | --- |
+| `POST` | `/api/v1/channels/instagram/connect` | OWNER / ADMIN |
+| `GET/POST` | `/api/v1/webhooks/instagram/:channelAccountId` | public (no JWT) |
+
+All other management uses the existing generic channel routes
+(`GET /channels`, `/channels/:id`, `PATCH /:id/status`, `DELETE /:id`,
+`POST /:id/health-check`, `GET /:id/diagnostics`).
+
+### Role matrix
+
+OWNER = ADMIN: connect, view, update safe fields, enable/disable, disconnect,
+health check, diagnostics. AGENT: view accounts + capabilities, use Instagram
+conversations in the Inbox and send permitted replies — **cannot** connect, edit
+credentials, disconnect, or run privileged connection actions. Webhook routes
+carry no JWT; tenant routing is derived from the resolved ChannelAccount only.
+
+### Environment variables (Day 7)
+
+```
+INSTAGRAM_PROVIDER_ENABLED=true          # set false to disable the provider entirely
+INSTAGRAM_GRAPH_API_BASE_URL=https://graph.facebook.com
+INSTAGRAM_GRAPH_API_VERSION=v21.0
+INSTAGRAM_API_TIMEOUT_MS=15000
+```
+
+Per-account secrets are **never** global env — they are supplied at connect time
+and encrypted per account.
+
+### Database
+
+**No migration was required.** The generic framework (`ChannelAccount`,
+`ChannelCredential`, `ChannelWebhookEvent`, `ChannelDelivery`,
+`ChannelHealthCheck`, `Conversation`, `Message`, `Customer`, generic
+`ChannelActivityType`, and the `INSTAGRAM` `ChannelType` enum value) already
+supported Instagram end-to-end.
+
+### Tests
+
+`tests/instagram-provider.test.ts` (unit: registration, capabilities, connect
+prep, verification, signatures, parsing/normalization of text/echo/read/media/
+malformed/unknown/empty, send outcomes, health states, error classification) and
+`tests/instagram.test.ts` (integration via Supertest: connect roles + duplicate
+409 + companyId rejection + false-success guard + cross-tenant 404, webhook
+verify/signature, incoming pipeline + idempotency + AI + cross-tenant isolation,
+outbound send + note-not-sent + permanent-failure + read receipt + cross-tenant
+block, health + AGENT restriction + diagnostics-no-secrets). Full suite: **35
+suites / 332 tests passing** (was 282). No Meta network is ever called — the
+transport is dependency-injected.
+
+### Manual Meta setup + verification
+
+See the manual verification steps in the completion notes: add a test recipient,
+configure the webhook (callback URL above + your verify token + subscribe
+`messages`), DM the account, confirm one message in the Inbox, reply, confirm it
+reaches Instagram.
+
+### Docker
+
+`docker compose up --build` then `docker compose ps` — backend + postgres come up
+healthy, migrations apply cleanly, seed stays idempotent, and the provider catalog
+reports Instagram `available: true`.
+
+### Known limitations / not implemented
+
+Embedded Signup / OAuth onboarding (postponed), **Facebook Messenger** (Day 8),
+media send/download, comments, mentions, story replies/mentions, reactions,
+message deletion/editing, publishing, feed/ads/marketing. Instagram DMs do not
+provide delivery (only read) receipts.
 
 ---
 

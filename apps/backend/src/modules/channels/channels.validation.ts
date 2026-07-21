@@ -123,6 +123,27 @@ export const whatsAppConnectSchema = z
 
 export type WhatsAppConnectInput = z.infer<typeof whatsAppConnectSchema>;
 
+/**
+ * Instagram connect request. Collects the Meta Instagram Messaging identifiers +
+ * secrets. The secrets (accessToken, appSecret, verifyToken) are encrypted
+ * server-side and never returned. Routing uses the stable Instagram account id —
+ * never the @username. `.strict()` rejects unknown fields (incl. companyId).
+ */
+export const instagramConnectSchema = z
+  .object({
+    displayName: z.string().trim().min(1).max(120),
+    instagramAccountId: z.string().trim().min(1).max(64),
+    instagramUsername: z.string().trim().min(1).max(80).optional(),
+    facebookPageId: z.string().trim().min(1).max(64).optional(),
+    businessName: z.string().trim().min(1).max(120).optional(),
+    accessToken: z.string().trim().min(20).max(1000),
+    appSecret: z.string().trim().min(16).max(256),
+    verifyToken: z.string().trim().min(6).max(256),
+  })
+  .strict();
+
+export type InstagramConnectInput = z.infer<typeof instagramConnectSchema>;
+
 export type CreateChannelAccountInput = z.infer<
   typeof createChannelAccountSchema
 >;

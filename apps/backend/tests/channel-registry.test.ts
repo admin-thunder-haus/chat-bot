@@ -54,11 +54,12 @@ describe('Channel provider registry', () => {
     expect(caps.mediaMessages).toBe(false);
   });
 
-  it('lists an honest catalog: fake + webchat + whatsapp available, future providers coming soon', () => {
+  it('lists an honest catalog: fake + webchat + whatsapp + instagram available, future providers coming soon', () => {
     const catalog = channelRegistry.catalog();
     const fake = catalog.find((p) => p.key === 'fake');
     const webchat = catalog.find((p) => p.key === 'webchat');
     const whatsapp = catalog.find((p) => p.key === 'whatsapp');
+    const instagram = catalog.find((p) => p.key === 'instagram');
     expect(fake?.available).toBe(true);
     expect(fake?.developmentOnly).toBe(true);
     // Web Chat is a REAL provider (Day 5 Part 3) — available, not dev-only.
@@ -67,8 +68,12 @@ describe('Channel provider registry', () => {
     // WhatsApp is a REAL provider (Day 6) — available, not dev-only.
     expect(whatsapp?.available).toBe(true);
     expect(whatsapp?.developmentOnly).toBe(false);
+    // Instagram is a REAL provider (Day 7) — available, not dev-only.
+    expect(instagram?.available).toBe(true);
+    expect(instagram?.developmentOnly).toBe(false);
+    expect(instagram?.comingSoon).toBe(false);
     // Remaining platforms are honestly represented, never "connected".
-    for (const key of ['instagram', 'facebook', 'telegram']) {
+    for (const key of ['facebook', 'telegram']) {
       expect(catalog.find((p) => p.key === key)?.available).toBe(false);
       expect(catalog.find((p) => p.key === key)?.comingSoon).toBe(true);
     }

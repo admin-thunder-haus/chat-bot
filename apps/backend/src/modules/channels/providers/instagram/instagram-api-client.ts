@@ -172,8 +172,10 @@ export const instagramApiClient = {
   }): Promise<InstagramConnectionOutcome> {
     try {
       const res = await transport.request({
+        // `id,username` only — `name` is not a valid field on the Instagram
+        // Login user node and would 400 there.
         url: graphUrl(
-          `${encodeURIComponent(input.instagramAccountId)}?fields=id,username,name`,
+          `${encodeURIComponent(input.instagramAccountId)}?fields=id,username`,
         ),
         method: 'GET',
         accessToken: input.accessToken,

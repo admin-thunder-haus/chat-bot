@@ -211,10 +211,14 @@ const envSchema = z.object({
     .enum(['true', 'false'])
     .default('true')
     .transform((v) => v === 'true'),
+  // Instagram Messaging uses the "Instagram API with Instagram Login" flow,
+  // whose access tokens (IGAA…) are served by graph.instagram.com — NOT
+  // graph.facebook.com (which only accepts Facebook Page tokens, EAA…). Override
+  // per-environment only if you use the legacy Facebook-Page-linked flow.
   INSTAGRAM_GRAPH_API_BASE_URL: z
     .string()
     .url()
-    .default('https://graph.facebook.com'),
+    .default('https://graph.instagram.com'),
   INSTAGRAM_GRAPH_API_VERSION: z
     .string()
     .regex(/^v\d+\.\d+$/, 'Must be a Graph API version like v21.0')

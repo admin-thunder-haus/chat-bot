@@ -123,7 +123,24 @@ export const webhookService = {
         headers,
         credentials,
       });
-      if (!signatureOk) throw AppError.unauthorized('Invalid signature');
+      if (!signatureOk) {
+        // Record the rejected delivery (for a KNOWN account) so a credential
+        // mismatch is diagnosable instead of silently dropped. Never throws.
+        try {
+          await channelsRepository.createWebhookEvent({
+            companyId: account.companyId,
+            channelAccountId: account.id,
+            providerKey,
+            eventType: 'signature_rejected',
+            externalEventId: `sigrej:${Date.now()}:${hashRaw(rawBody).slice(0, 12)}`,
+            status: 'FAILED',
+            rawPayloadHash: hashRaw(rawBody),
+          });
+        } catch {
+          /* diagnostic only — ignore */
+        }
+        throw AppError.unauthorized('Invalid signature');
+      }
       return this.ingest(provider, account, providerKey, rawBody, body, headers, credentials);
     }
 

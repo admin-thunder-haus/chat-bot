@@ -108,9 +108,20 @@ export const channelPipelineService = {
             },
           });
         } else {
+          // Backfill a name/username if the customer had none and one is now
+          // known (e.g. a later profile lookup succeeded). Never overwrite an
+          // existing value.
           await tx.customer.update({
             where: { id: customer.id },
-            data: { lastSeenAt: now },
+            data: {
+              lastSeenAt: now,
+              ...(!customer.fullName && message.customer.fullName
+                ? { fullName: message.customer.fullName }
+                : {}),
+              ...(!customer.username && message.customer.username
+                ? { username: message.customer.username }
+                : {}),
+            },
           });
         }
 

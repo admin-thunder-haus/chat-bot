@@ -119,9 +119,9 @@ function InboxInner() {
   );
 
   const loadList = useCallback(
-    async (page: number, append: boolean) => {
+    async (page: number, append: boolean, silent = false) => {
       const reqId = ++listReq.current;
-      setListLoading(true);
+      if (!silent) setListLoading(true);
       setListError('');
       try {
         const res = await conversationsApi.list(buildParams(page));
@@ -130,9 +130,10 @@ function InboxInner() {
         setListPage(page);
         setItems((prev) => (append ? [...prev, ...res.items] : res.items));
       } catch (err) {
-        if (reqId === listReq.current) setListError(parseApiError(err).message);
+        if (reqId === listReq.current && !silent)
+          setListError(parseApiError(err).message);
       } finally {
-        if (reqId === listReq.current) setListLoading(false);
+        if (reqId === listReq.current && !silent) setListLoading(false);
       }
     },
     [buildParams],
@@ -199,6 +200,51 @@ function InboxInner() {
     if (activeId) void loadBundle(activeId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId]);
+
+  // --- Live polling: keep the open thread + list fresh without a manual refresh.
+  // Merges only NEW messages into the open thread (no flicker, no scroll reset)
+  // and silently refreshes the list on page 1.
+  const refreshActive = useCallback(async (id: string) => {
+    try {
+      const [m, a] = await Promise.all([
+        messagesApi.list(id, { limit: MSG_LIMIT }),
+        conversationsApi.activity(id),
+      ]);
+      if (activeIdRef.current !== id) return;
+      setMessages((prev) => {
+        const byId = new Map(prev.map((x) => [x.id, x]));
+        let added = false;
+        for (const msg of m.items)
+          if (!byId.has(msg.id)) {
+            byId.set(msg.id, msg);
+            added = true;
+          }
+        if (!added) return prev;
+        return [...byId.values()].sort(
+          (x, y) =>
+            new Date(x.createdAt).getTime() - new Date(y.createdAt).getTime(),
+        );
+      });
+      setActivities(a.activities);
+    } catch {
+      /* transient poll error — ignore */
+    }
+  }, []);
+
+  const listPageRef = useRef(1);
+  useEffect(() => {
+    listPageRef.current = listPage;
+  }, [listPage]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      if (listPageRef.current === 1) void loadList(1, false, true);
+      const id = activeIdRef.current;
+      if (id) void refreshActive(id);
+    }, 6000);
+    return () => clearInterval(interval);
+  }, [loadList, refreshActive]);
 
   function selectConversation(id: string) {
     setActiveId(id);

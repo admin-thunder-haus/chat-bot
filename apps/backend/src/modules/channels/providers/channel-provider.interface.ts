@@ -254,6 +254,21 @@ export interface ChannelProvider {
   checkConnection?(
     input: ChannelConnectionCheckInput,
   ): Promise<ChannelConnectionCheckResult>;
+
+  /**
+   * Optional best-effort lookup of an inbound sender's public profile (e.g.
+   * Instagram username, Messenger name). Used to enrich a newly-created customer
+   * so the Inbox shows a real name instead of "Unknown customer". Must be
+   * timeout-protected and never throw — the inbound message matters more than
+   * optional enrichment. Returns null when unavailable.
+   */
+  fetchCustomerProfile?(input: {
+    externalCustomerId: string;
+    credentials?: ProviderCredentials | null;
+  }): Promise<Pick<
+    NormalizedCustomerProfile,
+    'fullName' | 'username' | 'avatarUrl'
+  > | null>;
 }
 
 /** A capability matrix with every flag false — a safe base for spreading. */

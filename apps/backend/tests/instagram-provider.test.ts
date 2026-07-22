@@ -308,6 +308,20 @@ describe('Instagram provider — health check', () => {
   });
 });
 
+describe('Instagram provider — profile enrichment', () => {
+  it('fetches a sender profile (name + username)', async () => {
+    setInstagramTransportForTesting(makeInstagramTransport().transport);
+    const p = await provider.fetchCustomerProfile({ externalCustomerId: IG.customerIgsid, credentials: creds });
+    expect(p?.username).toBe(IG.instagramUsername);
+    expect(p?.fullName).toBe(IG.businessName);
+  });
+  it('returns null without credentials or on error', async () => {
+    expect(await provider.fetchCustomerProfile({ externalCustomerId: 'x', credentials: null })).toBeNull();
+    setInstagramTransportForTesting(makeInstagramTransport({ check: () => ({ status: 400, ok: false, json: {} }) }).transport);
+    expect(await provider.fetchCustomerProfile({ externalCustomerId: IG.customerIgsid, credentials: creds })).toBeNull();
+  });
+});
+
 describe('Instagram error classifier', () => {
   it('maps codes/subcodes to the correct categories', () => {
     expect(classifyInstagramHttp(400, { error: { code: 190 } }).category).toBe('AUTHENTICATION');

@@ -243,6 +243,21 @@ export class InstagramChannelProvider implements ChannelProvider {
     };
   }
 
+  // --- Optional profile enrichment (Graph API) ----------------------------
+
+  async fetchCustomerProfile(input: {
+    externalCustomerId: string;
+    credentials?: ProviderCredentials | null;
+  }): Promise<{ fullName?: string | null; username?: string | null } | null> {
+    const creds = asCredentials(input.credentials);
+    const igsid = str(input.externalCustomerId);
+    if (!creds || !igsid) return null;
+    return instagramApiClient.getProfile({
+      accessToken: creds.accessToken,
+      igsid,
+    });
+  }
+
   // --- Connection health (Graph API) --------------------------------------
 
   async checkConnection(

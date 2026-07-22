@@ -140,6 +140,38 @@ export const facebookApiClient = {
     }
   },
 
+  /**
+   * Best-effort lookup of an inbound sender's public profile. Never throws;
+   * returns null on any error. Short bounded timeout so it cannot delay webhooks.
+   */
+  async getProfile(input: {
+    accessToken: string;
+    psid: string;
+  }): Promise<{ fullName?: string | null } | null> {
+    try {
+      const res = await transport.request({
+        url: graphUrl(`${encodeURIComponent(input.psid)}?fields=name,first_name,last_name`),
+        method: 'GET',
+        accessToken: input.accessToken,
+        timeoutMs: Math.min(env.FACEBOOK_API_TIMEOUT_MS, 4000),
+      });
+      if (!res.ok) return null;
+      const j = res.json as {
+        name?: string;
+        first_name?: string;
+        last_name?: string;
+      } | null;
+      if (!j) return null;
+      const full =
+        j.name ??
+        [j.first_name, j.last_name].filter(Boolean).join(' ').trim() ??
+        null;
+      return { fullName: full || null };
+    } catch {
+      return null;
+    }
+  },
+
   /** Validate the connection by reading the Page node. Never throws. */
   async checkPage(input: {
     accessToken: string;

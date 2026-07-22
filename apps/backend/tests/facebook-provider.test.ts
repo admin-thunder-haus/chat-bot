@@ -152,6 +152,17 @@ describe('Facebook provider — health check', () => {
   });
 });
 
+describe('Facebook provider — profile enrichment', () => {
+  it('fetches a sender profile name', async () => {
+    setFacebookTransportForTesting(makeFacebookTransport().transport);
+    const p = await provider.fetchCustomerProfile({ externalCustomerId: FB.customerPsid, credentials: creds });
+    expect(p?.fullName).toBe(FB.pageName);
+  });
+  it('returns null without credentials', async () => {
+    expect(await provider.fetchCustomerProfile({ externalCustomerId: 'x', credentials: null })).toBeNull();
+  });
+});
+
 describe('Facebook error classifier', () => {
   it('maps codes/status to categories', () => {
     expect(classifyFacebookHttp(400, { error: { code: 190 } }).category).toBe('AUTHENTICATION');

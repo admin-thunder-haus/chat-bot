@@ -163,6 +163,31 @@ export const instagramApiClient = {
   },
 
   /**
+   * Best-effort lookup of an inbound sender's public profile. Never throws;
+   * returns null on any error. Uses a short bounded timeout so it cannot delay
+   * webhook processing.
+   */
+  async getProfile(input: {
+    accessToken: string;
+    igsid: string;
+  }): Promise<{ fullName?: string | null; username?: string | null } | null> {
+    try {
+      const res = await transport.request({
+        url: graphUrl(`${encodeURIComponent(input.igsid)}?fields=name,username`),
+        method: 'GET',
+        accessToken: input.accessToken,
+        timeoutMs: Math.min(env.INSTAGRAM_API_TIMEOUT_MS, 4000),
+      });
+      if (!res.ok) return null;
+      const j = res.json as { name?: string; username?: string } | null;
+      if (!j) return null;
+      return { fullName: j.name ?? null, username: j.username ?? null };
+    } catch {
+      return null;
+    }
+  },
+
+  /**
    * Validate the connection by reading the Instagram account node. Never throws.
    * A successful read with a matching id confirms token + account accessibility.
    */

@@ -199,6 +199,16 @@ export class FacebookChannelProvider implements ChannelProvider {
     };
   }
 
+  async fetchCustomerProfile(input: {
+    externalCustomerId: string;
+    credentials?: ProviderCredentials | null;
+  }): Promise<{ fullName?: string | null } | null> {
+    const creds = asCredentials(input.credentials);
+    const psid = str(input.externalCustomerId);
+    if (!creds || !psid) return null;
+    return facebookApiClient.getProfile({ accessToken: creds.accessToken, psid });
+  }
+
   async checkConnection(
     input: ChannelConnectionCheckInput,
   ): Promise<ChannelConnectionCheckResult> {

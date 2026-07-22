@@ -204,7 +204,15 @@ export const webhookService = {
 
     for (const event of events) {
       // eslint-disable-next-line no-await-in-loop
-      await this.processEvent(account, providerKey, rawHash, event, result);
+      await this.processEvent(
+        account,
+        providerKey,
+        rawHash,
+        event,
+        result,
+        provider,
+        credentials,
+      );
     }
 
     return result;
@@ -217,6 +225,8 @@ export const webhookService = {
     rawHash: string,
     event: NormalizedChannelEvent,
     result: WebhookProcessingResult,
+    provider: ChannelProvider,
+    credentials: ProviderCredentials | null,
   ): Promise<void> {
     const companyId = account.companyId;
     const externalEventId = event.externalEventId ?? null;
@@ -271,7 +281,14 @@ export const webhookService = {
     try {
       switch (event.kind) {
         case 'incoming_message':
-          await this.processIncomingMessage(account, event, eventRowId, result);
+          await this.processIncomingMessage(
+            account,
+            event,
+            eventRowId,
+            result,
+            provider,
+            credentials,
+          );
           break;
         case 'delivery_status':
           await this.processDeliveryStatus(account, event, eventRowId, result);
@@ -311,9 +328,39 @@ export const webhookService = {
     event: NormalizedIncomingMessageEvent,
     eventRowId: string,
     result: WebhookProcessingResult,
+    provider: ChannelProvider,
+    credentials: ProviderCredentials | null,
   ): Promise<void> {
     const companyId = account.companyId;
     const normalized = channelNormalizerService.normalizeIncoming(event);
+
+    // Best-effort profile enrichment so the Inbox shows a real name instead of
+    // "Unknown customer". Only when the event carries no name AND the customer is
+    // new / unnamed (avoids an API call per message). Never blocks or throws.
+    if (
+      typeof provider.fetchCustomerProfile === 'function' &&
+      !normalized.customer.fullName &&
+      !normalized.customer.username
+    ) {
+      const existing = await prisma.customer.findFirst({
+        where: {
+          companyId,
+          channelType: account.channelType,
+          externalId: normalized.externalCustomerId,
+        },
+        select: { fullName: true, username: true },
+      });
+      if (!existing || (!existing.fullName && !existing.username)) {
+        const profile = await provider
+          .fetchCustomerProfile({
+            externalCustomerId: normalized.externalCustomerId,
+            credentials,
+          })
+          .catch(() => null);
+        if (profile?.fullName) normalized.customer.fullName = profile.fullName;
+        if (profile?.username) normalized.customer.username = profile.username;
+      }
+    }
 
     const ingest = await channelPipelineService.ingestInbound({
       companyId,

@@ -15,6 +15,9 @@ import { logActivity } from '../../utils/activity';
 import { conversationsRepository } from '../conversations/conversations.repository';
 import type { ConversationDetail } from '../conversations/conversations.repository';
 import { messagesRepository } from '../messages/messages.repository';
+import { channelDeliveryService } from '../channels/channel-delivery.service';
+import { channelRegistry } from '../channels/channel-registry';
+import { channelsRepository } from '../channels/channels.repository';
 import { aiSettingsService } from '../ai-settings/ai-settings.service';
 import type { AISettingsView } from '../ai-settings/ai-settings.types';
 import { getAIProvider } from './ai.provider.factory';
@@ -283,6 +286,46 @@ async function persistAiReply(
   text: string,
   senderUserId: string | null,
 ): Promise<Message> {
+  // When the conversation belongs to a push channel (WhatsApp / Instagram /
+  // Facebook), the AI reply MUST go through the delivery engine so it is
+  // actually sent to the provider — persisting the message alone never reaches
+  // the customer. Web Chat / manual conversations keep the local persist path
+  // (the widget pulls; manual has no provider).
+  const conv = await prisma.conversation.findFirst({
+    where: { id: conversationId, companyId },
+  });
+  const account =
+    conv?.channelAccountId && conv.providerKey
+      ? await channelsRepository.findByIdScoped(companyId, conv.channelAccountId)
+      : null;
+  const provider = conv?.providerKey
+    ? channelRegistry.tryGet(conv.providerKey)
+    : null;
+  const viaProvider =
+    !!conv &&
+    !!account &&
+    account.isEnabled &&
+    !!provider &&
+    provider.capabilities.outboundMessaging &&
+    provider.capabilities.textMessages;
+
+  if (viaProvider && conv && account) {
+    const message = await channelDeliveryService.dispatchOutbound({
+      companyId,
+      conversation: conv,
+      account,
+      senderUserId,
+      senderType: 'AI',
+      content: text,
+      actorUserId: senderUserId,
+    });
+    await prisma.aIResponseGeneration.updateMany({
+      where: { id: generationId, companyId },
+      data: { generatedMessageId: message.id },
+    });
+    return message;
+  }
+
   return prisma.$transaction(async (tx) => {
     const now = new Date();
     const message = await messagesRepository.create(tx, companyId, {

@@ -124,14 +124,22 @@ export const webhookService = {
         credentials,
       });
       if (!signatureOk) {
-        // Record the rejected delivery (for a KNOWN account) so a credential
-        // mismatch is diagnosable instead of silently dropped. Never throws.
+        // Record the rejected delivery (for a KNOWN account) with SAFE diagnostic
+        // metadata (no secrets, no signature values) so a credential mismatch vs
+        // a raw-body/header problem is distinguishable. Never throws.
         try {
+          const h256 = headers['x-hub-signature-256'];
+          const h1 = headers['x-hub-signature'];
+          const providedHexLen =
+            typeof h256 === 'string' && h256.startsWith('sha256=')
+              ? h256.length - 'sha256='.length
+              : 0;
+          const diag = `sigrej:h256=${h256 ? 1 : 0},h1=${h1 ? 1 : 0},raw=${rawBody.length},plen=${providedHexLen},ct=${(headers['content-type'] ?? '').split(';')[0]}`;
           await channelsRepository.createWebhookEvent({
             companyId: account.companyId,
             channelAccountId: account.id,
             providerKey,
-            eventType: 'signature_rejected',
+            eventType: diag,
             externalEventId: `sigrej:${Date.now()}:${hashRaw(rawBody).slice(0, 12)}`,
             status: 'FAILED',
             rawPayloadHash: hashRaw(rawBody),

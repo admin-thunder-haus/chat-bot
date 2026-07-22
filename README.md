@@ -67,6 +67,7 @@ others.
 
 ## Table of contents
 
+- [Day 9 — Telegram Bot API](#day-9--telegram-bot-api)
 - [Day 8 — Facebook Messenger (Meta)](#day-8--facebook-messenger-meta)
 - [Day 7 — Instagram Messaging (Meta)](#day-7--instagram-messaging-meta)
 - [Day 6 — WhatsApp Business Cloud API](#day-6--whatsapp-business-cloud-api)
@@ -90,6 +91,45 @@ others.
 - [Demo credentials](#demo-credentials)
 - [Security notes](#security-notes)
 - [Troubleshooting](#troubleshooting)
+
+---
+
+## Day 9 — Telegram Bot API
+
+Day 9 adds **Telegram** — the first **non-Meta** provider — on the same generic
+Channel Framework with **zero schema changes**. It proved the abstraction is not
+Meta-specific.
+
+- **Account model:** one ChannelAccount == one bot. `externalAccountId` = the
+  numeric bot id (parsed from the token). Only a **bot token** (from @BotFather)
+  is needed; the webhook secret is generated server-side. Both are stored
+  encrypted, never returned.
+- **Differences from Meta providers** (all confined to the provider):
+  - Auth is the bot token in the request **path** (no header); the transport
+    never logs the URL.
+  - Webhook security is **not** an HMAC signature — Telegram echoes a secret
+    token in the `X-Telegram-Bot-Api-Secret-Token` header, which
+    `validateWebhookSignature` checks (constant-time). There is **no** GET
+    challenge (`webhookVerification: false`).
+  - The inbound Update already carries the sender's name/username, so **no
+    profile lookup** is needed — the customer is named immediately.
+  - No per-message delivery/read receipts (`deliveryReceipts`/`readReceipts`
+    false).
+- **Auto webhook registration:** `POST /api/v1/channels/telegram/connect`
+  (OWNER/ADMIN) verifies the token via `getMe`, then calls Telegram `setWebhook`
+  with the per-account URL (`…/api/v1/webhooks/telegram/<id>`) + the generated
+  secret — so there is **no manual webhook step** (unlike the Meta providers).
+- **Send:** `POST https://api.telegram.org/bot<token>/sendMessage`
+  `{chat_id, text, reply_to_message_id?}`. **Health:** `getMe`.
+- **Env:** `TELEGRAM_PROVIDER_ENABLED`, `TELEGRAM_API_BASE_URL`
+  (`https://api.telegram.org`), `TELEGRAM_API_TIMEOUT_MS`. **No migration.**
+- **Tests:** `tests/telegram-provider.test.ts` + `tests/telegram.test.ts`
+  (secret-token auth, name-from-payload, auto webhook registration, AI reply
+  through the bot, idempotency, tenant isolation). Full suite: **39 suites / 389
+  tests passing**.
+
+All five real providers (Web Chat, WhatsApp, Instagram, Facebook Messenger,
+Telegram) now run through one pipeline. No "coming soon" placeholders remain.
 
 ---
 

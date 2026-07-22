@@ -72,13 +72,12 @@ describe('Channel provider registry', () => {
     expect(instagram?.available).toBe(true);
     expect(instagram?.developmentOnly).toBe(false);
     expect(instagram?.comingSoon).toBe(false);
-    const facebook = catalog.find((p) => p.key === 'facebook');
-    expect(facebook?.available).toBe(true);
-    expect(facebook?.comingSoon).toBe(false);
-    // Remaining platforms are honestly represented, never "connected".
-    for (const key of ['telegram']) {
-      expect(catalog.find((p) => p.key === key)?.available).toBe(false);
-      expect(catalog.find((p) => p.key === key)?.comingSoon).toBe(true);
+    // Facebook Messenger (Day 8) + Telegram (Day 9) are REAL providers now.
+    for (const key of ['facebook', 'telegram']) {
+      expect(catalog.find((p) => p.key === key)?.available).toBe(true);
+      expect(catalog.find((p) => p.key === key)?.comingSoon).toBe(false);
     }
+    // No "coming soon" placeholders remain.
+    expect(catalog.every((p) => p.comingSoon === false)).toBe(true);
   });
 });

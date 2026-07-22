@@ -164,6 +164,24 @@ export const facebookConnectSchema = z
 
 export type FacebookConnectInput = z.infer<typeof facebookConnectSchema>;
 
+/**
+ * Telegram connect request. Only a bot token is needed (from @BotFather). The
+ * webhook secret token is generated server-side. `.strict()` rejects unknown
+ * fields (incl. companyId / secretToken — never client-supplied).
+ */
+export const telegramConnectSchema = z
+  .object({
+    displayName: z.string().trim().min(1).max(120),
+    botToken: z
+      .string()
+      .trim()
+      .regex(/^\d+:[\w-]+$/, 'Must be a valid Telegram bot token (e.g. 123456:AA…)')
+      .max(200),
+  })
+  .strict();
+
+export type TelegramConnectInput = z.infer<typeof telegramConnectSchema>;
+
 export type CreateChannelAccountInput = z.infer<
   typeof createChannelAccountSchema
 >;

@@ -4,17 +4,18 @@ import {
   isFakeChannelEnabled,
   isInstagramEnabled,
   isFacebookEnabled,
+  isTelegramEnabled,
 } from '../../config/env';
 import type {
   ChannelCapabilities,
   ChannelProvider,
 } from './providers/channel-provider.interface';
-import { NO_CAPABILITIES } from './providers/channel-provider.interface';
 import { FakeChannelProvider } from './providers/fake-channel.provider';
 import { WebChatChannelProvider } from './providers/webchat-channel.provider';
 import { WhatsAppChannelProvider } from './providers/whatsapp';
 import { InstagramChannelProvider } from './providers/instagram';
 import { FacebookChannelProvider } from './providers/facebook';
+import { TelegramChannelProvider } from './providers/telegram';
 
 /**
  * Public, safe descriptor of a provider for the dashboard "Channels" page.
@@ -37,18 +38,9 @@ export interface ChannelProviderDescriptor {
  * they render as "coming soon / unavailable" and cannot be connected. Their
  * provider classes are added (and registered) in later phases.
  */
-const FUTURE_PROVIDERS: ChannelProviderDescriptor[] = [
-  {
-    key: 'telegram',
-    displayName: 'Telegram',
-    channelType: 'TELEGRAM',
-    capabilities: { ...NO_CAPABILITIES },
-    available: false,
-    developmentOnly: false,
-    configurationComplete: false,
-    comingSoon: true,
-  },
-];
+// All catalog providers are now real, registered providers. Future placeholders
+// (e.g. Email) can be added back here when their provider classes don't yet exist.
+const FUTURE_PROVIDERS: ChannelProviderDescriptor[] = [];
 
 /**
  * Central provider registry. Providers are registered exactly once here (or via
@@ -135,6 +127,7 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   whatsapp: 'WhatsApp',
   instagram: 'Instagram',
   facebook: 'Facebook Messenger',
+  telegram: 'Telegram',
 };
 
 function capitalize(s: string): string {
@@ -168,6 +161,11 @@ export function registerBuiltInProviders(): void {
   // connect time (never via env). Gated by FACEBOOK_PROVIDER_ENABLED.
   if (isFacebookEnabled && !channelRegistry.has('facebook')) {
     channelRegistry.register(new FacebookChannelProvider());
+  }
+  // Telegram Bot API — a REAL provider. Per-bot token supplied at connect time
+  // (never via env). Gated by TELEGRAM_PROVIDER_ENABLED.
+  if (isTelegramEnabled && !channelRegistry.has('telegram')) {
+    channelRegistry.register(new TelegramChannelProvider());
   }
   // The fake/test provider is dev-only and never registered in production.
   if (isFakeChannelEnabled && !channelRegistry.has('fake')) {

@@ -7,6 +7,7 @@ import {
   deliveryRetryParamsSchema,
   facebookConnectSchema,
   instagramConnectSchema,
+  telegramConnectSchema,
   updateChannelAccountSchema,
   webChatConfigSchema,
   whatsAppConnectSchema,
@@ -50,6 +51,14 @@ router.post(
   manageRoles,
   validate({ body: facebookConnectSchema }),
   asyncHandler(channelsController.connectFacebook),
+);
+
+// Telegram connect (credentialed) — OWNER/ADMIN.
+router.post(
+  '/telegram/connect',
+  manageRoles,
+  validate({ body: telegramConnectSchema }),
+  asyncHandler(channelsController.connectTelegram),
 );
 
 // Channel accounts (list/get: all roles; writes: OWNER/ADMIN).

@@ -1,7 +1,10 @@
+import { randomBytes } from 'node:crypto';
 import type { Request, Response } from 'express';
 import { channelsService } from './channels.service';
 import { channelHealthService } from './channel-health.service';
 import { channelDeliveryService } from './channel-delivery.service';
+import { channelRegistry } from './channel-registry';
+import { TelegramChannelProvider } from './providers/telegram';
 import { sendSuccess } from '../../utils/apiResponse';
 
 export const channelsController = {
@@ -109,6 +112,46 @@ export const channelsController = {
             ? 'Facebook credentials saved, but the Page could not be verified'
             : 'Facebook credentials saved; verification pending';
     sendSuccess(res, { account }, message, 201);
+  },
+
+  async connectTelegram(req: Request, res: Response): Promise<void> {
+    const { displayName, botToken } = req.body as {
+      displayName: string;
+      botToken: string;
+    };
+    // The webhook secret token is generated server-side (never client-supplied),
+    // stored encrypted, and set on Telegram via setWebhook below.
+    const secretToken = randomBytes(24).toString('hex');
+    const created = await channelsService.connectCredentialedProvider(
+      req.user!.companyId,
+      req.user!.id,
+      'telegram',
+      displayName,
+      { botToken, secretToken },
+    );
+    // Register the webhook with Telegram so it pushes updates to our per-account
+    // URL (the "subscribe" equivalent). Derived from the public request host.
+    const webhookUrl = `${req.protocol}://${req.get('host')}/api/v1/webhooks/telegram/${created.id}`;
+    const provider = channelRegistry.tryGet('telegram');
+    let webhookRegistered = false;
+    if (provider instanceof TelegramChannelProvider) {
+      const r = await provider.registerWebhook({ botToken, url: webhookUrl, secretToken });
+      webhookRegistered = r.ok;
+    }
+    const account = await channelHealthService.runHealthCheck(
+      req.user!.companyId,
+      created.id,
+      req.user!.id,
+    );
+    const message =
+      account.connectionState === 'HEALTHY' && webhookRegistered
+        ? 'Telegram connection verified and webhook active'
+        : account.connectionState === 'HEALTHY'
+          ? 'Telegram bot verified, but the webhook could not be set — retry or set it manually'
+          : account.connectionState === 'AUTH_EXPIRED'
+            ? 'Telegram bot token is invalid — check the token from @BotFather'
+            : 'Telegram credentials saved; verification pending';
+    sendSuccess(res, { account, webhookRegistered }, message, 201);
   },
 
   async update(req: Request, res: Response): Promise<void> {

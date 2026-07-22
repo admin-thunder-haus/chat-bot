@@ -55,13 +55,22 @@ describe('Channel accounts API', () => {
     expect(list.body.data.accounts.length).toBe(1);
   });
 
-  it('rejects creating a not-yet-available (real) provider', async () => {
+  it('rejects creating an unknown provider', async () => {
+    const res = await request(app)
+      .post('/api/v1/channels')
+      .set(authHeader(acme.tokens.owner))
+      .send({ providerKey: 'nonexistent', displayName: 'X' });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/unknown/i);
+  });
+
+  it('rejects generic create for a credentialed provider (telegram → connect flow)', async () => {
     const res = await request(app)
       .post('/api/v1/channels')
       .set(authHeader(acme.tokens.owner))
       .send({ providerKey: 'telegram', displayName: 'TG' });
     expect(res.status).toBe(400);
-    expect(res.body.message).toMatch(/not available yet/i);
+    expect(res.body.message).toMatch(/connect flow/i);
   });
 
   it('rejects generic create for a credentialed provider (must use connect)', async () => {

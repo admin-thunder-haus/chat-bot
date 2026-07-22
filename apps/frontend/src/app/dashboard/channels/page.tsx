@@ -12,6 +12,7 @@ import { ChannelDiagnosticsModal } from './ChannelDiagnosticsModal';
 import { WhatsAppConnectModal } from './WhatsAppConnectModal';
 import { InstagramConnectModal } from './InstagramConnectModal';
 import { FacebookConnectModal } from './FacebookConnectModal';
+import { TelegramConnectModal } from './TelegramConnectModal';
 import type {
   ChannelAccount,
   ChannelConnectionState,
@@ -70,6 +71,16 @@ function facebookConfig(
   );
 }
 
+/** Safe Telegram config from account metadata (never a secret). */
+function telegramConfig(
+  a: ChannelAccount,
+): { botUsername?: string } | null {
+  return (
+    (a.metadata as { telegram?: { botUsername?: string } } | null)?.telegram ??
+    null
+  );
+}
+
 const CAPABILITY_LABELS: { key: keyof NonNullable<ChannelAccount['capabilities']>; label: string }[] =
   [
     { key: 'textMessages', label: 'Text' },
@@ -108,6 +119,7 @@ export default function ChannelsPage() {
   const [whatsAppOpen, setWhatsAppOpen] = useState(false);
   const [instagramOpen, setInstagramOpen] = useState(false);
   const [facebookOpen, setFacebookOpen] = useState(false);
+  const [telegramOpen, setTelegramOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -224,11 +236,10 @@ export default function ChannelsPage() {
       <div className="mb-4">
         <Alert variant="info">
           <strong>Web Chat</strong>, <strong>WhatsApp</strong>,{' '}
-          <strong>Instagram</strong>, and <strong>Facebook Messenger</strong> are
-          live and flow through the same pipeline. Telegram is an honest
-          placeholder for a later phase. The Fake / Test channel is a
-          development-only provider that exercises the full framework without any
-          external service.
+          <strong>Instagram</strong>, <strong>Facebook Messenger</strong>, and{' '}
+          <strong>Telegram</strong> are all live and flow through the same
+          pipeline. The Fake / Test channel is a development-only provider that
+          exercises the full framework without any external service.
         </Alert>
       </div>
 
@@ -282,6 +293,10 @@ export default function ChannelsPage() {
                 ) : p.key === 'facebook' && p.available && !readOnly ? (
                   <Button size="sm" variant="secondary" onClick={() => setFacebookOpen(true)}>
                     Connect Facebook
+                  </Button>
+                ) : p.key === 'telegram' && p.available && !readOnly ? (
+                  <Button size="sm" variant="secondary" onClick={() => setTelegramOpen(true)}>
+                    Connect Telegram
                   </Button>
                 ) : p.available && p.developmentOnly && !readOnly ? (
                   <Button size="sm" variant="secondary" onClick={() => setAddOpen(true)}>
@@ -360,6 +375,11 @@ export default function ChannelsPage() {
                           {facebookConfig(a)?.pageName ?? a.externalAccountId}
                         </div>
                         <div>Page ID: {a.externalAccountId ?? '—'}</div>
+                      </>
+                    ) : a.providerKey === 'telegram' ? (
+                      <>
+                        <div>Bot: {telegramConfig(a)?.botUsername ? `@${telegramConfig(a)?.botUsername}` : a.displayName}</div>
+                        <div>Bot ID: {a.externalAccountId ?? '—'}</div>
                       </>
                     ) : (
                       <>
@@ -517,6 +537,12 @@ export default function ChannelsPage() {
       <FacebookConnectModal
         open={facebookOpen}
         onClose={() => setFacebookOpen(false)}
+        onConnected={() => void load()}
+      />
+
+      <TelegramConnectModal
+        open={telegramOpen}
+        onClose={() => setTelegramOpen(false)}
         onConnected={() => void load()}
       />
 

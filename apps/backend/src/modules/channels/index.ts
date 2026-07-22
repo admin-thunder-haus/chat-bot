@@ -62,5 +62,19 @@ export type {
   FacebookCredentials,
   FacebookErrorCategory,
 } from './providers/facebook';
+export {
+  TelegramChannelProvider,
+  TELEGRAM_PROVIDER_KEY,
+  TELEGRAM_SECRET_HEADER,
+  setTelegramTransportForTesting,
+  normalizeTelegramWebhook,
+  classifyTelegram,
+} from './providers/telegram';
+export type {
+  TelegramTransport,
+  TelegramConfig,
+  TelegramCredentials,
+  TelegramErrorCategory,
+} from './providers/telegram';
 export { channelCredentialsService } from './channel-credentials.service';
 export type { ChannelProvider } from './providers/channel-provider.interface';

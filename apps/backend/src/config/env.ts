@@ -252,6 +252,21 @@ const envSchema = z.object({
     .min(1000)
     .max(60000)
     .default(15000),
+
+  // --- Day 9: Telegram Bot API ---
+  // The per-bot token + webhook secret are supplied at connect time and stored
+  // ENCRYPTED per account (never via env).
+  TELEGRAM_PROVIDER_ENABLED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((v) => v === 'true'),
+  TELEGRAM_API_BASE_URL: z.string().url().default('https://api.telegram.org'),
+  TELEGRAM_API_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(1000)
+    .max(60000)
+    .default(15000),
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -317,3 +332,6 @@ export const isInstagramEnabled = env.INSTAGRAM_PROVIDER_ENABLED;
 
 /** Facebook Messenger provider is registered only when enabled. */
 export const isFacebookEnabled = env.FACEBOOK_PROVIDER_ENABLED;
+
+/** Telegram provider is registered only when enabled. */
+export const isTelegramEnabled = env.TELEGRAM_PROVIDER_ENABLED;

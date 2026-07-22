@@ -570,6 +570,11 @@ export interface FacebookConnectInput {
   verifyToken: string;
 }
 
+export interface TelegramConnectInput {
+  displayName: string;
+  botToken: string;
+}
+
 export interface ChannelAccount {
   id: string;
   providerKey: string;

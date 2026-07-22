@@ -7,6 +7,7 @@ import type {
   DeliveryRetryResult,
   FacebookConnectInput,
   InstagramConnectInput,
+  TelegramConnectInput,
   WebChatConfig,
   WhatsAppConnectInput,
 } from '../types';
@@ -59,6 +60,15 @@ export const channelsApi = {
     input: FacebookConnectInput,
   ): Promise<{ account: ChannelAccount }> {
     return request('/channels/facebook/connect', {
+      method: 'POST',
+      body: input,
+      auth: true,
+    });
+  },
+  connectTelegram(
+    input: TelegramConnectInput,
+  ): Promise<{ account: ChannelAccount; webhookRegistered: boolean }> {
+    return request('/channels/telegram/connect', {
       method: 'POST',
       body: input,
       auth: true,

@@ -5,6 +5,7 @@ import cookieParser from 'cookie-parser';
 import { env } from './config/env';
 import { corsOptions, widgetCorsOptions } from './config/cors';
 import { apiV1Router } from './routes';
+import { legalRoutes } from './routes/legal.routes';
 import {
   errorHandler,
   notFound,
@@ -69,6 +70,11 @@ export function createApp(): Application {
       'Service is healthy',
     );
   });
+
+  // --- Public legal pages (Privacy Policy / Terms) — no JWT, HTML ---
+  // Usable as the app's public Privacy Policy / Terms URLs (e.g. to switch a
+  // Meta app to Live mode).
+  app.use(legalRoutes);
 
   // --- Public webhook engine (NO JWT) ---
   // Mounted BEFORE the general API limiter with its OWN dedicated limiter, so

@@ -17,3 +17,14 @@ export interface AuthResult {
   company: PublicCompany;
   tokens: AuthTokens;
 }
+
+/**
+ * Result of registration. While email verification is enforced no tokens are
+ * issued — the user must confirm the emailed code first (tokens: null).
+ */
+export interface RegisterResult {
+  user: PublicUser;
+  company: PublicCompany;
+  tokens: AuthTokens | null;
+  requiresEmailVerification: boolean;
+}

@@ -11,6 +11,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: 'Channels', href: '/dashboard/channels', icon: '🔌' },
   { label: 'Company Profile', href: '/dashboard/profile', icon: '🏢' },
   { label: 'Services', href: '/dashboard/services', icon: '🧾' },
+  { label: 'Products', href: '/dashboard/products', icon: '📦' },
   { label: 'Business Hours', href: '/dashboard/business-hours', icon: '🕒' },
   { label: 'FAQs', href: '/dashboard/faqs', icon: '❓' },
   { label: 'Knowledge Base', href: '/dashboard/knowledge-base', icon: '📚' },

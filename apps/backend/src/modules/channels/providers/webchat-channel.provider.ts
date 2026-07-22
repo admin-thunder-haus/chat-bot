@@ -58,6 +58,8 @@ export class WebChatChannelProvider implements ChannelProvider {
   readonly capabilities: ChannelCapabilities = {
     ...NO_CAPABILITIES,
     textMessages: true,
+    // No network transport involved — the widget renders persisted mediaUrl.
+    mediaMessages: true,
     messageReplies: true,
     deliveryReceipts: true,
     readReceipts: true,

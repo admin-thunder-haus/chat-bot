@@ -32,6 +32,7 @@ export interface User {
   email: string;
   role: UserRole;
   status: UserStatus;
+  emailVerifiedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -69,6 +70,8 @@ export interface ApiError {
   message: string;
   errors: { field?: string; message: string }[];
   requestId: string;
+  /** Machine-readable discriminator (e.g. EMAIL_NOT_VERIFIED). */
+  code?: string;
 }
 
 export interface AuthData {
@@ -76,6 +79,15 @@ export interface AuthData {
   company: Company;
   accessToken: string;
   refreshToken?: string;
+}
+
+/** Registration response: no tokens until the email is verified. */
+export interface RegisterData {
+  user: User;
+  company: Company;
+  accessToken?: string;
+  refreshToken?: string;
+  requiresEmailVerification: boolean;
 }
 
 export interface Pagination {
@@ -99,10 +111,50 @@ export interface Service {
   currency: string;
   priceType: ServicePriceType;
   durationMinutes: number | null;
+  imageUrl: string | null;
   isActive: boolean;
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface Product {
+  id: string;
+  companyId: string;
+  name: string;
+  description: string | null;
+  sku: string | null;
+  category: string | null;
+  /** Decimal serialized as a string; null means "price on request". */
+  price: string | null;
+  currency: string;
+  stockQuantity: number | null;
+  imageUrl: string | null;
+  isActive: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// --- Excel import (services + products) ---
+
+export interface ImportRowResult {
+  rowNumber: number;
+  data: Record<string, unknown> | null;
+  raw: Record<string, unknown>;
+  errors: { field?: string; message: string }[];
+}
+
+export interface ImportPreview {
+  rows: ImportRowResult[];
+  summary: { totalRows: number; validRows: number; invalidRows: number };
+}
+
+export interface ImportResult {
+  created: number;
+  updated: number;
+  deleted: number;
+  total: number;
 }
 
 export interface WeeklyDay {
@@ -326,8 +378,9 @@ export interface Message {
   senderUserId: string | null;
   direction: MessageDirection;
   senderType: MessageSenderType;
-  contentType: 'TEXT';
+  contentType: 'TEXT' | 'IMAGE';
   content: string;
+  mediaUrl: string | null;
   status: MessageStatus;
   createdAt: string;
   sentAt: string | null;

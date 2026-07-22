@@ -14,6 +14,7 @@ export interface SerializedService {
   currency: string;
   priceType: ServicePriceType;
   durationMinutes: number | null;
+  imageUrl: string | null;
   isActive: boolean;
   sortOrder: number;
   createdAt: Date;
@@ -40,6 +41,7 @@ export function serializeService(row: BusinessService): SerializedService {
     currency: row.currency,
     priceType: row.priceType,
     durationMinutes: row.durationMinutes,
+    imageUrl: row.imageUrl,
     isActive: row.isActive,
     sortOrder: row.sortOrder,
     createdAt: row.createdAt,

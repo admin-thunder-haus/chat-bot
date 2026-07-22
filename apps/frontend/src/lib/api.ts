@@ -1,4 +1,11 @@
-import type { ApiError, ApiSuccess, AuthData, User, Company } from './types';
+import type {
+  ApiError,
+  ApiSuccess,
+  AuthData,
+  RegisterData,
+  User,
+  Company,
+} from './types';
 
 const BASE_URL =
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '') ||
@@ -29,16 +36,20 @@ export function setOnAuthFailure(fn: (() => void) | null): void {
 export class ApiClientError extends Error {
   status: number;
   errors: { field?: string; message: string }[];
+  /** Machine-readable discriminator (e.g. EMAIL_NOT_VERIFIED). */
+  code?: string;
 
   constructor(
     message: string,
     status: number,
     errors: { field?: string; message: string }[] = [],
+    code?: string,
   ) {
     super(message);
     this.name = 'ApiClientError';
     this.status = status;
     this.errors = errors;
+    this.code = code;
   }
 }
 
@@ -70,8 +81,14 @@ export async function request<T>(
     retryOnUnauthorized = true,
   } = options;
 
+  // FormData bodies (file uploads) pass through untouched; the browser sets
+  // the multipart Content-Type with its boundary.
+  const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
+
   const headers: Record<string, string> = {};
-  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  if (body !== undefined && !isFormData) {
+    headers['Content-Type'] = 'application/json';
+  }
   if (auth && accessToken) headers.Authorization = `Bearer ${accessToken}`;
 
   const res = await fetch(`${BASE_URL}${API_PREFIX}${path}`, {
@@ -79,7 +96,12 @@ export async function request<T>(
     headers,
     // Always include credentials so the httpOnly refresh cookie flows.
     credentials: 'include',
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    body:
+      body === undefined
+        ? undefined
+        : isFormData
+          ? (body as FormData)
+          : JSON.stringify(body),
   });
 
   // Transparently refresh the access token once on a 401 for authed calls.
@@ -101,6 +123,7 @@ export async function request<T>(
       errBody?.message || `Request failed with status ${res.status}`,
       res.status,
       errBody?.errors ?? [],
+      errBody?.code,
     );
   }
 
@@ -145,8 +168,23 @@ export const api = {
     fullName: string;
     email: string;
     password: string;
-  }): Promise<AuthData> {
-    return request<AuthData>('/auth/register', {
+    confirmPassword: string;
+  }): Promise<RegisterData> {
+    return request<RegisterData>('/auth/register', {
+      method: 'POST',
+      body: input,
+    });
+  },
+
+  verifyEmail(input: { email: string; code: string }): Promise<AuthData> {
+    return request<AuthData>('/auth/verify-email', {
+      method: 'POST',
+      body: input,
+    });
+  },
+
+  resendVerification(input: { email: string }): Promise<null> {
+    return request<null>('/auth/resend-verification', {
       method: 'POST',
       body: input,
     });

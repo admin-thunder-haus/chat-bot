@@ -124,6 +124,51 @@ export const servicesRepository = {
     });
   },
 
+  /**
+   * Excel import commit. `replace` first removes every existing service;
+   * `merge` upserts by the company-unique name. Runs in ONE transaction so a
+   * failed import never leaves a half-replaced catalog.
+   */
+  async importRows(
+    companyId: string,
+    rows: Omit<Prisma.BusinessServiceUncheckedCreateInput, 'companyId'>[],
+    mode: 'merge' | 'replace',
+  ): Promise<{ created: number; updated: number; deleted: number }> {
+    return prisma.$transaction(async (tx) => {
+      let deleted = 0;
+      let created = 0;
+      let updated = 0;
+
+      if (mode === 'replace') {
+        const res = await tx.businessService.deleteMany({
+          where: { companyId },
+        });
+        deleted = res.count;
+      }
+
+      for (const row of rows) {
+        if (mode === 'merge') {
+          const existing = await tx.businessService.findFirst({
+            where: { companyId, name: row.name as string },
+            select: { id: true },
+          });
+          if (existing) {
+            await tx.businessService.update({
+              where: { id: existing.id },
+              data: row,
+            });
+            updated += 1;
+            continue;
+          }
+        }
+        await tx.businessService.create({ data: { ...row, companyId } });
+        created += 1;
+      }
+
+      return { created, updated, deleted };
+    });
+  },
+
   countAll(companyId: string): Promise<number> {
     return prisma.businessService.count({ where: { companyId } });
   },

@@ -27,6 +27,7 @@ export interface WidgetMessage {
   id: string;
   role: WidgetMessageRole;
   content: string;
+  mediaUrl?: string | null;
   createdAt: string;
 }
 

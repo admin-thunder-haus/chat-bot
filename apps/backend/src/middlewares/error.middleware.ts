@@ -11,6 +11,7 @@ interface NormalizedError {
   message: string;
   errors: AppErrorDetail[];
   isOperational: boolean;
+  code?: string;
 }
 
 function normalize(err: unknown): NormalizedError {
@@ -20,6 +21,7 @@ function normalize(err: unknown): NormalizedError {
       message: err.message,
       errors: err.errors,
       isOperational: err.isOperational,
+      code: err.code,
     };
   }
 
@@ -130,5 +132,6 @@ export function errorHandler(
     normalized.statusCode,
     normalized.errors,
     req.requestId,
+    normalized.code,
   );
 }

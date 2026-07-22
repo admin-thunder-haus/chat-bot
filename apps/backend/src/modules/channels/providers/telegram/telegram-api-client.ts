@@ -138,6 +138,41 @@ export const telegramApiClient = {
     }
   },
 
+  /** Send a photo (by public URL) with an optional caption. Never throws. */
+  async sendPhoto(input: {
+    botToken: string;
+    chatId: string;
+    photoUrl: string;
+    caption?: string | null;
+    replyToMessageId?: string | null;
+  }): Promise<TelegramSendOutcome> {
+    const body: Record<string, unknown> = {
+      chat_id: input.chatId,
+      photo: input.photoUrl,
+      ...(input.caption ? { caption: input.caption } : {}),
+    };
+    const replyId = input.replyToMessageId ? Number(input.replyToMessageId) : NaN;
+    if (Number.isFinite(replyId)) body.reply_to_message_id = replyId;
+    try {
+      const res = await transport.request({
+        url: methodUrl(input.botToken, 'sendPhoto'),
+        method: 'POST',
+        body,
+        timeoutMs: env.TELEGRAM_API_TIMEOUT_MS,
+      });
+      const json = res.json as TelegramApiResponse<TelegramSendResult> | null;
+      if (res.ok && json?.ok) {
+        const id = json.result?.message_id;
+        return { ok: true, externalMessageId: id != null ? String(id) : null };
+      }
+      const c = classifyTelegram(res.status, res.json);
+      return { ok: false, category: c.category, retryable: c.retryable, code: c.code, reason: safeTelegramReason(c.category) };
+    } catch (err) {
+      const c = classifyTelegramThrow(err);
+      return { ok: false, category: c.category, retryable: c.retryable, code: c.code, reason: safeTelegramReason(c.category) };
+    }
+  },
+
   /** Validate the bot token via getMe. Never throws. */
   async getMe(input: { botToken: string }): Promise<TelegramConnectionOutcome> {
     try {

@@ -1,4 +1,10 @@
-import type { Company, Prisma, RefreshToken, User } from '@prisma/client';
+import type {
+  Company,
+  EmailVerificationCode,
+  Prisma,
+  RefreshToken,
+  User,
+} from '@prisma/client';
 import { prisma } from '../../config/prisma';
 
 /**
@@ -37,6 +43,7 @@ export const authRepository = {
     fullName: string;
     email: string;
     passwordHash: string;
+    emailVerifiedAt?: Date | null;
   }): Promise<{ company: Company; user: User }> {
     return prisma.$transaction(async (tx) => {
       const company = await tx.company.create({
@@ -55,6 +62,7 @@ export const authRepository = {
           passwordHash: input.passwordHash,
           role: 'OWNER',
           status: 'ACTIVE',
+          emailVerifiedAt: input.emailVerifiedAt ?? null,
         },
       });
 
@@ -85,5 +93,69 @@ export const authRepository = {
       where: { userId, revokedAt: null },
       data: { revokedAt: new Date() },
     });
+  },
+
+  // --- Email verification codes ---
+
+  /**
+   * Replace any outstanding code with a fresh one: previous unconsumed codes
+   * are removed so exactly one code is valid per user at a time.
+   */
+  async replaceVerificationCode(input: {
+    userId: string;
+    codeHash: string;
+    expiresAt: Date;
+  }): Promise<EmailVerificationCode> {
+    return prisma.$transaction(async (tx) => {
+      await tx.emailVerificationCode.deleteMany({
+        where: { userId: input.userId, consumedAt: null },
+      });
+      return tx.emailVerificationCode.create({ data: input });
+    });
+  },
+
+  /** Most recent unconsumed code for a user (may be expired). */
+  findActiveVerificationCode(
+    userId: string,
+  ): Promise<EmailVerificationCode | null> {
+    return prisma.emailVerificationCode.findFirst({
+      where: { userId, consumedAt: null },
+      orderBy: { createdAt: 'desc' },
+    });
+  },
+
+  /** Most recent code regardless of state — used for resend cooldowns. */
+  findLatestVerificationCode(
+    userId: string,
+  ): Promise<EmailVerificationCode | null> {
+    return prisma.emailVerificationCode.findFirst({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+    });
+  },
+
+  async incrementVerificationAttempts(id: string): Promise<void> {
+    await prisma.emailVerificationCode.update({
+      where: { id },
+      data: { attemptCount: { increment: 1 } },
+    });
+  },
+
+  /** Consume the code and mark the user verified in one transaction. */
+  async consumeVerificationCode(input: {
+    codeId: string;
+    userId: string;
+  }): Promise<User> {
+    const [, user] = await prisma.$transaction([
+      prisma.emailVerificationCode.update({
+        where: { id: input.codeId },
+        data: { consumedAt: new Date() },
+      }),
+      prisma.user.update({
+        where: { id: input.userId },
+        data: { emailVerifiedAt: new Date() },
+      }),
+    ]);
+    return user;
   },
 };

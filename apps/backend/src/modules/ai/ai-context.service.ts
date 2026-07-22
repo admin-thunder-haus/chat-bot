@@ -13,10 +13,19 @@ export interface BuiltContext {
     companyProfile: boolean;
     businessHoursIncluded: boolean;
     serviceIds: string[];
+    productIds: string[];
     faqIds: string[];
     knowledgeIds: string[];
     approxCharacters: number;
   };
+}
+
+/** Image the AI reply should carry, resolved from a recommended item. */
+export interface RecommendedAttachment {
+  imageUrl: string;
+  sourceType: 'service' | 'product';
+  sourceId: string;
+  sourceName: string;
 }
 
 function priceLabel(
@@ -85,6 +94,27 @@ export const aiContextService = {
       add(`SERVICES\n${lines.join('\n')}\n`);
     }
 
+    const productIds: string[] = [];
+    if (retrieval.products.length > 0) {
+      const lines = retrieval.products.map((p) => {
+        productIds.push(p.id);
+        const price =
+          p.price === null
+            ? 'Price on request'
+            : `${p.price.toString()} ${p.currency}`;
+        const stock =
+          p.stockQuantity === null
+            ? ''
+            : p.stockQuantity > 0
+              ? ' (in stock)'
+              : ' (out of stock)';
+        const cat = p.category ? ` [${p.category}]` : '';
+        const desc = p.description ? ` — ${p.description}` : '';
+        return `- ${p.name}${cat}: ${price}${stock}${desc}`;
+      });
+      add(`PRODUCTS\n${lines.join('\n')}\n`);
+    }
+
     const faqIds: string[] = [];
     if (retrieval.faqs.length > 0) {
       const lines = retrieval.faqs.map((f) => {
@@ -117,11 +147,47 @@ export const aiContextService = {
         companyProfile: true,
         businessHoursIncluded,
         serviceIds,
+        productIds,
         faqIds,
         knowledgeIds,
         approxCharacters: contextText.length,
       },
     };
+  },
+
+  /**
+   * Pick the image to attach to an AI reply: the first retrieved service or
+   * product that (a) has an image and (b) is actually mentioned by name in
+   * the generated text. Deterministic — the model itself never sees or emits
+   * URLs; the attachment rides out-of-band next to the text.
+   */
+  findRecommendedAttachment(
+    responseText: string,
+    retrieval: RetrievalResult,
+  ): RecommendedAttachment | null {
+    const lowered = responseText.toLowerCase();
+
+    for (const s of retrieval.services) {
+      if (s.imageUrl && lowered.includes(s.name.toLowerCase())) {
+        return {
+          imageUrl: s.imageUrl,
+          sourceType: 'service',
+          sourceId: s.id,
+          sourceName: s.name,
+        };
+      }
+    }
+    for (const p of retrieval.products) {
+      if (p.imageUrl && lowered.includes(p.name.toLowerCase())) {
+        return {
+          imageUrl: p.imageUrl,
+          sourceType: 'product',
+          sourceId: p.id,
+          sourceName: p.name,
+        };
+      }
+    }
+    return null;
   },
 };
 

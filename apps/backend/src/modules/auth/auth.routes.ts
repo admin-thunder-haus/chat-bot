@@ -1,6 +1,12 @@
 import { Router } from 'express';
 import { authController } from './auth.controller';
-import { loginSchema, refreshSchema, registerSchema } from './auth.validation';
+import {
+  loginSchema,
+  refreshSchema,
+  registerSchema,
+  resendVerificationSchema,
+  verifyEmailSchema,
+} from './auth.validation';
 import { validate } from '../../middlewares/validate.middleware';
 import { authenticate } from '../../middlewares/auth.middleware';
 import {
@@ -24,6 +30,22 @@ router.post(
   authRateLimiter,
   validate({ body: loginSchema }),
   asyncHandler(authController.login),
+);
+
+// Email verification: both share the strict auth limiter (code brute-force /
+// mail-flood abuse), plus service-level attempt caps and resend cooldowns.
+router.post(
+  '/verify-email',
+  authRateLimiter,
+  validate({ body: verifyEmailSchema }),
+  asyncHandler(authController.verifyEmail),
+);
+
+router.post(
+  '/resend-verification',
+  authRateLimiter,
+  validate({ body: resendVerificationSchema }),
+  asyncHandler(authController.resendVerification),
 );
 
 // Refresh uses its OWN, more generous limiter so routine token rotation never

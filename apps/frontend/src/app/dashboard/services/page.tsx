@@ -19,7 +19,20 @@ import {
   Select,
   Skeleton,
 } from '@/components/ui';
+import { ImportExcelModal } from '@/components/ImportExcelModal';
 import { ServiceFormModal } from './ServiceFormModal';
+
+const IMPORT_COLUMNS = [
+  'name',
+  'description',
+  'price',
+  'currency',
+  'priceType',
+  'durationMinutes',
+  'imageUrl',
+  'isActive',
+  'sortOrder',
+];
 
 const PRICE_TYPE_LABEL: Record<ServicePriceType, string> = {
   FIXED: 'Fixed',
@@ -52,6 +65,7 @@ export default function ServicesPage() {
   const [error, setError] = useState('');
 
   const [modalOpen, setModalOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [editing, setEditing] = useState<Service | null>(null);
   const [deleting, setDeleting] = useState<Service | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
@@ -133,14 +147,19 @@ export default function ServicesPage() {
         description="Products and services your assistant can quote to customers."
         actions={
           !readOnly ? (
-            <Button
-              onClick={() => {
-                setEditing(null);
-                setModalOpen(true);
-              }}
-            >
-              Add service
-            </Button>
+            <>
+              <Button variant="secondary" onClick={() => setImportOpen(true)}>
+                Import
+              </Button>
+              <Button
+                onClick={() => {
+                  setEditing(null);
+                  setModalOpen(true);
+                }}
+              >
+                Add service
+              </Button>
+            </>
           ) : undefined
         }
       />
@@ -219,12 +238,27 @@ export default function ServicesPage() {
               {items.map((s, index) => (
                 <tr key={s.id} className="border-b border-slate-100 last:border-0">
                   <td className="px-4 py-3">
-                    <div className="font-medium text-slate-900">{s.name}</div>
-                    {s.description && (
-                      <div className="max-w-xs truncate text-xs text-slate-500">
-                        {s.description}
+                    <div className="flex items-center gap-3">
+                      {s.imageUrl && (
+                        // eslint-disable-next-line @next/next/no-img-element -- arbitrary customer-hosted URLs cannot go through next/image
+                        <img
+                          src={s.imageUrl}
+                          alt=""
+                          className="h-9 w-9 shrink-0 rounded-md object-cover"
+                          onError={(e) => {
+                            e.currentTarget.style.display = 'none';
+                          }}
+                        />
+                      )}
+                      <div className="min-w-0">
+                        <div className="font-medium text-slate-900">{s.name}</div>
+                        {s.description && (
+                          <div className="max-w-xs truncate text-xs text-slate-500">
+                            {s.description}
+                          </div>
+                        )}
                       </div>
-                    )}
+                    </div>
                   </td>
                   <td className="px-4 py-3">{priceDisplay(s)}</td>
                   <td className="px-4 py-3">
@@ -335,6 +369,16 @@ export default function ServicesPage() {
           notify(editing ? 'Service updated' : 'Service created', 'success');
           load();
         }}
+      />
+
+      <ImportExcelModal
+        open={importOpen}
+        title="Import services from Excel"
+        templateColumns={IMPORT_COLUMNS}
+        onClose={() => setImportOpen(false)}
+        onPreview={(file) => servicesApi.importPreview(file)}
+        onCommit={(file, mode) => servicesApi.importCommit(file, mode)}
+        onImported={load}
       />
 
       <ConfirmDialog

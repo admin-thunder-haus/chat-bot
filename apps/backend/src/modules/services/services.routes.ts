@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { servicesController } from './services.controller';
 import {
   createServiceSchema,
+  importCommitSchema,
   reorderSchema,
   serviceListQuerySchema,
   serviceStatusSchema,
@@ -10,6 +11,7 @@ import {
 import { uuidParam } from '../../validations/common.validation';
 import { authenticate, authorizeRoles } from '../../middlewares/auth.middleware';
 import { validate } from '../../middlewares/validate.middleware';
+import { uploadExcelFile } from '../../middlewares/upload.middleware';
 import { asyncHandler } from '../../utils/asyncHandler';
 
 const router = Router();
@@ -39,6 +41,24 @@ router.patch(
   writeRoles,
   validate({ body: reorderSchema }),
   asyncHandler(servicesController.reorder),
+);
+
+// Excel import. Multipart upload ("file" field) parsed in memory; preview
+// never writes, commit re-validates everything server-side. Declared before
+// `/:serviceId` so the literal paths win.
+router.post(
+  '/import/preview',
+  writeRoles,
+  uploadExcelFile,
+  asyncHandler(servicesController.importPreview),
+);
+
+router.post(
+  '/import',
+  writeRoles,
+  uploadExcelFile,
+  validate({ body: importCommitSchema }),
+  asyncHandler(servicesController.importCommit),
 );
 
 router.get(

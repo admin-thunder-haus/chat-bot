@@ -163,6 +163,54 @@ export const instagramApiClient = {
   },
 
   /**
+   * Send an image attachment (by public URL). Instagram DMs do not support
+   * captions on attachments, so callers pair this with sendText. Never throws.
+   */
+  async sendImage(input: {
+    accessToken: string;
+    instagramAccountId: string;
+    recipientId: string;
+    imageUrl: string;
+  }): Promise<InstagramSendOutcome> {
+    const body = {
+      recipient: { id: input.recipientId },
+      message: {
+        attachment: { type: 'image', payload: { url: input.imageUrl } },
+      },
+    };
+    try {
+      const res = await transport.request({
+        url: graphUrl(`${encodeURIComponent(input.instagramAccountId)}/messages`),
+        method: 'POST',
+        accessToken: input.accessToken,
+        body,
+        timeoutMs: env.INSTAGRAM_API_TIMEOUT_MS,
+      });
+      if (res.ok) {
+        const id = (res.json as InstagramSendResponse | null)?.message_id ?? null;
+        return { ok: true, externalMessageId: id };
+      }
+      const c = classifyInstagramHttp(res.status, res.json);
+      return {
+        ok: false,
+        category: c.category,
+        retryable: c.retryable,
+        code: c.code,
+        reason: safeInstagramReason(c.category),
+      };
+    } catch (err) {
+      const c = classifyInstagramThrow(err);
+      return {
+        ok: false,
+        category: c.category,
+        retryable: c.retryable,
+        code: c.code,
+        reason: safeInstagramReason(c.category),
+      };
+    }
+  },
+
+  /**
    * Best-effort lookup of an inbound sender's public profile. Never throws;
    * returns null on any error. Uses a short bounded timeout so it cannot delay
    * webhook processing.

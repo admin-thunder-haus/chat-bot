@@ -2,13 +2,19 @@ import { servicesRepository } from './services.repository';
 import { AppError } from '../../utils/AppError';
 import { paginate, type PaginatedResult } from '../../utils/pagination';
 import {
+  buildImportPreview,
+  parseSpreadsheet,
+  type ImportPreview,
+} from '../../utils/spreadsheet';
+import {
   serializeService,
   type SerializedService,
 } from './services.types';
-import { PRICED_TYPES } from './services.validation';
+import { PRICED_TYPES, serviceImportRowSchema } from './services.validation';
 import type {
   CreateServiceInput,
   ReorderInput,
+  ServiceImportRow,
   ServiceListQuery,
   UpdateServiceInput,
 } from './services.validation';
@@ -70,6 +76,7 @@ export const servicesService = {
       currency: input.currency,
       priceType: input.priceType,
       durationMinutes: input.durationMinutes ?? null,
+      imageUrl: input.imageUrl ?? null,
       isActive: input.isActive ?? true,
       sortOrder: input.sortOrder ?? 0,
     });
@@ -100,6 +107,7 @@ export const servicesService = {
     if (input.durationMinutes !== undefined) {
       data.durationMinutes = input.durationMinutes;
     }
+    if (input.imageUrl !== undefined) data.imageUrl = input.imageUrl;
     if (input.isActive !== undefined) data.isActive = input.isActive;
     if (input.sortOrder !== undefined) data.sortOrder = input.sortOrder;
 
@@ -165,5 +173,71 @@ export const servicesService = {
     await servicesRepository.reorder(companyId, input.items);
     const ordered = await servicesRepository.listOrdered(companyId);
     return ordered.map(serializeService);
+  },
+
+  /** Parse + validate an uploaded Excel file without writing anything. */
+  async importPreview(
+    fileBuffer: Buffer,
+  ): Promise<ImportPreview<ServiceImportRow>> {
+    const parsed = await parseSpreadsheet(fileBuffer);
+    return buildImportPreview(parsed, serviceImportRowSchema, {
+      uniqueField: 'name',
+    });
+  },
+
+  /**
+   * Commit an Excel import. The file is fully re-validated server-side; any
+   * invalid row aborts the commit (clients preview first, so this is a
+   * safety net, not the primary UX).
+   */
+  async importCommit(
+    companyId: string,
+    fileBuffer: Buffer,
+    mode: 'merge' | 'replace',
+  ): Promise<{
+    created: number;
+    updated: number;
+    deleted: number;
+    total: number;
+  }> {
+    const preview = await this.importPreview(fileBuffer);
+
+    if (preview.summary.totalRows === 0) {
+      throw AppError.badRequest('The file contains no data rows');
+    }
+    if (preview.summary.invalidRows > 0) {
+      const first = preview.rows.find((r) => r.errors.length > 0);
+      throw AppError.badRequest(
+        `The file contains ${preview.summary.invalidRows} invalid row(s). Fix them and try again.`,
+        first
+          ? first.errors.map((e) => ({
+              field: e.field,
+              message: `Row ${first.rowNumber}: ${e.message}`,
+            }))
+          : [],
+      );
+    }
+
+    const rows = preview.rows.map((r, index) => {
+      const row = r.data!;
+      return {
+        name: row.name,
+        description: row.description,
+        // Non-priced types never store a price, mirroring create().
+        price: PRICED_TYPES.includes(row.priceType)
+          ? row.price!.toString()
+          : null,
+        currency: row.currency,
+        priceType: row.priceType,
+        durationMinutes: row.durationMinutes,
+        imageUrl: row.imageUrl,
+        isActive: row.isActive,
+        // File order becomes display order unless the sheet specifies one.
+        sortOrder: row.sortOrder ?? index,
+      };
+    });
+
+    const result = await servicesRepository.importRows(companyId, rows, mode);
+    return { ...result, total: rows.length };
   },
 };

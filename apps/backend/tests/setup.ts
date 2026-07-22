@@ -53,6 +53,7 @@ import { prisma } from '../src/config/prisma';
 /** Remove all rows in FK-safe order. */
 export async function resetDatabase(): Promise<void> {
   await prisma.refreshToken.deleteMany();
+  await prisma.emailVerificationCode.deleteMany();
   await prisma.user.deleteMany();
   await prisma.company.deleteMany();
 }

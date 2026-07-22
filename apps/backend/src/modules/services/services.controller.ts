@@ -57,4 +57,18 @@ export const servicesController = {
     );
     sendSuccess(res, { services }, 'Services reordered successfully');
   },
+
+  async importPreview(req: Request, res: Response): Promise<void> {
+    const preview = await servicesService.importPreview(req.file!.buffer);
+    sendSuccess(res, preview, 'Import preview generated successfully');
+  },
+
+  async importCommit(req: Request, res: Response): Promise<void> {
+    const result = await servicesService.importCommit(
+      req.user!.companyId,
+      req.file!.buffer,
+      req.body.mode,
+    );
+    sendSuccess(res, result, 'Services imported successfully');
+  },
 };

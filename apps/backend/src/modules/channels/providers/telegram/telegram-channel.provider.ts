@@ -68,7 +68,8 @@ export class TelegramChannelProvider implements ChannelProvider {
     deliveryReceipts: false,
     readReceipts: false,
     webhookVerification: false, // no GET challenge handshake
-    mediaMessages: false,
+    // Outbound photos (public URL + caption) via the Bot API sendPhoto.
+    mediaMessages: true,
     templates: false,
     reactions: false,
     typingIndicators: false,
@@ -161,12 +162,21 @@ export class TelegramChannelProvider implements ChannelProvider {
       };
     }
 
-    const outcome = await telegramApiClient.sendText({
-      botToken: creds.botToken,
-      chatId,
-      text: input.text,
-      replyToMessageId: input.replyToExternalMessageId ?? null,
-    });
+    // Image messages use sendPhoto with the text as caption; text otherwise.
+    const outcome = input.mediaUrl
+      ? await telegramApiClient.sendPhoto({
+          botToken: creds.botToken,
+          chatId,
+          photoUrl: input.mediaUrl,
+          caption: input.text || null,
+          replyToMessageId: input.replyToExternalMessageId ?? null,
+        })
+      : await telegramApiClient.sendText({
+          botToken: creds.botToken,
+          chatId,
+          text: input.text,
+          replyToMessageId: input.replyToExternalMessageId ?? null,
+        });
 
     if (outcome.ok) {
       return {

@@ -8,6 +8,8 @@ export interface WidgetMessage {
   id: string;
   role: WidgetMessageRole;
   content: string;
+  /** Image attachment URL (AI product/service recommendations). */
+  mediaUrl: string | null;
   createdAt: Date;
 }
 
@@ -31,6 +33,7 @@ export function toWidgetMessage(m: {
   direction: Message['direction'];
   senderType: Message['senderType'];
   content: string;
+  mediaUrl: string | null;
   createdAt: Date;
 }): WidgetMessage {
   let role: WidgetMessageRole;
@@ -38,5 +41,11 @@ export function toWidgetMessage(m: {
   else if (m.senderType === 'AI') role = 'assistant';
   else if (m.senderType === 'SYSTEM') role = 'system';
   else role = 'agent';
-  return { id: m.id, role, content: m.content, createdAt: m.createdAt };
+  return {
+    id: m.id,
+    role,
+    content: m.content,
+    mediaUrl: m.mediaUrl,
+    createdAt: m.createdAt,
+  };
 }

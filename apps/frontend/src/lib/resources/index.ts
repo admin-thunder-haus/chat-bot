@@ -1,5 +1,6 @@
 export { companyApi } from './company';
 export { servicesApi } from './services';
+export { productsApi } from './products';
 export { businessHoursApi } from './business-hours';
 export { faqsApi } from './faqs';
 export { knowledgeApi } from './knowledge-base';
@@ -19,6 +20,7 @@ export type { CreateChannelInput, UpdateChannelInput } from './channels';
 
 export type { ProfileUpdate } from './company';
 export type { ServiceInput, ServiceListParams } from './services';
+export type { ProductInput, ProductListParams } from './products';
 export type { FaqInput, FaqListParams } from './faqs';
 export type { KnowledgeInput, KnowledgeListParams } from './knowledge-base';
 export type { AISettingsInput } from './ai-settings';

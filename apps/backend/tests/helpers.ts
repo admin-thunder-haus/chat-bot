@@ -33,6 +33,8 @@ async function createUser(
       passwordHash: PLACEHOLDER_HASH,
       role,
       status: 'ACTIVE',
+      // Helper-created users are verified so auth flows work out of the box.
+      emailVerifiedAt: new Date(),
     },
   });
 }

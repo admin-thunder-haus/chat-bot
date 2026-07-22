@@ -14,7 +14,7 @@ describe('Web Chat provider (reference real provider)', () => {
     expect(provider.capabilities.inboundMessaging).toBe(true);
     expect(provider.capabilities.outboundMessaging).toBe(true);
     expect(provider.capabilities.typingIndicators).toBe(true);
-    expect(provider.capabilities.mediaMessages).toBe(false);
+    expect(provider.capabilities.mediaMessages).toBe(true);
   });
 
   it('initializes an account with a public widget key + default config', () => {

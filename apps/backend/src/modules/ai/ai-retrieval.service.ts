@@ -3,6 +3,7 @@ import type {
   FrequentlyAskedQuestion,
   KnowledgeBaseEntry,
   Prisma,
+  Product,
 } from '@prisma/client';
 import { prisma } from '../../config/prisma';
 
@@ -14,6 +15,7 @@ import { prisma } from '../../config/prisma';
 
 export interface RetrievalResult {
   services: BusinessService[];
+  products: Product[];
   faqs: FrequentlyAskedQuestion[];
   knowledge: KnowledgeBaseEntry[];
   includeBusinessHours: boolean;
@@ -37,6 +39,7 @@ const CONTACT_HINTS = [
 ];
 
 const MAX_SERVICES = 5;
+const MAX_PRODUCTS = 5;
 const MAX_FAQS = 5;
 const MAX_KNOWLEDGE = 4;
 
@@ -74,7 +77,7 @@ export const aiRetrievalService = {
       return this.fallback(companyId, includeBusinessHours, includeContact);
     }
 
-    const [services, faqs, knowledge] = await Promise.all([
+    const [services, products, faqs, knowledge] = await Promise.all([
       prisma.businessService.findMany({
         where: {
           companyId,
@@ -82,6 +85,19 @@ export const aiRetrievalService = {
           OR: [
             ...contains(terms).map((f) => ({ name: f })),
             ...contains(terms).map((f) => ({ description: f })),
+          ],
+        },
+        take: 25,
+      }),
+      prisma.product.findMany({
+        where: {
+          companyId,
+          isActive: true,
+          OR: [
+            ...contains(terms).map((f) => ({ name: f })),
+            ...contains(terms).map((f) => ({ description: f })),
+            ...contains(terms).map((f) => ({ category: f })),
+            ...contains(terms).map((f) => ({ sku: f })),
           ],
         },
         take: 25,
@@ -119,6 +135,15 @@ export const aiRetrievalService = {
       .slice(0, MAX_SERVICES)
       .map((r) => r.s);
 
+    const rankedProducts = products
+      .map((p) => ({
+        p,
+        score: score(terms, p.name, p.name, p.description, p.category),
+      }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, MAX_PRODUCTS)
+      .map((r) => r.p);
+
     const rankedFaqs = faqs
       .map((f) => ({ f, score: score(terms, f.question, f.question, f.answer, f.category) }))
       .sort((a, b) => b.score - a.score)
@@ -132,13 +157,18 @@ export const aiRetrievalService = {
       .map((r) => r.k);
 
     const anyMatch =
-      rankedServices.length + rankedFaqs.length + rankedKnowledge.length > 0;
+      rankedServices.length +
+        rankedProducts.length +
+        rankedFaqs.length +
+        rankedKnowledge.length >
+      0;
     if (!anyMatch) {
       return this.fallback(companyId, includeBusinessHours, includeContact);
     }
 
     return {
       services: rankedServices,
+      products: rankedProducts,
       faqs: rankedFaqs,
       knowledge: rankedKnowledge,
       includeBusinessHours,
@@ -153,11 +183,16 @@ export const aiRetrievalService = {
     includeBusinessHours: boolean,
     includeContact: boolean,
   ): Promise<RetrievalResult> {
-    const [services, faqs] = await Promise.all([
+    const [services, products, faqs] = await Promise.all([
       prisma.businessService.findMany({
         where: { companyId, isActive: true },
         orderBy: { sortOrder: 'asc' },
         take: MAX_SERVICES,
+      }),
+      prisma.product.findMany({
+        where: { companyId, isActive: true },
+        orderBy: { sortOrder: 'asc' },
+        take: MAX_PRODUCTS,
       }),
       prisma.frequentlyAskedQuestion.findMany({
         where: { companyId, isActive: true },
@@ -167,6 +202,7 @@ export const aiRetrievalService = {
     ]);
     return {
       services,
+      products,
       faqs,
       knowledge: [],
       includeBusinessHours,

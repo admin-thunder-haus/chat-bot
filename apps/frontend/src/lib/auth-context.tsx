@@ -26,7 +26,9 @@ interface AuthContextValue extends AuthState {
     fullName: string;
     email: string;
     password: string;
-  }) => Promise<void>;
+    confirmPassword: string;
+  }) => Promise<{ requiresEmailVerification: boolean }>;
+  verifyEmail: (email: string, code: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -89,17 +91,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       fullName: string;
       email: string;
       password: string;
+      confirmPassword: string;
     }) => {
       const data = await api.register(input);
+
+      // While email verification is enforced the backend issues no tokens;
+      // the caller routes the user to the verify-email step instead.
+      if (data.requiresEmailVerification || !data.accessToken) {
+        return { requiresEmailVerification: true };
+      }
+
       setAccessToken(data.accessToken);
       setState({
         user: data.user,
         company: data.company,
         initializing: false,
       });
+      return { requiresEmailVerification: false };
     },
     [],
   );
+
+  const verifyEmail = useCallback(async (email: string, code: string) => {
+    const data = await api.verifyEmail({ email, code });
+    setAccessToken(data.accessToken);
+    setState({
+      user: data.user,
+      company: data.company,
+      initializing: false,
+    });
+  }, []);
 
   const logout = useCallback(async () => {
     try {
@@ -111,8 +132,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<AuthContextValue>(
-    () => ({ ...state, login, register, logout }),
-    [state, login, register, logout],
+    () => ({ ...state, login, register, verifyEmail, logout }),
+    [state, login, register, verifyEmail, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

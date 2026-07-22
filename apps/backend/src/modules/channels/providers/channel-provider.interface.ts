@@ -128,7 +128,7 @@ export interface RawWebhookInput {
   credentials?: ProviderCredentials | null;
 }
 
-/** Input to send an outbound text message through the provider. */
+/** Input to send an outbound message through the provider. */
 export interface ChannelSendMessageInput {
   channelType: ChannelType;
   /** Provider-side account/page identifier, if known. */
@@ -138,6 +138,12 @@ export interface ChannelSendMessageInput {
   externalConversationId?: string | null;
   replyToExternalMessageId?: string | null;
   text: string;
+  /**
+   * Optional publicly-reachable image URL. Only set when the provider's
+   * `mediaMessages` capability is true (callers gate on it); the provider
+   * then sends an image message with `text` as the caption.
+   */
+  mediaUrl?: string | null;
   /** 1-based attempt number (first send = 1, retries increment). */
   attemptNumber?: number;
   credentials?: ProviderCredentials | null;

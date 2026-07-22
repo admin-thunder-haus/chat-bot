@@ -379,6 +379,21 @@ function Bubble({
           className="whitespace-pre-wrap break-words rounded-2xl px-3 py-2 text-sm"
           style={bubbleStyle}
         >
+          {message.mediaUrl && (
+            <a
+              href={message.mediaUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element -- provider-hosted media URLs cannot go through next/image */}
+              <img
+                src={message.mediaUrl}
+                alt="Attached media"
+                className={`max-h-64 rounded-lg object-cover ${message.content ? 'mb-2' : ''}`}
+              />
+            </a>
+          )}
           {message.content}
         </div>
         {showTime && message.createdAt && (

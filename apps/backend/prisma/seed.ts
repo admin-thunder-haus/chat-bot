@@ -89,6 +89,8 @@ async function main(): Promise<void> {
         passwordHash,
         role: u.role,
         status: 'ACTIVE',
+        // Demo accounts are pre-verified so they can log in immediately.
+        emailVerifiedAt: new Date(),
       },
     });
   }

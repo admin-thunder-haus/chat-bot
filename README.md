@@ -56,6 +56,14 @@ others.
   Accounts / companies, each a channel account. Incoming/outgoing flow through
   the existing pipeline + delivery engine + AI — **no business-logic change**.
   See [Day 6 features](#day-6--whatsapp-business-cloud-api).
+- **Day 10** — account & catalog hardening: **email verification** for new
+  registrations (6-digit emailed code, resend + expiry, confirm-password),
+  **Excel import** for services with preview/validation and a replace-all mode,
+  a complete generic **Products** module (CRUD + Excel import + images), and
+  **AI image responses** — when the AI recommends a service/product that has an
+  image, the image is delivered with the reply on media-capable channels and
+  gracefully falls back to text elsewhere. See
+  [Day 10 features](#day-10--email-verification-catalog-imports-products--ai-images).
 
 > Future milestones (not built yet): **real** WhatsApp / Instagram / Facebook
 > Messenger / Telegram / Web Chat integrations, billing, Redis, queues, retry
@@ -67,6 +75,7 @@ others.
 
 ## Table of contents
 
+- [Day 10 — Email verification, catalog imports, products & AI images](#day-10--email-verification-catalog-imports-products--ai-images)
 - [Day 9 — Telegram Bot API](#day-9--telegram-bot-api)
 - [Day 8 — Facebook Messenger (Meta)](#day-8--facebook-messenger-meta)
 - [Day 7 — Instagram Messaging (Meta)](#day-7--instagram-messaging-meta)
@@ -91,6 +100,116 @@ others.
 - [Demo credentials](#demo-credentials)
 - [Security notes](#security-notes)
 - [Troubleshooting](#troubleshooting)
+
+---
+
+## Day 10 — Email verification, catalog imports, products & AI images
+
+Four features, all built on the existing architecture (controller → service →
+repository, central errors, generic channel pipeline).
+
+### Email verification
+
+- Registration no longer issues tokens. A **6-digit code** is emailed
+  (nodemailer / SMTP); only a SHA-256 hash is stored
+  (`email_verification_codes`, mirroring the refresh-token pattern), with
+  expiry (`EMAIL_VERIFICATION_CODE_TTL_MS`, default 15 min), a per-code
+  wrong-attempt cap, and a resend cooldown. Codes are single-use; a resend
+  replaces the outstanding code.
+- **Login is blocked until verified** — a 403 with the machine-readable
+  `code: "EMAIL_NOT_VERIFIED"` (the error envelope now supports an optional
+  `code` discriminator). `POST /auth/verify-email` confirms the code and logs
+  the user in; `POST /auth/resend-verification` always returns a generic
+  response (no email enumeration). Both share the strict auth rate limiter.
+- Registration requires a matching **confirmPassword** (validated in Zod and
+  in the register form). The frontend adds a `/verify-email` page (code input,
+  resend with 60 s countdown); login redirects there for unverified accounts.
+- **No lockout**: the migration backfills all pre-existing users as verified;
+  seeded demo users are verified. Without `SMTP_HOST` the mailer logs the email
+  instead of sending (dev-friendly; codes appear in server logs).
+- Disable entirely with `EMAIL_VERIFICATION_ENABLED=false` (accounts are then
+  created pre-verified, original register-returns-tokens behavior).
+
+### Services Excel import
+
+- `POST /services/import/preview` (multipart `file`, `.xlsx`, 5 MB, in-memory
+  only) parses the first worksheet with tolerant headers (`Image URL` ==
+  `imageUrl`), validates every row with Zod (same price-type rules as the
+  API), flags in-file duplicate names, and returns per-row errors + a summary —
+  **without writing**.
+- `POST /services/import` re-validates server-side and commits in one
+  transaction: `mode=merge` (default) upserts by name; `mode=replace` deletes
+  the company's services first. Any invalid row aborts the whole commit.
+- Template columns: `name, description, price, currency, priceType,
+  durationMinutes, imageUrl, isActive, sortOrder`. `imageUrl` cells (plain or
+  hyperlink) become the service image; `BusinessService.imageUrl` is new and
+  editable in the dashboard form.
+- The dashboard Services page gains an **Import** flow (OWNER/ADMIN): file →
+  preview table with errors → merge/replace choice (replace needs an explicit
+  confirmation checkbox) → result toast.
+
+### Products module
+
+- New tenant-scoped `Product` model, deliberately generic: `name`,
+  `description`, `sku`, `category`, `price` (nullable Decimal = "price on
+  request"), `currency`, `stockQuantity` (null = untracked), `imageUrl`,
+  `isActive`, `sortOrder`. Name and SKU are unique per company.
+- Full CRUD + status toggle + reorder + list filters
+  (search/isActive/category) under `/api/v1/products`, mirroring the services
+  module exactly (RBAC: reads any role, writes OWNER/ADMIN; every query
+  tenant-scoped).
+- Excel import with the same preview/commit/replace engine (template adds
+  `sku, category, stockQuantity`; duplicate SKUs within a file are rejected).
+- Dashboard **Products** page (list, thumbnails, form modal, import) cloned
+  from the Services UX.
+
+### AI image responses
+
+- Products join the AI context: retrieval searches products
+  (name/description/category/SKU) alongside services, and the prompt gains a
+  `PRODUCTS` block (price, stock hint, category).
+- After a reply is generated, a deterministic post-step
+  (`findRecommendedAttachment`) checks whether the text mentions a retrieved
+  service/product **that has an image** — the model itself never sees or emits
+  URLs. The first match's image is attached out-of-band.
+- Transport is generic: `Message` gains `mediaUrl` + `contentType: IMAGE`, the
+  delivery engine forwards `mediaUrl` to providers, and
+  `ChannelSendMessageInput.mediaUrl` extends the provider contract. The
+  `mediaMessages` capability gates everything — channels without it get
+  **text-only fallback** (nothing breaks, nothing is silently attached).
+- Provider support: **WhatsApp** image+caption (`type: image`), **Telegram**
+  `sendPhoto`+caption, **Facebook Messenger / Instagram** text first, then the
+  image as a best-effort second message (their APIs don't support captions on
+  attachments; a failed image never fails the delivery), **Web Chat** renders
+  the persisted image in the widget; the dashboard Inbox shows images in
+  message bubbles.
+
+### Environment variables (Day 10)
+
+```bash
+EMAIL_VERIFICATION_ENABLED=true          # gate registration on email codes
+EMAIL_VERIFICATION_CODE_TTL_MS=900000    # code lifetime (15 min)
+EMAIL_VERIFICATION_RESEND_COOLDOWN_MS=60000
+EMAIL_VERIFICATION_MAX_ATTEMPTS=5        # wrong tries per code
+SMTP_HOST=                               # unset => emails are logged, not sent
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=
+SMTP_PASS=
+EMAIL_FROM=AI Support <no-reply@localhost>
+```
+
+### Tests
+
+- Backend: `auth.test.ts` (updated flow), `email-verification.test.ts`
+  (expiry, attempt cap, resend cooldown/rotation, enumeration safety),
+  `services-import.test.ts`, `products.test.ts` (CRUD, RBAC, isolation,
+  import), `ai-image-attachment.test.ts` (attachment picking, local-path
+  persistence, WhatsApp/Telegram image payloads).
+- Frontend: **Vitest + Testing Library** introduced (`npm test -w
+  apps/frontend`): API client envelope/`code`/FormData handling,
+  `parseApiError`, and the import modal (preview gating, invalid rows,
+  replace confirmation).
 
 ---
 

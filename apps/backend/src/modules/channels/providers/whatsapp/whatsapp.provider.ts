@@ -93,8 +93,9 @@ export class WhatsAppChannelProvider implements ChannelProvider {
     inboundMessaging: true,
     webhookVerification: true,
     webhookSignatures: true,
+    // Outbound image messages (public URL + caption) via the Graph API.
+    mediaMessages: true,
     // Architecture-ready but intentionally not yet implemented (Day 6 scope):
-    mediaMessages: false,
     templates: false,
     reactions: false,
     typingIndicators: false,
@@ -326,13 +327,23 @@ export class WhatsAppChannelProvider implements ChannelProvider {
       };
     }
 
-    const outcome = await whatsAppApiClient.sendText({
-      accessToken: creds.accessToken,
-      phoneNumberId,
-      to,
-      text: input.text,
-      replyToMessageId: input.replyToExternalMessageId ?? null,
-    });
+    // Image messages carry the text as the caption; text-only otherwise.
+    const outcome = input.mediaUrl
+      ? await whatsAppApiClient.sendImage({
+          accessToken: creds.accessToken,
+          phoneNumberId,
+          to,
+          imageUrl: input.mediaUrl,
+          caption: input.text || null,
+          replyToMessageId: input.replyToExternalMessageId ?? null,
+        })
+      : await whatsAppApiClient.sendText({
+          accessToken: creds.accessToken,
+          phoneNumberId,
+          to,
+          text: input.text,
+          replyToMessageId: input.replyToExternalMessageId ?? null,
+        });
 
     if (outcome.ok) {
       return {

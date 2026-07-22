@@ -45,6 +45,11 @@ export default function LoginPage() {
       router.replace('/dashboard');
     } catch (err) {
       if (err instanceof ApiClientError) {
+        // Unverified accounts are routed to the verification step.
+        if (err.code === 'EMAIL_NOT_VERIFIED') {
+          router.replace(`/verify-email?email=${encodeURIComponent(email)}`);
+          return;
+        }
         setError(err.message);
         const fields: Record<string, string> = {};
         for (const e2 of err.errors) {

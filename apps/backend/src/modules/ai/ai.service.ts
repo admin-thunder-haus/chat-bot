@@ -246,6 +246,12 @@ async function runGeneration(input: RunInput): Promise<AIGenerationResult> {
       handoffRequested: injectionSuspected || detectHandoffRequest(input.question),
       usedFallback: retrieval.usedFallback,
       contextSummary,
+      // Deterministic post-step: if the reply names a retrieved service or
+      // product that has an image, that image rides along with the reply.
+      attachment: aiContextService.findRecommendedAttachment(
+        providerResult.text,
+        retrieval,
+      ),
     };
   } catch (err) {
     const code = err instanceof AIError ? err.code : 'AI_UNAVAILABLE';
@@ -285,6 +291,7 @@ async function persistAiReply(
   generationId: string,
   text: string,
   senderUserId: string | null,
+  attachmentUrl: string | null = null,
 ): Promise<Message> {
   // When the conversation belongs to a push channel (WhatsApp / Instagram /
   // Facebook), the AI reply MUST go through the delivery engine so it is
@@ -310,6 +317,12 @@ async function persistAiReply(
     provider.capabilities.textMessages;
 
   if (viaProvider && conv && account) {
+    // Attach the image only when the provider can actually deliver media;
+    // otherwise the reply gracefully falls back to text-only.
+    const mediaUrl =
+      attachmentUrl && provider!.capabilities.mediaMessages
+        ? attachmentUrl
+        : null;
     const message = await channelDeliveryService.dispatchOutbound({
       companyId,
       conversation: conv,
@@ -317,6 +330,7 @@ async function persistAiReply(
       senderUserId,
       senderType: 'AI',
       content: text,
+      mediaUrl,
       actorUserId: senderUserId,
     });
     await prisma.aIResponseGeneration.updateMany({
@@ -328,13 +342,17 @@ async function persistAiReply(
 
   return prisma.$transaction(async (tx) => {
     const now = new Date();
+    // Local path (Web Chat / manual): the image is always persisted — the
+    // widget and dashboard inbox both render it directly.
     const message = await messagesRepository.create(tx, companyId, {
       conversationId,
       customerId,
       senderUserId,
       direction: 'OUTBOUND',
       senderType: 'AI',
+      contentType: attachmentUrl ? 'IMAGE' : 'TEXT',
       content: text,
+      mediaUrl: attachmentUrl,
       status: 'SENT',
       sentAt: now,
     });
@@ -436,6 +454,7 @@ export const aiService = {
       result.generationId,
       result.text,
       userId,
+      result.attachment?.imageUrl ?? null,
     );
     return { result, message };
   },
@@ -515,6 +534,7 @@ export const aiService = {
         result.generationId,
         result.text,
         null,
+        result.attachment?.imageUrl ?? null,
       );
       return { generated: true, message };
     } catch (err) {

@@ -72,7 +72,8 @@ export class FacebookChannelProvider implements ChannelProvider {
     webhookSignatures: true,
     // Messenger read receipts are watermark-based (not per-message) — not modeled.
     readReceipts: false,
-    mediaMessages: false,
+    // Outbound images via a paired attachment message (no caption support).
+    mediaMessages: true,
     templates: false,
     reactions: false,
     typingIndicators: false,
@@ -184,10 +185,27 @@ export class FacebookChannelProvider implements ChannelProvider {
     });
 
     if (outcome.ok) {
+      // Messenger attachments cannot carry captions, so the image goes out as
+      // a best-effort second message. A failed image never fails the delivery
+      // (the text already reached the customer — graceful degradation), and
+      // retries can't duplicate the text because only text failures fail here.
+      let imageDelivered: boolean | undefined;
+      if (input.mediaUrl) {
+        const img = await facebookApiClient.sendImage({
+          accessToken: creds.accessToken,
+          pageId,
+          recipientId: to,
+          imageUrl: input.mediaUrl,
+        });
+        imageDelivered = img.ok;
+      }
       return {
         externalMessageId: outcome.externalMessageId ?? null,
         status: 'sent',
-        providerMetadata: { provider: 'facebook' },
+        providerMetadata: {
+          provider: 'facebook',
+          ...(imageDelivered !== undefined ? { imageDelivered } : {}),
+        },
       };
     }
     return {

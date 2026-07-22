@@ -38,8 +38,52 @@ function extractRefreshToken(req: Request): string | undefined {
 export const authController = {
   async register(req: Request, res: Response): Promise<void> {
     const result = await authService.register(req.body);
+
+    // While email verification is enforced, registration issues no tokens:
+    // the client is directed to the verify-email step instead.
+    if (!result.tokens) {
+      sendSuccess(
+        res,
+        {
+          user: result.user,
+          company: result.company,
+          requiresEmailVerification: true,
+        },
+        'Company registered. Please verify your email to continue.',
+        201,
+      );
+      return;
+    }
+
     setRefreshCookie(res, result.tokens.refreshToken);
-    sendSuccess(res, authPayload(result), 'Company registered successfully', 201);
+    sendSuccess(
+      res,
+      {
+        user: result.user,
+        company: result.company,
+        accessToken: result.tokens.accessToken,
+        refreshToken: result.tokens.refreshToken,
+        requiresEmailVerification: false,
+      },
+      'Company registered successfully',
+      201,
+    );
+  },
+
+  async verifyEmail(req: Request, res: Response): Promise<void> {
+    const result = await authService.verifyEmail(req.body);
+    setRefreshCookie(res, result.tokens.refreshToken);
+    sendSuccess(res, authPayload(result), 'Email verified successfully');
+  },
+
+  async resendVerification(req: Request, res: Response): Promise<void> {
+    await authService.resendVerification(req.body);
+    // Deliberately generic: never reveals whether the email exists.
+    sendSuccess(
+      res,
+      null,
+      'If an account with this email exists and is not yet verified, a new code has been sent.',
+    );
   },
 
   async login(req: Request, res: Response): Promise<void> {

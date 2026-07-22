@@ -83,7 +83,8 @@ export class InstagramChannelProvider implements ChannelProvider {
     // Instagram DMs do not emit delivery receipts for messages; only read.
     deliveryReceipts: false,
     // Architecture-ready but intentionally not implemented in Day 7:
-    mediaMessages: false,
+    // Outbound images via a paired attachment message (no caption support).
+    mediaMessages: true,
     templates: false,
     reactions: false,
     typingIndicators: false,
@@ -228,10 +229,27 @@ export class InstagramChannelProvider implements ChannelProvider {
     });
 
     if (outcome.ok) {
+      // IG attachments cannot carry captions, so the image goes out as a
+      // best-effort second message. A failed image never fails the delivery
+      // (the text already reached the customer), and retries can't duplicate
+      // the text because only text failures fail here.
+      let imageDelivered: boolean | undefined;
+      if (input.mediaUrl) {
+        const img = await instagramApiClient.sendImage({
+          accessToken: creds.accessToken,
+          instagramAccountId,
+          recipientId: to,
+          imageUrl: input.mediaUrl,
+        });
+        imageDelivered = img.ok;
+      }
       return {
         externalMessageId: outcome.externalMessageId ?? null,
         status: 'sent',
-        providerMetadata: { provider: 'instagram' },
+        providerMetadata: {
+          provider: 'instagram',
+          ...(imageDelivered !== undefined ? { imageDelivered } : {}),
+        },
       };
     }
     return {

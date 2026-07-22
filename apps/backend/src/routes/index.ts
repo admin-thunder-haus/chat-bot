@@ -3,6 +3,7 @@ import { authRoutes } from '../modules/auth/auth.routes';
 import { healthRoutes } from './health.routes';
 import { companiesRoutes } from '../modules/companies/companies.routes';
 import { servicesRoutes } from '../modules/services/services.routes';
+import { productsRoutes } from '../modules/products/products.routes';
 import { businessHoursRoutes } from '../modules/business-hours/business-hours.routes';
 import { faqsRoutes } from '../modules/faqs/faqs.routes';
 import { knowledgeBaseRoutes } from '../modules/knowledge-base/knowledge-base.routes';
@@ -30,6 +31,7 @@ router.use('/auth', authRoutes);
 // Day 2 — company business configuration
 router.use('/company', companiesRoutes);
 router.use('/services', servicesRoutes);
+router.use('/products', productsRoutes);
 router.use('/business-hours', businessHoursRoutes);
 router.use('/faqs', faqsRoutes);
 router.use('/knowledge-base', knowledgeBaseRoutes);

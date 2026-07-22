@@ -32,6 +32,7 @@ export default function RegisterPage() {
     fullName: '',
     email: '',
     password: '',
+    confirmPassword: '',
   });
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -59,11 +60,21 @@ export default function RegisterPage() {
       setFieldErrors({ password: pwError });
       return;
     }
+    if (form.password !== form.confirmPassword) {
+      setFieldErrors({ confirmPassword: 'Passwords do not match.' });
+      return;
+    }
 
     setLoading(true);
     try {
-      await register(form);
-      router.replace('/dashboard');
+      const result = await register(form);
+      if (result.requiresEmailVerification) {
+        router.replace(
+          `/verify-email?email=${encodeURIComponent(form.email)}`,
+        );
+      } else {
+        router.replace('/dashboard');
+      }
     } catch (err) {
       if (err instanceof ApiClientError) {
         setError(err.message);
@@ -141,6 +152,19 @@ export default function RegisterPage() {
             <p className="mt-1 text-xs text-slate-400">
               At least 8 characters, with upper, lower, and a number.
             </p>
+          </div>
+
+          <div>
+            <Label htmlFor="confirmPassword">Confirm password</Label>
+            <Input
+              id="confirmPassword"
+              type="password"
+              value={form.confirmPassword}
+              onChange={(e) => update('confirmPassword', e.target.value)}
+              autoComplete="new-password"
+              required
+            />
+            <FieldError message={fieldErrors.confirmPassword} />
           </div>
 
           <Button type="submit" loading={loading} fullWidth>

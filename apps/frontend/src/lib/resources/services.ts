@@ -1,6 +1,12 @@
 import { request } from '../api';
 import { toQuery } from './query';
-import type { Paginated, Service, ServicePriceType } from '../types';
+import type {
+  ImportPreview,
+  ImportResult,
+  Paginated,
+  Service,
+  ServicePriceType,
+} from '../types';
 
 export interface ServiceInput {
   name?: string;
@@ -9,6 +15,7 @@ export interface ServiceInput {
   currency?: string;
   priceType?: ServicePriceType;
   durationMinutes?: number | null;
+  imageUrl?: string | null;
   isActive?: boolean;
   sortOrder?: number;
 }
@@ -55,6 +62,25 @@ export const servicesApi = {
     return request('/services/reorder', {
       method: 'PATCH',
       body: { items },
+      auth: true,
+    });
+  },
+  importPreview(file: File): Promise<ImportPreview> {
+    const form = new FormData();
+    form.append('file', file);
+    return request('/services/import/preview', {
+      method: 'POST',
+      body: form,
+      auth: true,
+    });
+  },
+  importCommit(file: File, mode: 'merge' | 'replace'): Promise<ImportResult> {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('mode', mode);
+    return request('/services/import', {
+      method: 'POST',
+      body: form,
       auth: true,
     });
   },

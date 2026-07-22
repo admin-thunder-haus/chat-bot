@@ -12,6 +12,8 @@ export interface ErrorBody {
   message: string;
   errors: AppErrorDetail[];
   requestId: string;
+  /** Machine-readable discriminator for errors clients must branch on. */
+  code?: string;
 }
 
 /** Send a consistent success response. */
@@ -35,11 +37,13 @@ export function sendError(
   statusCode = 500,
   errors: AppErrorDetail[] = [],
   requestId = '',
+  code?: string,
 ): Response<ErrorBody> {
   return res.status(statusCode).json({
     success: false,
     message,
     errors,
     requestId,
+    ...(code ? { code } : {}),
   });
 }

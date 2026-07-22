@@ -26,7 +26,7 @@ describe('Facebook provider — registration & capabilities', () => {
     expect(provider.requiresCredentials).toBe(true);
   });
 
-  it('advertises text + delivery + webhook capabilities honestly; read/media/templates OFF', () => {
+  it('advertises text + delivery + webhook + media capabilities honestly; read/templates OFF', () => {
     const c = provider.capabilities;
     expect(c.textMessages).toBe(true);
     expect(c.inboundMessaging).toBe(true);
@@ -36,7 +36,7 @@ describe('Facebook provider — registration & capabilities', () => {
     expect(c.webhookSignatures).toBe(true);
     // Messenger read receipts are watermark-based (not modeled per-message).
     expect(c.readReceipts).toBe(false);
-    expect(c.mediaMessages).toBe(false);
+    expect(c.mediaMessages).toBe(true);
     expect(c.templates).toBe(false);
   });
 });

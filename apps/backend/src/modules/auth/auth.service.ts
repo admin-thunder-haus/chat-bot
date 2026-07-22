@@ -1,11 +1,19 @@
+import crypto from 'node:crypto';
 import type { Company, User } from '@prisma/client';
 import { authRepository } from './auth.repository';
-import type { LoginInput, RegisterInput } from './auth.validation';
+import type {
+  LoginInput,
+  RegisterInput,
+  ResendVerificationInput,
+  VerifyEmailInput,
+} from './auth.validation';
 import type {
   AuthResult,
   AuthTokens,
   PublicUser,
+  RegisterResult,
 } from './auth.types';
+import { mailer } from '../../utils/mailer';
 import { hashPassword, verifyPassword } from '../../utils/password';
 import { slugify, withRandomSuffix } from '../../utils/slug';
 import {
@@ -16,7 +24,7 @@ import {
   verifyRefreshToken,
 } from '../../utils/jwt';
 import { durationToMs } from '../../utils/duration';
-import { env } from '../../config/env';
+import { env, isEmailVerificationEnabled } from '../../config/env';
 import { AppError } from '../../utils/AppError';
 
 /** Strip the password hash before exposing a user to the client. */
@@ -71,9 +79,33 @@ async function issueTokens(user: User): Promise<AuthTokens> {
   return { accessToken, refreshToken };
 }
 
+/**
+ * Generate a 6-digit verification code, persist its hash (replacing any
+ * outstanding code), and email it to the user.
+ */
+async function issueVerificationCode(user: User): Promise<void> {
+  const code = crypto.randomInt(0, 1_000_000).toString().padStart(6, '0');
+
+  await authRepository.replaceVerificationCode({
+    userId: user.id,
+    codeHash: hashToken(code),
+    expiresAt: new Date(Date.now() + env.EMAIL_VERIFICATION_CODE_TTL_MS),
+  });
+
+  await mailer.sendVerificationEmail({
+    to: user.email,
+    fullName: user.fullName,
+    code,
+  });
+}
+
 export const authService = {
-  /** Register a new company; the first user becomes its OWNER. */
-  async register(input: RegisterInput): Promise<AuthResult> {
+  /**
+   * Register a new company; the first user becomes its OWNER. While email
+   * verification is enforced, no tokens are issued — the user must confirm
+   * the emailed 6-digit code (verifyEmail) before they can log in.
+   */
+  async register(input: RegisterInput): Promise<RegisterResult> {
     const existing = await authRepository.findUserByEmail(input.email);
     if (existing) {
       throw AppError.conflict('An account with this email already exists', [
@@ -90,11 +122,100 @@ export const authService = {
       fullName: input.fullName,
       email: input.email,
       passwordHash,
+      // When verification is disabled, accounts are born verified so a later
+      // enable never locks them out.
+      emailVerifiedAt: isEmailVerificationEnabled ? null : new Date(),
     });
 
-    const tokens = await issueTokens(user);
+    if (isEmailVerificationEnabled) {
+      await issueVerificationCode(user);
+      return {
+        user: toPublicUser(user),
+        company,
+        tokens: null,
+        requiresEmailVerification: true,
+      };
+    }
 
-    return { user: toPublicUser(user), company, tokens };
+    const tokens = await issueTokens(user);
+    return {
+      user: toPublicUser(user),
+      company,
+      tokens,
+      requiresEmailVerification: false,
+    };
+  },
+
+  /**
+   * Confirm the emailed verification code. On success the user is marked
+   * verified and logged in (tokens issued) so onboarding stays seamless.
+   */
+  async verifyEmail(input: VerifyEmailInput): Promise<AuthResult> {
+    // One generic error for unknown email / wrong code / expired code, so the
+    // endpoint does not leak which emails are registered.
+    const invalid = AppError.badRequest(
+      'Invalid or expired verification code',
+    );
+
+    const user = await authRepository.findUserByEmail(input.email);
+    if (!user) throw invalid;
+
+    if (user.emailVerifiedAt) {
+      // Machine-readable code lets the client route straight to login.
+      throw AppError.conflict(
+        'This email is already verified. Please log in.',
+        [],
+        'EMAIL_ALREADY_VERIFIED',
+      );
+    }
+
+    const stored = await authRepository.findActiveVerificationCode(user.id);
+    if (!stored || stored.expiresAt.getTime() < Date.now()) {
+      throw invalid;
+    }
+    if (stored.attemptCount >= env.EMAIL_VERIFICATION_MAX_ATTEMPTS) {
+      throw AppError.badRequest(
+        'Too many incorrect attempts. Please request a new code.',
+      );
+    }
+
+    if (stored.codeHash !== hashToken(input.code)) {
+      await authRepository.incrementVerificationAttempts(stored.id);
+      throw invalid;
+    }
+
+    const verifiedUser = await authRepository.consumeVerificationCode({
+      codeId: stored.id,
+      userId: user.id,
+    });
+
+    const company = await authRepository.findCompanyById(user.companyId);
+    if (!company) throw AppError.internal();
+
+    const tokens = await issueTokens(verifiedUser);
+    return { user: toPublicUser(verifiedUser), company, tokens };
+  },
+
+  /**
+   * Re-send the verification code. Always resolves with a generic outcome so
+   * the endpoint cannot be used to probe which emails are registered. A
+   * cooldown prevents mail flooding.
+   */
+  async resendVerification(input: ResendVerificationInput): Promise<void> {
+    const user = await authRepository.findUserByEmail(input.email);
+    if (!user || user.emailVerifiedAt) return;
+
+    const latest = await authRepository.findLatestVerificationCode(user.id);
+    if (
+      latest &&
+      Date.now() - latest.createdAt.getTime() <
+        env.EMAIL_VERIFICATION_RESEND_COOLDOWN_MS
+    ) {
+      // Within the cooldown window: silently skip to avoid mail flooding.
+      return;
+    }
+
+    await issueVerificationCode(user);
   },
 
   /** Authenticate with email + password. */
@@ -116,6 +237,13 @@ export const authService = {
 
     if (user.status !== 'ACTIVE') {
       throw AppError.forbidden('This account has been disabled');
+    }
+
+    if (isEmailVerificationEnabled && !user.emailVerifiedAt) {
+      throw AppError.forbidden(
+        'Please verify your email address before logging in',
+        'EMAIL_NOT_VERIFIED',
+      );
     }
 
     const company = await authRepository.findCompanyById(user.companyId);

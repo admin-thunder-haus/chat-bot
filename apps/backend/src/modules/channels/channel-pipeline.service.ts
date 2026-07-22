@@ -41,6 +41,11 @@ export interface SendOutboundParams {
   senderUserId: string | null;
   senderType: MessageSenderType;
   content: string;
+  /**
+   * Optional image attachment. Silently dropped (text-only fallback) when the
+   * resolved provider does not support media messages.
+   */
+  mediaUrl?: string | null;
   replyToMessageId?: string | null;
   actorUserId?: string | null;
 }
@@ -321,7 +326,9 @@ export const channelPipelineService = {
           senderUserId: params.senderUserId,
           direction: 'OUTBOUND',
           senderType: params.senderType,
+          contentType: params.mediaUrl ? 'IMAGE' : 'TEXT',
           content: params.content,
+          mediaUrl: params.mediaUrl ?? null,
           status: 'SENT',
           sentAt: now,
           replyToMessageId: params.replyToMessageId ?? null,
@@ -353,6 +360,11 @@ export const channelPipelineService = {
       senderUserId: params.senderUserId,
       senderType: params.senderType,
       content: params.content,
+      // Media capability gate: unsupported providers fall back to text-only.
+      mediaUrl:
+        params.mediaUrl && provider!.capabilities.mediaMessages
+          ? params.mediaUrl
+          : null,
       replyToMessageId: params.replyToMessageId ?? null,
       actorUserId: params.actorUserId ?? params.senderUserId,
     });

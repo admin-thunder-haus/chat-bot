@@ -68,6 +68,46 @@ const envSchema = z.object({
     .default(60000),
   REFRESH_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(60),
 
+  // --- Email verification (registration) ---
+  // When enabled, new registrations must confirm a 6-digit emailed code before
+  // they can log in. Pre-existing users are backfilled as verified by the
+  // migration, so enabling this never locks out current accounts.
+  EMAIL_VERIFICATION_ENABLED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((v) => v === 'true'),
+  EMAIL_VERIFICATION_CODE_TTL_MS: z.coerce
+    .number()
+    .int()
+    .min(60000)
+    .default(900000), // 15 minutes
+  // Minimum delay between two "resend code" emails for the same user.
+  EMAIL_VERIFICATION_RESEND_COOLDOWN_MS: z.coerce
+    .number()
+    .int()
+    .min(1000)
+    .default(60000),
+  // Wrong-code attempts allowed per issued code before a new one is required.
+  EMAIL_VERIFICATION_MAX_ATTEMPTS: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(20)
+    .default(5),
+
+  // SMTP transport for outbound email. All optional: when SMTP_HOST is unset
+  // the mailer falls back to logging emails (codes remain usable in dev and
+  // the platform keeps working before SMTP is provisioned).
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(587),
+  SMTP_SECURE: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  EMAIL_FROM: z.string().default('AI Support <no-reply@localhost>'),
+
   // --- Day 4: AI response engine ---
   // AI is OFF by default so the platform runs fully without OpenAI. When
   // enabled (and not in tests), OPENAI_API_KEY becomes required at startup.
@@ -319,6 +359,9 @@ export const isTest = env.NODE_ENV === 'test';
 
 /** True when the AI feature can actually run (enabled + key, or test mode). */
 export const isAIEnabled = env.AI_FEATURE_ENABLED;
+
+/** True when new registrations must verify their email before logging in. */
+export const isEmailVerificationEnabled = env.EMAIL_VERIFICATION_ENABLED;
 
 /**
  * The development fake channel is available only when explicitly enabled AND

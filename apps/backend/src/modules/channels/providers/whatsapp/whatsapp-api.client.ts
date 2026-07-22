@@ -133,6 +133,39 @@ export const whatsAppApiClient = {
     if (input.replyToMessageId) {
       body.context = { message_id: input.replyToMessageId };
     }
+    return this.sendPayload(input, body);
+  },
+
+  /** Send an image (by public URL) with an optional caption. Never throws. */
+  async sendImage(input: {
+    accessToken: string;
+    phoneNumberId: string;
+    to: string;
+    imageUrl: string;
+    caption?: string | null;
+    replyToMessageId?: string | null;
+  }): Promise<WhatsAppSendOutcome> {
+    const body: Record<string, unknown> = {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to: input.to,
+      type: 'image',
+      image: {
+        link: input.imageUrl,
+        ...(input.caption ? { caption: input.caption } : {}),
+      },
+    };
+    if (input.replyToMessageId) {
+      body.context = { message_id: input.replyToMessageId };
+    }
+    return this.sendPayload(input, body);
+  },
+
+  /** Shared POST /messages call used by both text and image sends. */
+  async sendPayload(
+    input: { accessToken: string; phoneNumberId: string },
+    body: Record<string, unknown>,
+  ): Promise<WhatsAppSendOutcome> {
     try {
       const res = await transport.request({
         url: graphUrl(`${encodeURIComponent(input.phoneNumberId)}/messages`),

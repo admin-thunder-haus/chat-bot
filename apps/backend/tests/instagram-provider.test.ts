@@ -31,7 +31,7 @@ describe('Instagram provider — registration & capabilities', () => {
     expect(provider.requiresCredentials).toBe(true);
   });
 
-  it('advertises text + read + webhook capabilities honestly; media/templates/delivery OFF', () => {
+  it('advertises text + read + webhook + media capabilities honestly; templates/delivery OFF', () => {
     const c = provider.capabilities;
     expect(c.textMessages).toBe(true);
     expect(c.inboundMessaging).toBe(true);
@@ -42,7 +42,7 @@ describe('Instagram provider — registration & capabilities', () => {
     expect(c.webhookSignatures).toBe(true);
     // Instagram DMs do not emit delivery receipts.
     expect(c.deliveryReceipts).toBe(false);
-    expect(c.mediaMessages).toBe(false);
+    expect(c.mediaMessages).toBe(true);
     expect(c.templates).toBe(false);
     expect(c.reactions).toBe(false);
     expect(c.typingIndicators).toBe(false);

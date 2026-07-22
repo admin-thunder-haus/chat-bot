@@ -43,6 +43,8 @@ export function ServiceFormModal({
   const [price, setPrice] = useState('');
   const [currency, setCurrency] = useState('JOD');
   const [duration, setDuration] = useState('');
+  const [imageUrl, setImageUrl] = useState('');
+  const [imageBroken, setImageBroken] = useState(false);
   const [isActive, setIsActive] = useState(true);
 
   const [error, setError] = useState('');
@@ -53,6 +55,7 @@ export function ServiceFormModal({
     if (!open) return;
     setError('');
     setFieldErrors({});
+    setImageBroken(false);
     if (service) {
       setName(service.name);
       setDescription(service.description ?? '');
@@ -60,6 +63,7 @@ export function ServiceFormModal({
       setPrice(service.price ?? '');
       setCurrency(service.currency);
       setDuration(service.durationMinutes?.toString() ?? '');
+      setImageUrl(service.imageUrl ?? '');
       setIsActive(service.isActive);
     } else {
       setName('');
@@ -68,6 +72,7 @@ export function ServiceFormModal({
       setPrice('');
       setCurrency('JOD');
       setDuration('');
+      setImageUrl('');
       setIsActive(true);
     }
   }, [open, service]);
@@ -94,6 +99,7 @@ export function ServiceFormModal({
       priceType,
       currency: currency.trim().toUpperCase(),
       durationMinutes: duration.trim() ? Number(duration) : null,
+      imageUrl: imageUrl.trim() || null,
       isActive,
       // Only send a price for priced types; backend nulls it otherwise.
       price: showPrice ? Number(price) : null,
@@ -209,6 +215,31 @@ export function ServiceFormModal({
             />
             <FieldError message={fieldErrors.durationMinutes} />
           </div>
+        </div>
+
+        <div>
+          <Label htmlFor="svc-imageUrl">Image URL</Label>
+          <Input
+            id="svc-imageUrl"
+            type="url"
+            placeholder="https://…"
+            value={imageUrl}
+            onChange={(e) => {
+              setImageUrl(e.target.value);
+              setImageBroken(false);
+            }}
+            disabled={saving}
+          />
+          <FieldError message={fieldErrors.imageUrl} />
+          {imageUrl.trim() && !imageBroken && (
+            // eslint-disable-next-line @next/next/no-img-element -- arbitrary customer-hosted URLs cannot go through next/image
+            <img
+              src={imageUrl.trim()}
+              alt="Preview"
+              className="mt-2 h-16 w-16 rounded-md border border-slate-200 object-cover"
+              onError={() => setImageBroken(true)}
+            />
+          )}
         </div>
 
         <div className="flex items-center gap-3">

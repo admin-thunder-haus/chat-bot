@@ -22,7 +22,7 @@ describe('WhatsApp provider — registration & capabilities', () => {
     expect(provider.requiresCredentials).toBe(true);
   });
 
-  it('advertises text + webhook capabilities; media/templates OFF (architecture-ready)', () => {
+  it('advertises text + webhook capabilities; media ON; templates OFF', () => {
     const c = provider.capabilities;
     expect(c.textMessages).toBe(true);
     expect(c.inboundMessaging).toBe(true);
@@ -31,7 +31,7 @@ describe('WhatsApp provider — registration & capabilities', () => {
     expect(c.readReceipts).toBe(true);
     expect(c.webhookVerification).toBe(true);
     expect(c.webhookSignatures).toBe(true);
-    expect(c.mediaMessages).toBe(false);
+    expect(c.mediaMessages).toBe(true);
     expect(c.templates).toBe(false);
     expect(c.reactions).toBe(false);
   });

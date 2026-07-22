@@ -1,4 +1,5 @@
 import type { AIGenerationType } from '@prisma/client';
+import type { RecommendedAttachment } from './ai-context.service';
 
 /** A recent conversation turn used to build history for the provider. */
 export interface HistoryTurn {
@@ -12,6 +13,7 @@ export interface ContextSummary {
   companyProfile: boolean;
   businessHoursIncluded: boolean;
   serviceIds: string[];
+  productIds: string[];
   faqIds: string[];
   knowledgeIds: string[];
   historyMessageCount: number;
@@ -34,4 +36,9 @@ export interface AIGenerationResult {
   handoffRequested: boolean;
   usedFallback: boolean;
   contextSummary: ContextSummary;
+  /**
+   * Image of the service/product the reply recommends (null when none).
+   * Attached out-of-band on channels whose provider supports media.
+   */
+  attachment: RecommendedAttachment | null;
 }

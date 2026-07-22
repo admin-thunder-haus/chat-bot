@@ -1,0 +1,67 @@
+import multer, { MulterError } from 'multer';
+import type { NextFunction, Request, Response } from 'express';
+import { AppError } from '../utils/AppError';
+
+/**
+ * Excel (.xlsx) upload middleware. Files are held in memory only — parsed and
+ * discarded within the request; nothing is ever written to disk.
+ */
+
+const MAX_EXCEL_FILE_BYTES = 5 * 1024 * 1024; // 5 MB
+
+const XLSX_MIME_TYPES = new Set([
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  // Some clients send generic types for .xlsx; the extension check below and
+  // the workbook parser itself are the real gatekeepers.
+  'application/octet-stream',
+]);
+
+const excelMulter = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_EXCEL_FILE_BYTES, files: 1 },
+  fileFilter: (_req, file, cb) => {
+    const hasXlsxExtension = /\.xlsx$/i.test(file.originalname);
+    if (!hasXlsxExtension || !XLSX_MIME_TYPES.has(file.mimetype)) {
+      cb(
+        AppError.badRequest('Only .xlsx Excel files are supported', [
+          { field: 'file', message: 'Upload an Excel file (.xlsx)' },
+        ]),
+      );
+      return;
+    }
+    cb(null, true);
+  },
+}).single('file');
+
+/** Parse a single "file" field, translating Multer errors into AppErrors. */
+export function uploadExcelFile(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): void {
+  excelMulter(req, res, (err: unknown) => {
+    if (!err) {
+      if (!req.file) {
+        next(
+          AppError.badRequest('An Excel file is required', [
+            { field: 'file', message: 'Attach the file as the "file" field' },
+          ]),
+        );
+        return;
+      }
+      next();
+      return;
+    }
+
+    if (err instanceof MulterError) {
+      const message =
+        err.code === 'LIMIT_FILE_SIZE'
+          ? `File is too large (max ${MAX_EXCEL_FILE_BYTES / (1024 * 1024)} MB)`
+          : 'Invalid file upload';
+      next(AppError.badRequest(message, [{ field: 'file', message }]));
+      return;
+    }
+
+    next(err);
+  });
+}

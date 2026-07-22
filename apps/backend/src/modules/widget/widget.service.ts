@@ -184,7 +184,7 @@ export const widgetService = {
 
     const stored = await prisma.message.findFirst({
       where: { id: ingest.messageId, companyId },
-      select: { id: true, direction: true, senderType: true, content: true, createdAt: true },
+      select: { id: true, direction: true, senderType: true, content: true, mediaUrl: true, createdAt: true },
     });
     if (!stored) throw AppError.internal('Message not found after ingest');
     return { message: toWidgetMessage(stored), autoReply };
@@ -232,7 +232,7 @@ export const widgetService = {
       },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       take: POLL_LIMIT,
-      select: { id: true, direction: true, senderType: true, content: true, createdAt: true },
+      select: { id: true, direction: true, senderType: true, content: true, mediaUrl: true, createdAt: true },
     });
     return {
       messages: rows.map(toWidgetMessage),
@@ -275,7 +275,7 @@ export const widgetService = {
       where: { companyId, conversationId },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: HISTORY_LIMIT,
-      select: { id: true, direction: true, senderType: true, content: true, createdAt: true },
+      select: { id: true, direction: true, senderType: true, content: true, mediaUrl: true, createdAt: true },
     });
     return rows.reverse().map(toWidgetMessage);
   },

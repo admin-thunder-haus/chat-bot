@@ -46,6 +46,12 @@ export interface DispatchOutboundParams {
   senderUserId: string | null;
   senderType: MessageSenderType;
   content: string;
+  /**
+   * Optional image attachment. Callers must gate on the provider's
+   * `mediaMessages` capability; when set, the message is persisted as IMAGE
+   * and the provider sends the image with `content` as its caption.
+   */
+  mediaUrl?: string | null;
   replyToMessageId?: string | null;
   actorUserId?: string | null;
 }
@@ -84,7 +90,9 @@ export const channelDeliveryService = {
         senderUserId: params.senderUserId,
         direction: 'OUTBOUND',
         senderType: params.senderType,
+        contentType: params.mediaUrl ? 'IMAGE' : 'TEXT',
         content: params.content,
+        mediaUrl: params.mediaUrl ?? null,
         status: 'PENDING',
         replyToMessageId: params.replyToMessageId ?? null,
       });
@@ -206,6 +214,7 @@ export const channelDeliveryService = {
       where: { id: delivery.messageId, companyId },
       select: {
         content: true,
+        mediaUrl: true,
         customer: { select: { externalId: true } },
         conversation: { select: { externalConversationId: true } },
       },
@@ -234,6 +243,7 @@ export const channelDeliveryService = {
           message?.conversation?.externalConversationId ?? null,
         replyToExternalMessageId: null,
         text: message?.content ?? '',
+        mediaUrl: message?.mediaUrl ?? null,
         attemptNumber,
         credentials,
       });

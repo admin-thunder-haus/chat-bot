@@ -141,6 +141,47 @@ export const facebookApiClient = {
   },
 
   /**
+   * Send an image attachment (by public URL). The Messenger Send API does not
+   * support captions on attachments, so callers pair this with sendText.
+   * Never throws.
+   */
+  async sendImage(input: {
+    accessToken: string;
+    pageId: string;
+    recipientId: string;
+    imageUrl: string;
+  }): Promise<FacebookSendOutcome> {
+    const body = {
+      recipient: { id: input.recipientId },
+      messaging_type: 'RESPONSE',
+      message: {
+        attachment: {
+          type: 'image',
+          payload: { url: input.imageUrl, is_reusable: false },
+        },
+      },
+    };
+    try {
+      const res = await transport.request({
+        url: graphUrl(`${encodeURIComponent(input.pageId)}/messages`),
+        method: 'POST',
+        accessToken: input.accessToken,
+        body,
+        timeoutMs: env.FACEBOOK_API_TIMEOUT_MS,
+      });
+      if (res.ok) {
+        const id = (res.json as FacebookSendResponse | null)?.message_id ?? null;
+        return { ok: true, externalMessageId: id };
+      }
+      const c = classifyFacebookHttp(res.status, res.json);
+      return { ok: false, category: c.category, retryable: c.retryable, code: c.code, reason: safeFacebookReason(c.category) };
+    } catch (err) {
+      const c = classifyFacebookThrow(err);
+      return { ok: false, category: c.category, retryable: c.retryable, code: c.code, reason: safeFacebookReason(c.category) };
+    }
+  },
+
+  /**
    * Best-effort lookup of an inbound sender's public profile. Never throws;
    * returns null on any error. Short bounded timeout so it cannot delay webhooks.
    */

@@ -87,6 +87,7 @@ describe('AI context building', () => {
       currency: 'JOD',
       priceType: 'CONTACT_US' as const,
       durationMinutes: null,
+      imageUrl: null,
       isActive: true,
       sortOrder: 0,
       createdAt: new Date(),
@@ -96,6 +97,7 @@ describe('AI context building', () => {
       acme.company.id,
       {
         services,
+        products: [],
         faqs: [],
         knowledge: [],
         includeBusinessHours: false,

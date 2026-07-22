@@ -14,10 +14,15 @@ function str(v: unknown): string | undefined {
   return typeof v === 'string' && v.trim() !== '' ? v.trim() : undefined;
 }
 
-/** Instagram timestamps are unix millis; fall back to now on anything odd. */
+/**
+ * Instagram timestamps arrive as unix millis in the messaging-array format but
+ * as unix SECONDS in the changes-array format. Normalize both: a value below
+ * ~1e12 is treated as seconds and scaled to millis.
+ */
 function parseTimestamp(ts: unknown): Date {
-  const n = typeof ts === 'number' ? ts : typeof ts === 'string' ? Number(ts) : NaN;
+  let n = typeof ts === 'number' ? ts : typeof ts === 'string' ? Number(ts) : NaN;
   if (Number.isFinite(n) && n > 0) {
+    if (n < 1e12) n *= 1000; // seconds -> millis
     const d = new Date(n);
     if (!Number.isNaN(d.getTime())) return d;
   }
@@ -141,9 +146,19 @@ export function normalizeInstagramWebhook(
 
   const events: NormalizedChannelEvent[] = [];
   for (const entry of body.entry ?? []) {
+    // Messenger-style events.
     for (const messaging of entry?.messaging ?? []) {
       if (!messaging || typeof messaging !== 'object') continue;
       const normalized = normalizeMessagingEvent(messaging);
+      if (normalized) events.push(normalized);
+    }
+    // Changes-style events (Instagram API with Instagram Login). The `value`
+    // has the same sender/recipient/message shape as a messaging event.
+    for (const change of entry?.changes ?? []) {
+      if (change?.field && change.field !== 'messages') continue;
+      const value = change?.value;
+      if (!value || typeof value !== 'object') continue;
+      const normalized = normalizeMessagingEvent(value);
       if (normalized) events.push(normalized);
     }
   }

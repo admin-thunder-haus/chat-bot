@@ -41,7 +41,16 @@ export interface InstagramWebhookBody {
 export interface InstagramEntry {
   id?: string; // the recipient IG business account id
   time?: number;
+  /** Messenger-style events (Instagram-via-Facebook-Login / older delivery). */
   messaging?: InstagramMessagingEvent[];
+  /** Changes-style events (Instagram API with Instagram Login). The `value`
+   *  carries the same sender/recipient/message shape as a messaging event. */
+  changes?: InstagramChange[];
+}
+
+export interface InstagramChange {
+  field?: string; // "messages"
+  value?: InstagramMessagingEvent;
 }
 
 /** A single Messenger-style messaging event (message / read / postback / …). */

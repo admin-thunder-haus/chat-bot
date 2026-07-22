@@ -140,6 +140,35 @@ export function igTextPayload(opts: {
   };
 }
 
+/** Build an Instagram inbound text in the CHANGES format (Instagram Login). */
+export function igChangesTextPayload(opts: {
+  mid: string;
+  from?: string;
+  text: string;
+  recipient?: string;
+}) {
+  return {
+    object: 'instagram',
+    entry: [
+      {
+        id: opts.recipient ?? IG.instagramAccountId,
+        time: 1527459824,
+        changes: [
+          {
+            field: 'messages',
+            value: {
+              sender: { id: opts.from ?? IG.customerIgsid },
+              recipient: { id: opts.recipient ?? IG.instagramAccountId },
+              timestamp: '1527459824', // seconds (Instagram Login format)
+              message: { mid: opts.mid, text: opts.text },
+            },
+          },
+        ],
+      },
+    ],
+  };
+}
+
 /** Build an Instagram echo payload (business's own outbound copy). */
 export function igEchoPayload(opts: { mid: string; text: string }) {
   return {

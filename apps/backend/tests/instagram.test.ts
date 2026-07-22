@@ -9,6 +9,7 @@ import {
   connectInstagram,
   makeInstagramTransport,
   igTextPayload,
+  igChangesTextPayload,
   igReadPayload,
   igAttachmentPayload,
   igVerify,
@@ -165,6 +166,15 @@ describe('Instagram — incoming pipeline (shared, no special cases)', () => {
     const msg = await prisma.message.findFirst({ where: { conversationId: conv!.id } });
     expect(msg?.content).toBe('Hello Instagram');
     expect(msg?.externalMessageId).toBe('ig.IN.1');
+  });
+
+  it('creates a message from the CHANGES-format webhook (real Instagram Login payload)', async () => {
+    const id = await connectedAccountId(acme);
+    const res = await igWebhook(app, id, igChangesTextPayload({ mid: 'ig.chg.IN', text: 'changes hello' }));
+    expect(res.body.data.processed).toBe(1);
+    const msg = await prisma.message.findFirst({ where: { conversation: { companyId: acme.company.id, channelType: 'INSTAGRAM' } } });
+    expect(msg?.content).toBe('changes hello');
+    expect(msg?.externalMessageId).toBe('ig.chg.IN');
   });
 
   it('is idempotent: a duplicate message id does not duplicate the message or AI reply', async () => {

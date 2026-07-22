@@ -11,6 +11,7 @@ import {
   igEchoPayload,
   igReadPayload,
   igAttachmentPayload,
+  igChangesTextPayload,
 } from './instagram-helpers';
 
 const provider = new InstagramChannelProvider();
@@ -136,6 +137,20 @@ describe('Instagram provider — webhook parsing / normalization', () => {
       expect(e.content).toBe('hello there');
       expect(e.customer.externalCustomerId).toBe(IG.customerIgsid);
       expect(e.channelType).toBe('INSTAGRAM');
+    }
+  });
+
+  it('normalizes an inbound text in the CHANGES format (Instagram Login)', async () => {
+    const events = await parse(igChangesTextPayload({ mid: 'ig.chg.1', text: 'via changes' }));
+    expect(events).toHaveLength(1);
+    const e = events[0];
+    expect(e.kind).toBe('incoming_message');
+    if (e.kind === 'incoming_message') {
+      expect(e.externalMessageId).toBe('ig.chg.1');
+      expect(e.content).toBe('via changes');
+      expect(e.customer.externalCustomerId).toBe(IG.customerIgsid);
+      // Seconds timestamp scaled to a valid 2018 date (not 1970).
+      expect(e.timestamp.getUTCFullYear()).toBe(2018);
     }
   });
 

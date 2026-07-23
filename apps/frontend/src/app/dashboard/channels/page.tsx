@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
 import { canWrite } from '@/lib/permissions';
 import { channelsApi } from '@/lib/resources';
+import type { MetaOauthStatus } from '@/lib/resources/channels';
 import { parseApiError } from '@/lib/form';
 import { useToast } from '@/components/toast';
 import { fullTime } from '@/lib/format';
@@ -81,6 +82,30 @@ function telegramConfig(
   );
 }
 
+/** Friendly copy for the safe error codes the OAuth callback can return. */
+const CONNECT_ERROR_MESSAGES: Record<string, string> = {
+  ACCESS_DENIED: 'The Meta authorization was cancelled or denied.',
+  INVALID_STATE:
+    'The connect link expired or was invalid — start the connection again.',
+  OAUTH_NOT_CONFIGURED: 'Meta OAuth is not configured for this deployment.',
+  TOKEN_EXCHANGE_FAILED:
+    'Meta rejected the authorization code — try connecting again.',
+  NO_PAGES: 'No Facebook Pages were shared during the Meta authorization.',
+  NO_INSTAGRAM_ACCOUNT:
+    'The shared Facebook Page has no linked Instagram professional account.',
+  NO_WABA: 'No WhatsApp Business Account was shared during signup.',
+  NO_PHONE_NUMBER:
+    'The shared WhatsApp Business Account has no registered phone numbers.',
+  ALREADY_CONNECTED: 'This account is already connected.',
+  CONNECT_FAILED: 'The Meta connection failed — try again.',
+};
+
+const CONNECTED_LABELS: Record<string, string> = {
+  facebook: 'Facebook Messenger',
+  instagram: 'Instagram',
+  whatsapp: 'WhatsApp',
+};
+
 const CAPABILITY_LABELS: { key: keyof NonNullable<ChannelAccount['capabilities']>; label: string }[] =
   [
     { key: 'textMessages', label: 'Text' },
@@ -120,15 +145,23 @@ export default function ChannelsPage() {
   const [instagramOpen, setInstagramOpen] = useState(false);
   const [facebookOpen, setFacebookOpen] = useState(false);
   const [telegramOpen, setTelegramOpen] = useState(false);
+  const [metaOauth, setMetaOauth] = useState<MetaOauthStatus | null>(null);
+  const [oauthBanner, setOauthBanner] = useState<{
+    kind: 'success' | 'error';
+    message: string;
+  } | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const [p, a] = await Promise.all([
+      const [p, a, meta] = await Promise.all([
         channelsApi.providers(),
         channelsApi.list(),
+        // OAuth availability is optional decoration — never fail the page.
+        channelsApi.oauthStatus().catch(() => null),
       ]);
       setProviders(p.providers);
       setAccounts(a.accounts);
+      setMetaOauth(meta);
     } catch (err) {
       setError(parseApiError(err).message);
     } finally {
@@ -139,6 +172,41 @@ export default function ChannelsPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Returning from the Meta OAuth redirect: surface ?connected= /
+  // ?connect_error= once, then strip the params from the URL.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const connected = params.get('connected');
+    const connectError = params.get('connect_error');
+    if (!connected && !connectError) return;
+    if (connected) {
+      setOauthBanner({
+        kind: 'success',
+        message: `${CONNECTED_LABELS[connected] ?? connected} connected via Meta.`,
+      });
+    } else if (connectError) {
+      setOauthBanner({
+        kind: 'error',
+        message:
+          CONNECT_ERROR_MESSAGES[connectError] ??
+          CONNECT_ERROR_MESSAGES.CONNECT_FAILED,
+      });
+    }
+    params.delete('connected');
+    params.delete('connect_error');
+    const query = params.toString();
+    window.history.replaceState(
+      null,
+      '',
+      `${window.location.pathname}${query ? `?${query}` : ''}`,
+    );
+  }, []);
+
+  const metaConfigured = metaOauth?.configured === true;
+  const loginOauthAvailable = metaConfigured && !!metaOauth?.loginConfigId;
+  const whatsappOauthAvailable =
+    metaConfigured && !!metaOauth?.whatsappConfigId;
 
   const fakeProvider = providers.find((p) => p.key === 'fake' && p.available);
 
@@ -242,6 +310,15 @@ export default function ChannelsPage() {
           exercises the full framework without any external service.
         </Alert>
       </div>
+
+      {oauthBanner && (
+        <div className="mb-4">
+          <Alert
+            variant={oauthBanner.kind === 'success' ? 'success' : 'error'}
+            message={oauthBanner.message}
+          />
+        </div>
+      )}
 
       {readOnly && (
         <div className="mb-4">
@@ -526,18 +603,21 @@ export default function ChannelsPage() {
         open={whatsAppOpen}
         onClose={() => setWhatsAppOpen(false)}
         onConnected={() => void load()}
+        oauthAvailable={whatsappOauthAvailable}
       />
 
       <InstagramConnectModal
         open={instagramOpen}
         onClose={() => setInstagramOpen(false)}
         onConnected={() => void load()}
+        oauthAvailable={loginOauthAvailable}
       />
 
       <FacebookConnectModal
         open={facebookOpen}
         onClose={() => setFacebookOpen(false)}
         onConnected={() => void load()}
+        oauthAvailable={loginOauthAvailable}
       />
 
       <TelegramConnectModal

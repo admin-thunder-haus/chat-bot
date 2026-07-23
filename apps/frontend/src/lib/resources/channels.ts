@@ -25,6 +25,17 @@ export interface UpdateChannelInput {
   metadata?: Record<string, string | number | boolean | null>;
 }
 
+/** Providers connectable via the Meta OAuth / Embedded Signup flow. */
+export type MetaOauthProvider = 'facebook' | 'instagram' | 'whatsapp';
+
+/** Safe Meta OAuth status — config ids are public, secrets never leave the API. */
+export interface MetaOauthStatus {
+  configured: boolean;
+  appId: string | null;
+  whatsappConfigId: string | null;
+  loginConfigId: string | null;
+}
+
 export const channelsApi = {
   providers(): Promise<{ providers: ChannelProviderDescriptor[] }> {
     return request('/channels/providers', { auth: true });
@@ -60,6 +71,30 @@ export const channelsApi = {
     input: FacebookConnectInput,
   ): Promise<{ account: ChannelAccount }> {
     return request('/channels/facebook/connect', {
+      method: 'POST',
+      body: input,
+      auth: true,
+    });
+  },
+  /** Meta OAuth availability (one-click connect). */
+  oauthStatus(): Promise<MetaOauthStatus> {
+    return request('/channels/oauth/meta/status', { auth: true });
+  },
+  /** Begin the Meta OAuth redirect flow; navigate the browser to `url`. */
+  oauthStart(provider: MetaOauthProvider): Promise<{ url: string }> {
+    return request('/channels/oauth/meta/start', {
+      method: 'POST',
+      body: { provider },
+      auth: true,
+    });
+  },
+  /** Complete the WhatsApp Embedded Signup popup variant (JS-SDK postMessage). */
+  oauthCompleteWhatsApp(input: {
+    code: string;
+    phoneNumberId?: string;
+    wabaId?: string;
+  }): Promise<{ account: ChannelAccount }> {
+    return request('/channels/oauth/meta/whatsapp/complete', {
       method: 'POST',
       body: input,
       auth: true,

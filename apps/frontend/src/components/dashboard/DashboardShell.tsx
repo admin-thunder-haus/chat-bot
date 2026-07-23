@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { Button, Badge } from '@/components/ui';
 import { NAV_ITEMS, DEV_NAV_ITEMS } from './nav';
+import { NotificationsBell } from './NotificationsBell';
 
 function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
@@ -122,14 +123,17 @@ export function DashboardShell({ children }: { children: ReactNode }) {
               {company?.displayName || company?.name}
             </span>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => void logout()}
-            className="lg:hidden"
-          >
-            Log out
-          </Button>
+          <div className="flex items-center gap-1">
+            <NotificationsBell />
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => void logout()}
+              className="lg:hidden"
+            >
+              Log out
+            </Button>
+          </div>
         </header>
 
         <main className="mx-auto max-w-5xl px-4 py-6 lg:px-8 lg:py-8">

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { channelsApi } from '@/lib/resources';
 import { parseApiError } from '@/lib/form';
 import { useToast } from '@/components/toast';
+import { MetaOauthConnect } from './MetaOauthConnect';
 import {
   Alert,
   Button,
@@ -14,19 +15,24 @@ import {
 } from '@/components/ui';
 
 /**
- * Connect a Facebook Page via the Meta Messenger Platform. Secrets (page access
- * token, app secret, verify token) are sent ONCE to the backend, encrypted at
- * rest, and NEVER returned. On submit the backend validates them against the
- * Graph API, so the reported state is honest (verified / auth-expired / pending).
+ * Connect a Facebook Page via the Meta Messenger Platform. When Meta OAuth is
+ * configured the primary path is "Connect with Meta" (Facebook Login for
+ * Business); the manual credential form stays as an advanced fallback.
+ * Secrets (page access token, app secret, verify token) are sent ONCE to the
+ * backend, encrypted at rest, and NEVER returned. On submit the backend
+ * validates them against the Graph API, so the reported state is honest
+ * (verified / auth-expired / pending).
  */
 export function FacebookConnectModal({
   open,
   onClose,
   onConnected,
+  oauthAvailable = false,
 }: {
   open: boolean;
   onClose: () => void;
   onConnected: () => void;
+  oauthAvailable?: boolean;
 }) {
   const { notify } = useToast();
   const [form, setForm] = useState({
@@ -81,6 +87,7 @@ export function FacebookConnectModal({
 
   return (
     <Modal open={open} onClose={onClose} title="Connect Facebook Messenger">
+      <MetaOauthConnect provider="facebook" providerLabel="Facebook Page" oauthAvailable={oauthAvailable}>
       <form onSubmit={submit} className="space-y-4">
         <Alert variant="info">
           Enter your Meta Messenger details. Secrets are encrypted at rest and
@@ -99,8 +106,8 @@ export function FacebookConnectModal({
             <li>The Meta webhook configured for this channel&apos;s URL</li>
           </ul>
           <p className="mt-2 text-[11px] text-slate-400">
-            Automatic Meta onboarding will be added in the shared Embedded Signup
-            phase — for now this is a manual developer connection.
+            Prefer the one-click &quot;Connect with Meta&quot; option when it is
+            shown above — this manual form is the advanced fallback.
           </p>
         </div>
 
@@ -161,6 +168,7 @@ export function FacebookConnectModal({
           </Button>
         </div>
       </form>
+      </MetaOauthConnect>
     </Modal>
   );
 }

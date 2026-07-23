@@ -318,6 +318,42 @@ const envSchema = z.object({
     .min(1000)
     .max(60000)
     .default(15000),
+
+  // --- Day 12: Meta OAuth / Embedded Signup (one-click channel connect) ---
+  // ALL optional: when META_APP_ID / META_APP_SECRET are unset the OAuth flow
+  // is simply disabled and the manual connect forms remain the only path.
+  // These identify OUR Meta app (platform-level) — they are NOT per-tenant
+  // credentials. Per-account tokens obtained via OAuth are still stored
+  // encrypted per channel account, exactly like the manual flow.
+  META_APP_ID: z.string().optional(),
+  META_APP_SECRET: z.string().optional(),
+  META_GRAPH_API_VERSION: z
+    .string()
+    .regex(/^v\d+\.\d+$/, 'Must be a Graph API version like v21.0')
+    .default('v21.0'),
+  // Embedded Signup configuration id (WhatsApp) — from the Meta app dashboard
+  // under WhatsApp > Embedded Signup.
+  WHATSAPP_ES_CONFIG_ID: z.string().optional(),
+  // Facebook Login for Business configuration id (Messenger + Instagram).
+  META_LOGIN_CONFIG_ID: z.string().optional(),
+  // Where the browser is redirected after the OAuth callback completes.
+  FRONTEND_APP_URL: z.string().url().default('http://localhost:3000'),
+
+  // --- Day 12: AI actions ---
+  // Master switch for AI-performed business actions (appointments, orders,
+  // support tickets, availability lookups). Validated here; READ LAZILY via
+  // isAiActionsEnabled() so tests can toggle it without re-importing env.
+  AI_ACTIONS_ENABLED: z.enum(['true', 'false']).default('true'),
+
+  // --- Day 12: billing & subscriptions ---
+  // Length of the free trial every new company starts on.
+  BILLING_TRIAL_DAYS: z.coerce.number().int().min(1).max(365).default(14),
+  // Stripe is OPTIONAL. When STRIPE_SECRET_KEY is unset the platform runs in
+  // OFFLINE billing mode: plan changes apply immediately with no checkout.
+  // When set, plan changes route through Stripe hosted checkout and the
+  // webhook (verified with STRIPE_WEBHOOK_SECRET when provided) applies them.
+  STRIPE_SECRET_KEY: z.string().optional(),
+  STRIPE_WEBHOOK_SECRET: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -389,3 +425,12 @@ export const isFacebookEnabled = env.FACEBOOK_PROVIDER_ENABLED;
 
 /** Telegram provider is registered only when enabled. */
 export const isTelegramEnabled = env.TELEGRAM_PROVIDER_ENABLED;
+
+/**
+ * True when the AI may perform business actions (book/order/ticket/lookup).
+ * Deliberately a FUNCTION reading process.env at call time — the frozen `env`
+ * snapshot cannot be toggled by tests, and this flag must stay testable.
+ */
+export function isAiActionsEnabled(): boolean {
+  return (process.env.AI_ACTIONS_ENABLED ?? 'true') !== 'false';
+}

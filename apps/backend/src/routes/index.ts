@@ -19,6 +19,11 @@ import { usersRoutes } from '../modules/users/users.routes';
 import { mockInboundRoutes } from '../modules/mock-inbound/mock-inbound.routes';
 import { aiRoutes } from '../modules/ai/ai.routes';
 import { channelsRoutes } from '../modules/channels';
+import { billingRoutes } from '../modules/billing/billing.routes';
+import { notificationsRoutes } from '../modules/notifications/notifications.routes';
+import { publicApiManagementRoutes } from '../modules/public-api/public-api.routes';
+import { actionsRoutes } from '../modules/actions';
+import { metaOauthRoutes } from '../modules/channels/oauth/meta-oauth.routes';
 import { isProduction } from '../config/env';
 
 /**
@@ -58,7 +63,15 @@ router.use('/ai', aiRoutes);
 
 // Day 5 Part 1 — channel integration framework (tenant-scoped account APIs).
 // The public webhook engine is mounted separately in app.ts (no JWT).
+// OAuth/embedded-signup mounts BEFORE /channels so its literal path wins.
+router.use('/channels/oauth', metaOauthRoutes);
 router.use('/channels', channelsRoutes);
+
+// Day 12 — business platform features.
+router.use('/billing', billingRoutes);
+router.use('/notifications', notificationsRoutes);
+router.use('/integrations', publicApiManagementRoutes);
+router.use('/actions', actionsRoutes);
 
 // Development-only mock inbound endpoint (never mounted in production).
 if (!isProduction) {

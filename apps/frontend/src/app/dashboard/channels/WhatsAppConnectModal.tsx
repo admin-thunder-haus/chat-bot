@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { channelsApi } from '@/lib/resources';
 import { parseApiError } from '@/lib/form';
 import { useToast } from '@/components/toast';
+import { MetaOauthConnect } from './MetaOauthConnect';
 import {
   Alert,
   Button,
@@ -14,18 +15,22 @@ import {
 } from '@/components/ui';
 
 /**
- * Connect a WhatsApp Business number via the Meta Cloud API. Secrets (access
- * token, app secret, verify token) are sent ONCE to the backend, encrypted at
- * rest, and NEVER returned. This form is the only place they are entered.
+ * Connect a WhatsApp Business number. When Meta OAuth is configured the
+ * primary path is one-click Embedded Signup ("Connect with Meta"); the manual
+ * Cloud API credential form stays available as an advanced fallback. Secrets
+ * (access token, app secret, verify token) are sent ONCE to the backend,
+ * encrypted at rest, and NEVER returned.
  */
 export function WhatsAppConnectModal({
   open,
   onClose,
   onConnected,
+  oauthAvailable = false,
 }: {
   open: boolean;
   onClose: () => void;
   onConnected: () => void;
+  oauthAvailable?: boolean;
 }) {
   const { notify } = useToast();
   const [form, setForm] = useState({
@@ -76,6 +81,7 @@ export function WhatsAppConnectModal({
 
   return (
     <Modal open={open} onClose={onClose} title="Connect WhatsApp Business">
+      <MetaOauthConnect provider="whatsapp" providerLabel="WhatsApp Business number" oauthAvailable={oauthAvailable}>
       <form onSubmit={submit} className="space-y-4">
         <Alert variant="info">
           Enter your Meta Cloud API details. Secrets are encrypted at rest and
@@ -145,6 +151,7 @@ export function WhatsAppConnectModal({
           </Button>
         </div>
       </form>
+      </MetaOauthConnect>
     </Modal>
   );
 }

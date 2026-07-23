@@ -2,6 +2,7 @@ import type { Server } from 'node:http';
 import { createApp } from './app';
 import { env } from './config/env';
 import { prisma } from './config/prisma';
+import { ensureDefaultPlans } from './modules/billing/billing.plans';
 import { logger } from './utils/logger';
 
 async function bootstrap(): Promise<void> {
@@ -14,6 +15,18 @@ async function bootstrap(): Promise<void> {
       message: err instanceof Error ? err.message : String(err),
     });
     process.exit(1);
+  }
+
+  // Seed the default billing plan catalog (idempotent upsert by plan code).
+  // Non-fatal: the catalog is also ensured lazily when a subscription is
+  // first needed, so a transient failure here never blocks startup.
+  try {
+    await ensureDefaultPlans();
+    logger.info('Default billing plans ensured');
+  } catch (err) {
+    logger.warn('Failed to ensure default billing plans', {
+      message: err instanceof Error ? err.message : String(err),
+    });
   }
 
   const app = createApp();

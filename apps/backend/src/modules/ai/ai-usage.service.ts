@@ -1,6 +1,7 @@
 import { aiRepository, utcDay, type UsageDelta } from './ai.repository';
 import { AIError } from './ai.errors';
 import { env } from '../../config/env';
+import { billingLimitsService } from '../billing/billing-limits.service';
 
 export interface UsageSummary {
   date: string;
@@ -22,6 +23,11 @@ export interface UsageSummary {
 export const aiUsageService = {
   /** Throw a safe quota error BEFORE any provider call if limits are reached. */
   async assertWithinQuota(companyId: string): Promise<void> {
+    // Billing gates first: an EXPIRED subscription blocks AI entirely
+    // (SUBSCRIPTION_EXPIRED) and the plan's monthly AI request cap applies
+    // (PLAN_LIMIT_REACHED) alongside the env-level limits below.
+    await billingLimitsService.assertAiRequestAllowed(companyId);
+
     const today = utcDay();
     const daily = await aiRepository.getDaily(companyId, today);
     if (daily && daily.requestCount >= env.AI_DAILY_COMPANY_REQUEST_LIMIT) {

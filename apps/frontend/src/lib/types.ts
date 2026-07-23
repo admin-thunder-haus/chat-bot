@@ -717,3 +717,224 @@ export interface AIAnalytics {
   topDocuments: { id: string; fileName: string; count: number }[];
   languages: { code: string; count: number }[];
 }
+
+// --- Day 12: billing & subscriptions ---
+
+export type SubscriptionStatus =
+  | 'TRIALING'
+  | 'ACTIVE'
+  | 'PAST_DUE'
+  | 'CANCELED'
+  | 'EXPIRED';
+
+export type BillingCycle = 'MONTHLY' | 'YEARLY';
+
+/** Per-plan usage caps; null = unlimited. */
+export interface PlanLimits {
+  maxChannels: number | null;
+  maxUsers: number | null;
+  maxAiRequestsPerMonth: number | null;
+  maxKnowledgeDocuments: number | null;
+  maxProducts: number | null;
+  maxServices: number | null;
+}
+
+export interface BillingPlan {
+  code: string;
+  name: string;
+  description: string | null;
+  /** Decimal strings, e.g. "19" / "19.5". */
+  monthlyPriceUsd: string;
+  yearlyPriceUsd: string;
+  limits: PlanLimits;
+  features: string[];
+  sortOrder: number;
+}
+
+export interface UsageStat {
+  used: number;
+  /** null = unlimited on the current plan. */
+  limit: number | null;
+}
+
+export interface BillingUsage {
+  channels: UsageStat;
+  users: UsageStat;
+  aiRequestsThisMonth: UsageStat;
+  knowledgeDocuments: UsageStat;
+  products: UsageStat;
+  services: UsageStat;
+}
+
+export interface Subscription {
+  plan: BillingPlan;
+  status: SubscriptionStatus;
+  billingCycle: BillingCycle;
+  trialEndsAt: string | null;
+  currentPeriodStart: string;
+  currentPeriodEnd: string;
+  cancelAtPeriodEnd: boolean;
+  canceledAt: string | null;
+  daysLeftInTrial: number | null;
+  usage: BillingUsage;
+}
+
+/** changePlan either applies offline or redirects to hosted checkout. */
+export type ChangePlanResult =
+  | { checkoutUrl: string }
+  | { subscription: Subscription };
+
+// --- Day 12: notifications ---
+
+export type NotificationType =
+  | 'NEW_CONVERSATION'
+  | 'HANDOFF_REQUESTED'
+  | 'AI_REPLY_FAILED'
+  | 'SUBSCRIPTION_EVENT'
+  | 'SYSTEM_ALERT';
+
+export interface AppNotification {
+  id: string;
+  userId: string | null;
+  type: NotificationType;
+  title: string;
+  body: string;
+  data: unknown;
+  readAt: string | null;
+  createdAt: string;
+}
+
+// --- Day 12: public API keys + outbound webhooks ---
+
+export type DomainEventType =
+  | 'conversation.created'
+  | 'conversation.resolved'
+  | 'customer.created'
+  | 'handoff.requested'
+  | 'ai.reply_failed'
+  | 'subscription.updated'
+  | 'action.executed';
+
+export interface ApiKey {
+  id: string;
+  name: string;
+  keyPrefix: string;
+  scopes: string[];
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+  createdAt: string;
+}
+
+/** Returned once at creation: the serialized row plus the full key. */
+export interface ApiKeyCreated {
+  apiKey: ApiKey;
+  key: string;
+}
+
+export interface OutboundWebhook {
+  id: string;
+  url: string;
+  events: DomainEventType[];
+  isActive: boolean;
+  failureCount: number;
+  lastSuccessAt: string | null;
+  lastFailureAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  deliveryCount?: number;
+}
+
+/** Returned once at creation: the webhook plus its signing secret. */
+export interface OutboundWebhookCreated {
+  webhook: OutboundWebhook;
+  secret: string;
+}
+
+export interface WebhookDelivery {
+  id: string;
+  eventType: string;
+  status: 'delivered' | 'failed' | string;
+  attemptCount: number;
+  responseStatus: number | null;
+  errorMessage: string | null;
+  createdAt: string;
+}
+
+// --- Day 12: AI actions / operations ---
+
+export type AppointmentStatus =
+  | 'PENDING'
+  | 'CONFIRMED'
+  | 'CANCELLED'
+  | 'COMPLETED';
+
+export interface Appointment {
+  id: string;
+  customerId: string | null;
+  conversationId: string | null;
+  serviceId: string | null;
+  scheduledAt: string;
+  durationMinutes: number | null;
+  notes: string | null;
+  status: AppointmentStatus;
+  createdVia: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type OrderStatus = 'NEW' | 'CONFIRMED' | 'CANCELLED' | 'FULFILLED';
+
+export interface OrderItem {
+  id: string;
+  productId: string | null;
+  name: string;
+  quantity: number;
+  /** Decimal string (e.g. "10.5") or null when the product has no price. */
+  unitPrice: string | null;
+  currency: string;
+}
+
+export interface Order {
+  id: string;
+  customerId: string | null;
+  conversationId: string | null;
+  status: OrderStatus;
+  /** Decimal string or null when no item had a published price. */
+  totalAmount: string | null;
+  currency: string;
+  notes: string | null;
+  createdVia: string;
+  createdAt: string;
+  updatedAt: string;
+  items: OrderItem[];
+}
+
+export type TicketStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';
+
+export interface SupportTicket {
+  id: string;
+  customerId: string | null;
+  conversationId: string | null;
+  subject: string;
+  description: string | null;
+  priority: ConversationPriority;
+  status: TicketStatus;
+  createdVia: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type ActionExecutionStatus = 'completed' | 'failed' | 'rejected';
+
+export interface AIActionExecution {
+  id: string;
+  conversationId: string | null;
+  generationId: string | null;
+  actionKey: string;
+  input: unknown;
+  /** Handler result — includes a human-readable `summary` when completed. */
+  result: { summary?: string } | null;
+  status: ActionExecutionStatus;
+  errorMessage: string | null;
+  createdAt: string;
+}

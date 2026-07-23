@@ -22,6 +22,19 @@ export type { CreateChannelInput, UpdateChannelInput } from './channels';
 export { documentsApi } from './knowledge-documents';
 export { analyticsApi } from './analytics';
 export type { AnalyticsRange } from './analytics';
+export { billingApi } from './billing';
+export { notificationsApi } from './notifications';
+export type { NotificationListParams } from './notifications';
+export { integrationsApi } from './integrations';
+export type {
+  CreateWebhookInput,
+  UpdateWebhookInput,
+} from './integrations';
+export { actionsApi } from './actions';
+export type {
+  ExecutionListParams,
+  OperationsListParams,
+} from './actions';
 
 export type { ProfileUpdate } from './company';
 export type { ServiceInput, ServiceListParams } from './services';

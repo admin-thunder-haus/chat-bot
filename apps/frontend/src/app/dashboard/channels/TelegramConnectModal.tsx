@@ -67,9 +67,10 @@ export function TelegramConnectModal({
     <Modal open={open} onClose={onClose} title="Connect Telegram">
       <form onSubmit={submit} className="space-y-4">
         <Alert variant="info">
-          Create a bot with <strong>@BotFather</strong> on Telegram and paste its
-          token below. We verify it and set the webhook automatically — no manual
-          setup. The token is encrypted at rest and never shown again.
+          Telegram uses its official bot flow: create a bot with{' '}
+          <strong>@BotFather</strong> and paste its token below — that&apos;s the
+          whole setup. We verify the token and register the webhook
+          automatically; the token is encrypted at rest and never shown again.
         </Alert>
 
         <div>

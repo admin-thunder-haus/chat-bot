@@ -285,6 +285,16 @@ model Company {
   storedImages            StoredImage[]
   knowledgeDocuments      KnowledgeDocument[]
   knowledgeDocumentChunks KnowledgeDocumentChunk[]
+  subscription            Subscription?
+  notifications           Notification[]
+  apiKeys                 ApiKey[]
+  outboundWebhooks        OutboundWebhook[]
+  outboundWebhookDeliveries OutboundWebhookDelivery[]
+  appointments            Appointment[]
+  orders                  Order[]
+  orderItems              OrderItem[]
+  supportTickets          SupportTicket[]
+  aiActionExecutions      AIActionExecution[]
   businessHours           BusinessHour[]
   faqs                    FrequentlyAskedQuestion[]
   knowledgeBaseEntries    KnowledgeBaseEntry[]
@@ -368,6 +378,288 @@ model EmailVerificationCode {
 
   @@index([userId, createdAt])
   @@map("email_verification_codes")
+}
+
+// ---------------------------------------------------------------------------
+// Day 12: billing & subscriptions
+// ---------------------------------------------------------------------------
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  EXPIRED
+}
+
+enum BillingCycle {
+  MONTHLY
+  YEARLY
+}
+
+// A sellable plan. Limits live in a generic JSON map so new limits never need
+// a migration: { maxChannels, maxUsers, maxAiRequestsPerMonth,
+// maxKnowledgeDocuments, maxProducts, maxServices, ... } — null/absent = unlimited.
+model Plan {
+  id              String   @id @default(uuid()) @db.Uuid
+  code            String   @unique
+  name            String
+  description     String?
+  monthlyPriceUsd Decimal  @db.Decimal(10, 2)
+  yearlyPriceUsd  Decimal  @db.Decimal(10, 2)
+  limits          Json
+  features        String[] @default([])
+  isActive        Boolean  @default(true)
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  subscriptions Subscription[]
+
+  @@map("plans")
+}
+
+// One subscription per company. Payment-provider linkage is generic
+// (provider name + external ids) so Stripe can be swapped/augmented later.
+model Subscription {
+  id                     String             @id @default(uuid()) @db.Uuid
+  companyId              String             @unique @db.Uuid
+  planId                 String             @db.Uuid
+  status                 SubscriptionStatus @default(TRIALING)
+  billingCycle           BillingCycle       @default(MONTHLY)
+  trialEndsAt            DateTime?
+  currentPeriodStart     DateTime           @default(now())
+  currentPeriodEnd       DateTime
+  cancelAtPeriodEnd      Boolean            @default(false)
+  canceledAt             DateTime?
+  paymentProvider        String?
+  externalCustomerId     String?
+  externalSubscriptionId String?
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  plan    Plan    @relation(fields: [planId], references: [id])
+
+  @@index([status])
+  @@map("subscriptions")
+}
+
+// ---------------------------------------------------------------------------
+// Day 12: notifications
+// ---------------------------------------------------------------------------
+
+enum NotificationType {
+  NEW_CONVERSATION
+  HANDOFF_REQUESTED
+  AI_REPLY_FAILED
+  SUBSCRIPTION_EVENT
+  SYSTEM_ALERT
+}
+
+model Notification {
+  id        String           @id @default(uuid()) @db.Uuid
+  companyId String           @db.Uuid
+  // Null targets every user of the company; set targets one user.
+  userId    String?          @db.Uuid
+  type      NotificationType
+  title     String
+  body      String
+  data      Json?
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, createdAt])
+  @@index([companyId, readAt])
+  @@map("notifications")
+}
+
+// ---------------------------------------------------------------------------
+// Day 12: public API keys + outbound webhooks
+// ---------------------------------------------------------------------------
+
+// Only a SHA-256 hash of the API key is stored (RefreshToken pattern); the
+// prefix supports display ("ak_live_ab12…") without exposing the secret.
+model ApiKey {
+  id              String    @id @default(uuid()) @db.Uuid
+  companyId       String    @db.Uuid
+  name            String
+  keyPrefix       String
+  keyHash         String    @unique
+  scopes          String[]  @default([])
+  lastUsedAt      DateTime?
+  revokedAt       DateTime?
+  createdByUserId String?   @db.Uuid
+  createdAt       DateTime  @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@map("api_keys")
+}
+
+// Customer-configured outbound webhook. The signing secret is stored
+// AES-256-GCM encrypted (channel-credential pattern) — needed in plaintext at
+// send time for HMAC, never returned by the API after creation.
+model OutboundWebhook {
+  id              String    @id @default(uuid()) @db.Uuid
+  companyId       String    @db.Uuid
+  url             String
+  encryptedSecret String
+  events          String[]  @default([])
+  isActive        Boolean   @default(true)
+  failureCount    Int       @default(0)
+  lastSuccessAt   DateTime?
+  lastFailureAt   DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  company    Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  deliveries OutboundWebhookDelivery[]
+
+  @@index([companyId])
+  @@map("outbound_webhooks")
+}
+
+model OutboundWebhookDelivery {
+  id             String    @id @default(uuid()) @db.Uuid
+  companyId      String    @db.Uuid
+  webhookId      String    @db.Uuid
+  eventType      String
+  status         String // 'delivered' | 'failed'
+  attemptCount   Int       @default(0)
+  responseStatus Int?
+  errorMessage   String?
+  createdAt      DateTime  @default(now())
+
+  company Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  webhook OutboundWebhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, createdAt])
+  @@index([webhookId, createdAt])
+  @@map("outbound_webhook_deliveries")
+}
+
+// ---------------------------------------------------------------------------
+// Day 12: AI actions — business records the AI can create + execution audit
+// ---------------------------------------------------------------------------
+
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+model Appointment {
+  id              String            @id @default(uuid()) @db.Uuid
+  companyId       String            @db.Uuid
+  customerId      String?           @db.Uuid
+  conversationId  String?           @db.Uuid
+  serviceId       String?           @db.Uuid
+  scheduledAt     DateTime
+  durationMinutes Int?
+  notes           String?
+  status          AppointmentStatus @default(PENDING)
+  createdVia      String            @default("ai")
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, scheduledAt])
+  @@map("appointments")
+}
+
+enum OrderStatus {
+  NEW
+  CONFIRMED
+  CANCELLED
+  FULFILLED
+}
+
+model Order {
+  id             String      @id @default(uuid()) @db.Uuid
+  companyId      String      @db.Uuid
+  customerId     String?     @db.Uuid
+  conversationId String?     @db.Uuid
+  status         OrderStatus @default(NEW)
+  totalAmount    Decimal?    @db.Decimal(12, 2)
+  currency       String      @default("JOD")
+  notes          String?
+  createdVia     String      @default("ai")
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  company Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  items   OrderItem[]
+
+  @@index([companyId, createdAt])
+  @@map("orders")
+}
+
+model OrderItem {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @db.Uuid
+  orderId   String   @db.Uuid
+  productId String?  @db.Uuid
+  name      String
+  quantity  Int      @default(1)
+  unitPrice Decimal? @db.Decimal(12, 2)
+  currency  String   @default("JOD")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+model SupportTicket {
+  id             String               @id @default(uuid()) @db.Uuid
+  companyId      String               @db.Uuid
+  customerId     String?              @db.Uuid
+  conversationId String?              @db.Uuid
+  subject        String
+  description    String?
+  priority       ConversationPriority @default(NORMAL)
+  status         TicketStatus         @default(OPEN)
+  createdVia     String               @default("ai")
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, status])
+  @@map("support_tickets")
+}
+
+// Append-only audit of every AI-initiated action (attempted or executed).
+model AIActionExecution {
+  id             String   @id @default(uuid()) @db.Uuid
+  companyId      String   @db.Uuid
+  conversationId String?  @db.Uuid
+  generationId   String?  @db.Uuid
+  actionKey      String
+  input          Json
+  result         Json?
+  status         String // 'completed' | 'failed' | 'rejected'
+  errorMessage   String?
+  createdAt      DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, createdAt])
+  @@map("ai_action_executions")
 }
 
 // ---------------------------------------------------------------------------

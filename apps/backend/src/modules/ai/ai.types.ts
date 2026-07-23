@@ -22,6 +22,12 @@ export interface ContextSummary {
   injectionSuspected: boolean;
 }
 
+/** Parsed request from the model to perform a registered business action. */
+export interface AIActionRequest {
+  action: string;
+  input: Record<string, unknown>;
+}
+
 /** Result returned to callers/clients — never includes hidden prompts/secrets. */
 export interface AIGenerationResult {
   generationId: string;
@@ -46,4 +52,10 @@ export interface AIGenerationResult {
    * Attached out-of-band on channels whose provider supports media.
    */
   attachment: RecommendedAttachment | null;
+  /**
+   * Parsed ACTION_REQUEST when the model asked to perform a registered action
+   * (only possible when the run allowed actions). The raw sentinel text stays
+   * in `text`; callers execute the action instead of sending it.
+   */
+  actionRequest: AIActionRequest | null;
 }

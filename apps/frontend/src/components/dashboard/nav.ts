@@ -9,6 +9,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: 'Overview', href: '/dashboard', icon: '▤' },
   { label: 'Inbox', href: '/dashboard/inbox', icon: '📥' },
   { label: 'Analytics', href: '/dashboard/analytics', icon: '📊' },
+  { label: 'Operations', href: '/dashboard/operations', icon: '📋' },
   { label: 'Channels', href: '/dashboard/channels', icon: '🔌' },
   { label: 'Company Profile', href: '/dashboard/profile', icon: '🏢' },
   { label: 'Services', href: '/dashboard/services', icon: '🧾' },
@@ -18,6 +19,8 @@ export const NAV_ITEMS: NavItem[] = [
   { label: 'Knowledge Base', href: '/dashboard/knowledge-base', icon: '📚' },
   { label: 'AI Settings', href: '/dashboard/ai-settings', icon: '🤖' },
   { label: 'AI Playground', href: '/dashboard/ai-playground', icon: '✨' },
+  { label: 'Integrations', href: '/dashboard/integrations', icon: '🔌' },
+  { label: 'Billing', href: '/dashboard/billing', icon: '💳' },
 ];
 
 /** Development-only navigation (hidden in production builds). */

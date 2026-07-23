@@ -9,6 +9,9 @@ import {
   ServicePriceType,
 } from '@prisma/client';
 import bcrypt from 'bcrypt';
+// Pure constants (type-only prisma imports) — safe to use here WITHOUT
+// pulling in src/config/env side effects.
+import { DEFAULT_PLANS } from '../src/modules/billing/billing.types';
 
 /**
  * Development seed: a demo company with realistic Day 2 business configuration.
@@ -31,6 +34,25 @@ async function main(): Promise<void> {
 
   const password = 'Demo12345';
   const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+
+  // --- Day 12: billing plan catalog (idempotent upsert by unique code) ---
+  for (const plan of DEFAULT_PLANS) {
+    const data = {
+      name: plan.name,
+      description: plan.description,
+      monthlyPriceUsd: plan.monthlyPriceUsd,
+      yearlyPriceUsd: plan.yearlyPriceUsd,
+      limits: plan.limits as object,
+      features: plan.features,
+      isActive: true,
+      sortOrder: plan.sortOrder,
+    };
+    await prisma.plan.upsert({
+      where: { code: plan.code },
+      update: data,
+      create: { code: plan.code, ...data },
+    });
+  }
 
   // --- Company + profile (Day 2 fields) ---
   const company = await prisma.company.upsert({

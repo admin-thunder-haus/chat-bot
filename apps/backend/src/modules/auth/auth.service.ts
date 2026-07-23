@@ -26,6 +26,7 @@ import {
 import { durationToMs } from '../../utils/duration';
 import { env, isEmailVerificationEnabled } from '../../config/env';
 import { AppError } from '../../utils/AppError';
+import { billingService } from '../billing/billing.service';
 
 /** Strip the password hash before exposing a user to the client. */
 function toPublicUser(user: User): PublicUser {
@@ -126,6 +127,11 @@ export const authService = {
       // enable never locks them out.
       emailVerifiedAt: isEmailVerificationEnabled ? null : new Date(),
     });
+
+    // Every new company starts on the free trial. This call never throws —
+    // billing must not block sign-up (the subscription is also created lazily
+    // on the first billing read as a safety net).
+    await billingService.ensureTrialSubscription(company.id);
 
     if (isEmailVerificationEnabled) {
       await issueVerificationCode(user);

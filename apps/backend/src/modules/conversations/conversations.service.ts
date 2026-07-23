@@ -15,6 +15,7 @@ import { prisma } from '../../config/prisma';
 import { AppError } from '../../utils/AppError';
 import { logActivity } from '../../utils/activity';
 import { aiService } from '../ai/ai.service';
+import { emitDomainEvent } from '../events/domain-events.service';
 import { paginate, type PaginatedResult } from '../../utils/pagination';
 import type {
   ConversationListQuery,
@@ -169,6 +170,17 @@ export const conversationsService = {
       // Best-effort — a summary failure never blocks the status change.
       if (status === 'RESOLVED' || status === 'CLOSED') {
         await aiService.trySummarizeOnClose(companyId, id, actorUserId);
+      }
+
+      // Day 12: webhook-only domain event (never throws, no notification).
+      if (status === 'RESOLVED') {
+        await emitDomainEvent({
+          companyId,
+          type: 'conversation.resolved',
+          title: 'Conversation resolved',
+          body: 'A conversation was marked as resolved',
+          data: { conversationId: id, previousStatus: existing.status },
+        });
       }
     }
     return this.getDetail(companyId, id);

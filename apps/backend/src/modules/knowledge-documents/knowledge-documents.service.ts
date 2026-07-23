@@ -1,4 +1,6 @@
 import { PDFParse } from 'pdf-parse';
+import { prisma } from '../../config/prisma';
+import { billingLimitsService } from '../billing/billing-limits.service';
 import { knowledgeDocumentsRepository } from './knowledge-documents.repository';
 import {
   serializeKnowledgeDocument,
@@ -113,7 +115,18 @@ export const knowledgeDocumentsService = {
   ): Promise<SerializedKnowledgeDocument[]> {
     const results: SerializedKnowledgeDocument[] = [];
 
-    for (const file of files) {
+    // Plan limit: stored knowledge documents (checked per file so a batch
+    // upload stops exactly at the plan's cap).
+    const existingCount = await prisma.knowledgeDocument.count({
+      where: { companyId },
+    });
+
+    for (const [index, file] of files.entries()) {
+      await billingLimitsService.assertWithinLimit(
+        companyId,
+        'maxKnowledgeDocuments',
+        existingCount + index,
+      );
       const created = await knowledgeDocumentsRepository.create({
         companyId,
         fileName: file.originalname,

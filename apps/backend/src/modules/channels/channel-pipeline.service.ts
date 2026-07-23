@@ -15,6 +15,7 @@ import { channelRegistry } from './channel-registry';
 import { channelDeliveryService } from './channel-delivery.service';
 import type { NormalizedInboundMessage } from './channel-normalizer.service';
 import { detectLanguage } from '../../utils/language-detect';
+import { emitDomainEvent } from '../events/domain-events.service';
 
 export interface IngestInboundParams {
   companyId: string;
@@ -101,7 +102,9 @@ export const channelPipelineService = {
             externalId: message.externalCustomerId,
           },
         });
+        let createdCustomer = false;
         if (!customer) {
+          createdCustomer = true;
           customer = await tx.customer.create({
             data: {
               companyId,
@@ -225,12 +228,49 @@ export const channelPipelineService = {
           messageId: created.id,
           conversationId: conversation.id,
           customerId: customer.id,
+          customerName: customer.fullName,
           createdConversation,
+          createdCustomer,
           reopened: reopen,
         };
       });
 
-      return { idempotent: false, ...result };
+      // Day 12: domain events AFTER the transaction commits. emitDomainEvent
+      // never throws, so ingestion is never affected.
+      const customerLabel = result.customerName ?? 'a customer';
+      if (result.createdConversation) {
+        await emitDomainEvent({
+          companyId,
+          type: 'conversation.created',
+          title: `New ${channelType} conversation`,
+          body: `${customerLabel} started a new conversation on ${channelType}`,
+          data: {
+            conversationId: result.conversationId,
+            customerId: result.customerId,
+            channelType,
+          },
+          notify: { type: 'NEW_CONVERSATION' },
+        });
+      }
+      if (result.createdCustomer) {
+        // Webhook-only (no in-app notification): notify is undefined.
+        await emitDomainEvent({
+          companyId,
+          type: 'customer.created',
+          title: 'New customer',
+          body: `${customerLabel} contacted you for the first time on ${channelType}`,
+          data: { customerId: result.customerId, channelType },
+        });
+      }
+
+      return {
+        idempotent: false,
+        messageId: result.messageId,
+        conversationId: result.conversationId,
+        customerId: result.customerId,
+        createdConversation: result.createdConversation,
+        reopened: result.reopened,
+      };
     } catch (err) {
       // Concurrent duplicate: unique (companyId, externalMessageId) violated.
       if (

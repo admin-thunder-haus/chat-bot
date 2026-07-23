@@ -6,6 +6,7 @@ import { isFakeChannelEnabled } from '../../config/env';
 import { channelsRepository } from './channels.repository';
 import { channelRegistry } from './channel-registry';
 import { channelSecurityService } from './channel-security.service';
+import { billingLimitsService } from '../billing/billing-limits.service';
 import {
   serializeChannelAccount,
   type ChannelAccountView,
@@ -113,6 +114,15 @@ export const channelsService = {
   ): Promise<ChannelAccountView> {
     assertMetadataSize(input.metadata);
 
+    // Plan limit: connected (non-disconnected) channel accounts.
+    await billingLimitsService.assertWithinLimit(
+      companyId,
+      'maxChannels',
+      await prisma.channelAccount.count({
+        where: { companyId, status: { not: 'DISCONNECTED' } },
+      }),
+    );
+
     // Only registered, usable providers can be connected. In Part 1 that is the
     // development fake provider only; real platforms are honest placeholders and
     // are rejected until their provider exists.
@@ -209,6 +219,15 @@ export const channelsService = {
     displayName: string,
     payload: Record<string, unknown>,
   ): Promise<ChannelAccountView> {
+    // Plan limit: connected (non-disconnected) channel accounts.
+    await billingLimitsService.assertWithinLimit(
+      companyId,
+      'maxChannels',
+      await prisma.channelAccount.count({
+        where: { companyId, status: { not: 'DISCONNECTED' } },
+      }),
+    );
+
     const provider = channelRegistry.tryGet(providerKey);
     if (!provider) {
       throw AppError.badRequest(`Unknown channel provider "${providerKey}"`);

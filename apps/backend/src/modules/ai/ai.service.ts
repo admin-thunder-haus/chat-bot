@@ -8,7 +8,7 @@ import type {
   AIGenerationType,
 } from '@prisma/client';
 import { prisma } from '../../config/prisma';
-import { env } from '../../config/env';
+import { env, isAiActionsEnabled } from '../../config/env';
 import { logger } from '../../utils/logger';
 import { AppError } from '../../utils/AppError';
 import { logActivity } from '../../utils/activity';
@@ -26,10 +26,13 @@ import { aiContextService } from './ai-context.service';
 import {
   aiPromptService,
   detectInjection,
+  parseActionRequest,
   HANDOFF_SENTINEL,
   PROMPT_VERSION,
 } from './ai-prompt.service';
+import { actionRegistry, actionsService } from '../actions';
 import { detectLanguage } from '../../utils/language-detect';
+import { emitDomainEvent } from '../events/domain-events.service';
 import { aiRepository } from './ai.repository';
 import { aiUsageService } from './ai-usage.service';
 import { AIError } from './ai.errors';
@@ -153,6 +156,12 @@ interface RunInput {
   settingsOverride?: AISettingsView;
   /** Allow the model to signal low-confidence handoff via the sentinel. */
   allowHandoffSignal?: boolean;
+  /**
+   * Allow the model to request registered business actions via ACTION_REQUEST
+   * lines (default false). Parsing is gated by the same flag, so a run that
+   * never advertised actions can never yield an actionRequest.
+   */
+  allowActions?: boolean;
 }
 
 /** Core generation pipeline shared by all modes. */
@@ -208,6 +217,7 @@ async function runGeneration(input: RunInput): Promise<AIGenerationResult> {
   // follow the most recent message). Channel-agnostic by design.
   const detectedLanguage = detectLanguage(input.question);
 
+  const allowActions = input.allowActions ?? false;
   const systemPrompt = aiPromptService.buildSystemPrompt({
     companyName: ctx.companyName,
     contextText: ctx.contextText,
@@ -216,6 +226,14 @@ async function runGeneration(input: RunInput): Promise<AIGenerationResult> {
     adjustment: input.adjustment,
     detectedLanguage,
     allowHandoffSignal: input.allowHandoffSignal ?? false,
+    allowActions,
+    actionCatalog: allowActions
+      ? actionRegistry.list().map((h) => ({
+          key: h.key,
+          description: h.description,
+          inputExample: h.inputExample,
+        }))
+      : undefined,
   });
   const messages = aiPromptService.buildMessages(history, input.question);
 
@@ -275,6 +293,14 @@ async function runGeneration(input: RunInput): Promise<AIGenerationResult> {
       ? settings.humanHandoffMessage
       : providerResult.text;
 
+    // Action protocol (sentinel pattern, like handoff): only runs that
+    // advertised actions may yield one. The raw text is kept; callers execute
+    // the action instead of sending the sentinel line to the customer.
+    const actionRequest =
+      allowActions && !lowConfidence
+        ? parseActionRequest(providerResult.text)
+        : null;
+
     return {
       generationId: generation.id,
       generationType: input.generationType,
@@ -296,12 +322,15 @@ async function runGeneration(input: RunInput): Promise<AIGenerationResult> {
       contextSummary,
       // Deterministic post-step: if the reply names a retrieved service or
       // product that has an image, that image rides along with the reply.
-      attachment: lowConfidence
-        ? null
-        : aiContextService.findRecommendedAttachment(
-            providerResult.text,
-            retrieval,
-          ),
+      // Never attached to action requests (the sentinel line is not a reply).
+      attachment:
+        lowConfidence || actionRequest
+          ? null
+          : aiContextService.findRecommendedAttachment(
+              providerResult.text,
+              retrieval,
+            ),
+      actionRequest,
     };
   } catch (err) {
     const code = err instanceof AIError ? err.code : 'AI_UNAVAILABLE';
@@ -432,6 +461,86 @@ async function persistAiReply(
   });
 }
 
+/**
+ * Execute the action a generation requested and send the customer the
+ * outcome. Shared by the auto-reply and agent-triggered paths; at most ONE
+ * action ever runs per inbound message (the read-only follow-up generation
+ * runs with actions disabled).
+ *
+ * - completed write action  -> confirmation reply = handler summary
+ * - completed read-only     -> SECOND generation turns the lookup result into
+ *                              a natural reply (falls back to the raw summary
+ *                              if the follow-up generation fails)
+ * - rejected (invalid input)-> clarifying question built from the zod issues
+ * - failed (handler error)  -> "Sorry, I couldn't complete that: <reason>"
+ */
+async function performRequestedAction(params: {
+  companyId: string;
+  conversationId: string;
+  customerId: string;
+  question: string;
+  sourceMessageId: string | null;
+  senderUserId: string | null;
+  result: AIGenerationResult;
+}): Promise<Message> {
+  const {
+    companyId,
+    conversationId,
+    customerId,
+    question,
+    sourceMessageId,
+    senderUserId,
+    result,
+  } = params;
+
+  const outcome = await actionsService.executeForConversation({
+    companyId,
+    conversationId,
+    customerId,
+    generationId: result.generationId,
+    request: result.actionRequest!,
+  });
+
+  let replyText = outcome.replyText;
+  let replyGenerationId: string | null = result.generationId;
+
+  if (outcome.readOnly && outcome.status === 'completed' && outcome.summary) {
+    try {
+      const followUp = await runGeneration({
+        companyId,
+        conversationId,
+        generationType: result.generationType,
+        requestedByUserId: senderUserId,
+        question,
+        sourceMessageId,
+        includeHistory: true,
+        adjustment: `Availability lookup result: ${outcome.summary}. Answer the customer using this.`,
+        // Deliberately NOT allowActions: max one action per inbound message.
+      });
+      replyText = followUp.text;
+      replyGenerationId = followUp.generationId;
+    } catch (err) {
+      // The lookup already succeeded — degrade to the plain summary rather
+      // than losing the answer to a provider hiccup.
+      logger.warn('ai.action.followUpFailed', {
+        companyId,
+        conversationId,
+        actionKey: outcome.actionKey,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  return persistAiReply(
+    companyId,
+    conversationId,
+    customerId,
+    replyGenerationId,
+    replyText,
+    senderUserId,
+  );
+}
+
 export const aiService = {
   async generateDraft(
     companyId: string,
@@ -503,7 +612,22 @@ export const aiService = {
       question: inbound.content,
       sourceMessageId: inbound.id,
       includeHistory: true,
+      allowActions: isAiActionsEnabled(),
     });
+    // The agent-triggered path can execute actions too — the agent sees the
+    // outcome (confirmation/apology/answer) as the sent message.
+    if (result.actionRequest) {
+      const message = await performRequestedAction({
+        companyId,
+        conversationId,
+        customerId: conv.customerId,
+        question: inbound.content,
+        sourceMessageId: inbound.id,
+        senderUserId: userId,
+        result,
+      });
+      return { result, message };
+    }
     const message = await persistAiReply(
       companyId,
       conversationId,
@@ -607,7 +731,22 @@ export const aiService = {
         customer,
         includeHistory: true,
         allowHandoffSignal: settings.handoffOnLowConfidence,
+        allowActions: isAiActionsEnabled(),
       });
+      // The model asked to perform a business action: execute it (validated,
+      // audited, capped at one per inbound) and reply with the outcome.
+      if (result.actionRequest) {
+        const message = await performRequestedAction({
+          companyId,
+          conversationId: conversation.id,
+          customerId: customer.id,
+          question,
+          sourceMessageId,
+          senderUserId: null,
+          result,
+        });
+        return { generated: true, reason: 'action_executed', message };
+      }
       const message = await persistAiReply(
         companyId,
         conversation.id,
@@ -629,6 +768,15 @@ export const aiService = {
       // already recorded as a FAILED generation inside runGeneration.
       const reason = err instanceof AIError ? err.code : 'ai_error';
       logger.warn('ai.autoReply.skipped', { companyId, conversationId: conversation.id, reason });
+      // Day 12: domain event (never throws, never affects the inbound flow).
+      await emitDomainEvent({
+        companyId,
+        type: 'ai.reply_failed',
+        title: 'AI reply failed',
+        body: `The AI could not answer a customer message (reason: ${reason})`,
+        data: { conversationId: conversation.id, reason },
+        notify: { type: 'AI_REPLY_FAILED' },
+      });
       return { generated: false, reason };
     }
   },
@@ -890,6 +1038,15 @@ export const aiService = {
         activityType: 'AI_HANDOFF_REQUESTED',
         metadata: { reason },
       });
+    });
+    // Day 12: domain event (never throws, never affects the handoff itself).
+    await emitDomainEvent({
+      companyId,
+      type: 'handoff.requested',
+      title: 'Human handoff requested',
+      body: `A conversation was handed off to your team (reason: ${reason})`,
+      data: { conversationId, reason },
+      notify: { type: 'HANDOFF_REQUESTED', emailRoles: ['OWNER', 'ADMIN'] },
     });
   },
 };

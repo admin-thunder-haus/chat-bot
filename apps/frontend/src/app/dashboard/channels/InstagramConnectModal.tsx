@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { channelsApi } from '@/lib/resources';
 import { parseApiError } from '@/lib/form';
 import { useToast } from '@/components/toast';
+import { MetaOauthConnect } from './MetaOauthConnect';
 import {
   Alert,
   Button,
@@ -15,19 +16,23 @@ import {
 
 /**
  * Connect an Instagram professional account via the Meta Instagram Messaging
- * API. Secrets (access token, app secret, verify token) are sent ONCE to the
- * backend, encrypted at rest, and NEVER returned. On submit the backend also
- * validates the credentials against the Graph API, so the reported state is
- * honest (verified / auth-expired / pending) rather than a blind success.
+ * API. When Meta OAuth is configured the primary path is "Connect with Meta"
+ * (picks the Instagram account linked to your Facebook Page); the manual
+ * credential form stays as an advanced fallback. Secrets (access token, app
+ * secret, verify token) are sent ONCE to the backend, encrypted at rest, and
+ * NEVER returned. On submit the backend also validates the credentials
+ * against the Graph API, so the reported state is honest.
  */
 export function InstagramConnectModal({
   open,
   onClose,
   onConnected,
+  oauthAvailable = false,
 }: {
   open: boolean;
   onClose: () => void;
   onConnected: () => void;
+  oauthAvailable?: boolean;
 }) {
   const { notify } = useToast();
   const [form, setForm] = useState({
@@ -85,6 +90,7 @@ export function InstagramConnectModal({
 
   return (
     <Modal open={open} onClose={onClose} title="Connect Instagram">
+      <MetaOauthConnect provider="instagram" providerLabel="Instagram professional account" oauthAvailable={oauthAvailable}>
       <form onSubmit={submit} className="space-y-4">
         <Alert variant="info">
           Enter your Meta Instagram Messaging details. Secrets are encrypted at
@@ -171,6 +177,7 @@ export function InstagramConnectModal({
           </Button>
         </div>
       </form>
+      </MetaOauthConnect>
     </Modal>
   );
 }

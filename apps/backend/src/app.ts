@@ -17,6 +17,7 @@ import {
 } from './middlewares';
 import { webhookRoutes } from './modules/channels';
 import { widgetRoutes } from './modules/widget';
+import { publicApiRoutes } from './modules/public-api/public-api.public.routes';
 import { sendSuccess } from './utils/apiResponse';
 
 /** Build and configure the Express application (no network binding here). */
@@ -42,6 +43,18 @@ export function createApp(): Application {
     express.json({ limit: env.JSON_BODY_LIMIT }),
     widgetRateLimiter,
     widgetRoutes,
+  );
+
+  // --- Public third-party API (NO JWT — API keys) ---
+  // Mounted BEFORE the global CORS (server-to-server callers send no Origin,
+  // and browser use is not a target) with the shared API limiter and its own
+  // JSON parser, mirroring the widget mount above.
+  app.use(
+    '/api/public/v1',
+    requestId,
+    express.json({ limit: env.JSON_BODY_LIMIT }),
+    apiRateLimiter,
+    publicApiRoutes,
   );
 
   app.use(cors(corsOptions));

@@ -4,6 +4,7 @@ import { healthRoutes } from './health.routes';
 import { companiesRoutes } from '../modules/companies/companies.routes';
 import { servicesRoutes } from '../modules/services/services.routes';
 import { productsRoutes } from '../modules/products/products.routes';
+import { imagesRoutes, publicImagesRoutes } from '../modules/images/images.routes';
 import { businessHoursRoutes } from '../modules/business-hours/business-hours.routes';
 import { faqsRoutes } from '../modules/faqs/faqs.routes';
 import { knowledgeBaseRoutes } from '../modules/knowledge-base/knowledge-base.routes';
@@ -32,6 +33,9 @@ router.use('/auth', authRoutes);
 router.use('/company', companiesRoutes);
 router.use('/services', servicesRoutes);
 router.use('/products', productsRoutes);
+// Image uploads (auth) + anonymous serving for channel-provider fetches.
+router.use('/images', imagesRoutes);
+router.use('/public/images', publicImagesRoutes);
 router.use('/business-hours', businessHoursRoutes);
 router.use('/faqs', faqsRoutes);
 router.use('/knowledge-base', knowledgeBaseRoutes);

@@ -1,6 +1,8 @@
 export { companyApi } from './company';
 export { servicesApi } from './services';
 export { productsApi } from './products';
+export { imagesApi } from './images';
+export type { UploadedImage } from './images';
 export { businessHoursApi } from './business-hours';
 export { faqsApi } from './faqs';
 export { knowledgeApi } from './knowledge-base';

@@ -33,6 +33,64 @@ const excelMulter = multer({
   },
 }).single('file');
 
+const MAX_IMAGE_FILE_BYTES = 2 * 1024 * 1024; // 2 MB
+
+const IMAGE_MIME_TYPES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+  'image/gif',
+]);
+
+const imageMulter = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_IMAGE_FILE_BYTES, files: 1 },
+  fileFilter: (_req, file, cb) => {
+    if (!IMAGE_MIME_TYPES.has(file.mimetype)) {
+      cb(
+        AppError.badRequest('Only PNG, JPEG, WebP, or GIF images are supported', [
+          { field: 'file', message: 'Unsupported image type' },
+        ]),
+      );
+      return;
+    }
+    cb(null, true);
+  },
+}).single('file');
+
+/** Parse a single image "file" field, translating Multer errors into AppErrors. */
+export function uploadImageFile(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): void {
+  imageMulter(req, res, (err: unknown) => {
+    if (!err) {
+      if (!req.file) {
+        next(
+          AppError.badRequest('An image file is required', [
+            { field: 'file', message: 'Attach the image as the "file" field' },
+          ]),
+        );
+        return;
+      }
+      next();
+      return;
+    }
+
+    if (err instanceof MulterError) {
+      const message =
+        err.code === 'LIMIT_FILE_SIZE'
+          ? `Image is too large (max ${MAX_IMAGE_FILE_BYTES / (1024 * 1024)} MB)`
+          : 'Invalid file upload';
+      next(AppError.badRequest(message, [{ field: 'file', message }]));
+      return;
+    }
+
+    next(err);
+  });
+}
+
 /** Parse a single "file" field, translating Multer errors into AppErrors. */
 export function uploadExcelFile(
   req: Request,

@@ -275,6 +275,7 @@ model Company {
   users                   User[]
   services                BusinessService[]
   products                Product[]
+  storedImages            StoredImage[]
   businessHours           BusinessHour[]
   faqs                    FrequentlyAskedQuestion[]
   knowledgeBaseEntries    KnowledgeBaseEntry[]
@@ -390,6 +391,25 @@ model BusinessService {
   @@index([companyId])
   @@index([companyId, isActive])
   @@map("business_services")
+}
+
+// Uploaded image stored directly in Postgres (no external object storage in
+// this stack). Small marketing assets only — uploads are capped at 2 MB by the
+// upload middleware. Served publicly via GET /api/v1/public/images/:id so
+// channel providers (WhatsApp/Telegram/Meta) can fetch them by URL.
+model StoredImage {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @db.Uuid
+  fileName  String
+  mimeType  String
+  sizeBytes Int
+  data      Bytes
+  createdAt DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@map("stored_images")
 }
 
 // Generic product catalog entry. Deliberately business-agnostic: enough

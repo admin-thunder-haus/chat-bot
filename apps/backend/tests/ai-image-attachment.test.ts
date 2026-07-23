@@ -43,6 +43,7 @@ function retrieval(overrides: Partial<RetrievalResult>): RetrievalResult {
     products: [],
     faqs: [],
     knowledge: [],
+    documentChunks: [],
     includeBusinessHours: false,
     includeContact: false,
     usedFallback: false,

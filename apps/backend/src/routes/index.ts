@@ -8,8 +8,10 @@ import { imagesRoutes, publicImagesRoutes } from '../modules/images/images.route
 import { businessHoursRoutes } from '../modules/business-hours/business-hours.routes';
 import { faqsRoutes } from '../modules/faqs/faqs.routes';
 import { knowledgeBaseRoutes } from '../modules/knowledge-base/knowledge-base.routes';
+import { knowledgeDocumentsRoutes } from '../modules/knowledge-documents/knowledge-documents.routes';
 import { aiSettingsRoutes } from '../modules/ai-settings/ai-settings.routes';
 import { overviewRoutes } from '../modules/overview/overview.routes';
+import { analyticsRoutes } from '../modules/analytics/analytics.routes';
 import { customersRoutes } from '../modules/customers/customers.routes';
 import { conversationsRoutes } from '../modules/conversations/conversations.routes';
 import { conversationTagsRoutes } from '../modules/conversation-tags/conversation-tags.routes';
@@ -39,8 +41,10 @@ router.use('/public/images', publicImagesRoutes);
 router.use('/business-hours', businessHoursRoutes);
 router.use('/faqs', faqsRoutes);
 router.use('/knowledge-base', knowledgeBaseRoutes);
+router.use('/knowledge-documents', knowledgeDocumentsRoutes);
 router.use('/ai-settings', aiSettingsRoutes);
 router.use('/overview', overviewRoutes);
+router.use('/analytics', analyticsRoutes);
 
 // Day 3 — inbox: customers, conversations, messaging, tags
 router.use('/customers', customersRoutes);

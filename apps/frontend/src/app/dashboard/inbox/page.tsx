@@ -37,6 +37,7 @@ import { CompactConversationHeader } from '@/components/inbox/CompactConversatio
 import { MessageThread } from '@/components/inbox/MessageThread';
 import { MessageComposer } from '@/components/inbox/MessageComposer';
 import { DetailsDrawer } from '@/components/inbox/DetailsDrawer';
+import { SuggestionPanel } from '@/components/inbox/SuggestionPanel';
 import { NewConversationModal } from '@/components/inbox/NewConversationModal';
 import { AIHandoffBanner } from '@/components/ai/AIHandoffBanner';
 import { DEFAULT_FILTERS, type FilterState } from '@/components/inbox/filter-types';
@@ -90,6 +91,9 @@ function InboxInner() {
   const [sending, setSending] = useState(false);
   const [aiGenerating, setAiGenerating] = useState(false);
   const [hasDraft, setHasDraft] = useState(false);
+  const [suggestions, setSuggestions] = useState<string[] | null>(null);
+  const [suggestLoading, setSuggestLoading] = useState(false);
+  const [suggestSending, setSuggestSending] = useState(false);
   const [headerBusy, setHeaderBusy] = useState(false);
   const [customerSaving, setCustomerSaving] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
@@ -159,6 +163,8 @@ function InboxInner() {
       setActivities([]);
       setComposerText('');
       setHasDraft(false);
+      setSuggestions(null);
+      setSuggestLoading(false);
       setMsgCursor(null);
       setMsgHasMore(false);
       setDetailLoading(true);
@@ -356,6 +362,66 @@ function InboxInner() {
       notify(parseApiError(err).message, 'error');
     } finally {
       if (activeIdRef.current === id) setAiGenerating(false);
+    }
+  }
+
+  async function generateSuggestions() {
+    if (!detail || suggestLoading) return;
+    const id = detail.id;
+    setSuggestLoading(true);
+    try {
+      const res = await aiApi.suggestions(id, 2);
+      if (activeIdRef.current !== id) return; // stale — user switched
+      setSuggestions(res.suggestions);
+    } catch (err) {
+      notify(parseApiError(err).message, 'error');
+    } finally {
+      if (activeIdRef.current === id) setSuggestLoading(false);
+    }
+  }
+
+  function applySuggestion(text: string) {
+    setComposerText(text);
+    setHasDraft(true);
+    setSuggestions(null);
+  }
+
+  async function sendSuggestion(text: string) {
+    if (!detail || suggestSending) return;
+    const id = detail.id;
+    setSuggestSending(true);
+    try {
+      const { message } = await messagesApi.send(id, text.trim());
+      appendMessage(id, message);
+      setSuggestions(null);
+      await refreshActivities(id);
+      notify('Suggestion sent', 'success');
+    } catch (err) {
+      notify(parseApiError(err).message, 'error');
+    } finally {
+      if (activeIdRef.current === id) setSuggestSending(false);
+    }
+  }
+
+  async function generateSummary() {
+    if (!detail) return;
+    const id = detail.id;
+    try {
+      const res = await aiApi.summarize(id);
+      if (activeIdRef.current === id) {
+        setDetail((prev) =>
+          prev && prev.id === id
+            ? {
+                ...prev,
+                aiSummary: res.summary,
+                aiSummaryGeneratedAt: res.generatedAt,
+              }
+            : prev,
+        );
+        notify('Summary generated', 'success');
+      }
+    } catch (err) {
+      notify(parseApiError(err).message, 'error');
     }
   }
 
@@ -577,6 +643,32 @@ function InboxInner() {
                       onChange={setComposerText}
                       onSend={() => void onSend()}
                       sending={sending}
+                      toolbar={
+                        <div className="space-y-2">
+                          {(suggestLoading || suggestions) && (
+                            <SuggestionPanel
+                              suggestions={suggestions}
+                              loading={suggestLoading}
+                              composerHasText={composerText.trim().length > 0}
+                              busy={suggestSending}
+                              onUse={applySuggestion}
+                              onSend={(text) => void sendSuggestion(text)}
+                              onDismiss={() => setSuggestions(null)}
+                            />
+                          )}
+                          <div className="flex justify-end">
+                            <button
+                              type="button"
+                              disabled={suggestLoading}
+                              onClick={() => void generateSuggestions()}
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700 transition hover:bg-indigo-100 disabled:opacity-60"
+                            >
+                              {suggestLoading ? <Spinner size={11} /> : '✨'}{' '}
+                              Suggest
+                            </button>
+                          </div>
+                        </div>
+                      }
                     />
                   }
                 />
@@ -601,6 +693,7 @@ function InboxInner() {
           onAddNote={addNote}
           onUpdateNote={updateNote}
           onDeleteNote={deleteNote}
+          onGenerateSummary={generateSummary}
         />
       )}
 

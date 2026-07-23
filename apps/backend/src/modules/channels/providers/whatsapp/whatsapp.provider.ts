@@ -3,6 +3,10 @@ import type { ChannelType } from '@prisma/client';
 import { env } from '../../../../config/env';
 import { AppError } from '../../../../utils/AppError';
 import { logger } from '../../../../utils/logger';
+import {
+  fetchBinary,
+  MAX_BINARY_FETCH_BYTES,
+} from '../../../../utils/binary-fetch';
 import type {
   ChannelCapabilities,
   ChannelConnectionCheckInput,
@@ -12,6 +16,7 @@ import type {
   ChannelSendMessageInput,
   ChannelSendMessageResult,
   NormalizedChannelEvent,
+  NormalizedIncomingMedia,
   ProviderCredentials,
   RawWebhookInput,
   WebhookSignatureInput,
@@ -95,6 +100,8 @@ export class WhatsAppChannelProvider implements ChannelProvider {
     webhookSignatures: true,
     // Outbound image messages (public URL + caption) via the Graph API.
     mediaMessages: true,
+    // Inbound voice notes (media lookup + CDN download + transcription).
+    voiceMessages: true,
     // Architecture-ready but intentionally not yet implemented (Day 6 scope):
     templates: false,
     reactions: false,
@@ -247,6 +254,34 @@ export class WhatsAppChannelProvider implements ChannelProvider {
                 messageType: type,
               },
             });
+          } else if (type === 'audio' && str(msg?.audio?.id)) {
+            // Voice note / audio message: normalized as an audio incoming
+            // message (content stays ''). The engine downloads + transcribes.
+            events.push({
+              kind: 'incoming_message',
+              providerKey: this.key,
+              channelType: this.channelType,
+              externalEventId: id,
+              externalMessageId: id,
+              externalConversationId: null,
+              customer: {
+                externalCustomerId: from,
+                fullName: nameByWaId.get(from) ?? null,
+                phone: from,
+              },
+              content: '',
+              timestamp,
+              replyToExternalMessageId: str(msg?.context?.id) ?? null,
+              media: {
+                kind: 'audio',
+                providerMediaId: str(msg?.audio?.id) ?? null,
+                mimeType: str(msg?.audio?.mime_type) ?? null,
+              },
+              metadata: {
+                phoneNumberId: str(value.metadata?.phone_number_id),
+                messageType: 'audio',
+              },
+            });
           } else {
             // Media / location / contacts / interactive / reaction / etc.
             // Architecture-ready: recorded as unsupported, never processed yet.
@@ -358,6 +393,43 @@ export class WhatsAppChannelProvider implements ChannelProvider {
       retryable: outcome.retryable === true,
       failureCode: outcome.code ?? 'WA_SEND_FAILED',
       failureReason: outcome.reason ?? 'WhatsApp send failed',
+    };
+  }
+
+  // --- Inbound media download (Graph API media node + CDN) -----------------
+
+  /**
+   * Download an inbound voice note: resolve the media id to its short-lived
+   * CDN URL, then fetch the bytes with the same access token. Never throws;
+   * returns null on any failure.
+   */
+  async fetchInboundMedia(input: {
+    media: NormalizedIncomingMedia;
+    credentials?: ProviderCredentials | null;
+  }): Promise<{ buffer: Buffer; mimeType: string } | null> {
+    const creds = asCredentials(input.credentials);
+    const mediaId = str(input.media.providerMediaId);
+    if (!creds || !mediaId) return null;
+    const lookup = await whatsAppApiClient.getMediaUrl({
+      accessToken: creds.accessToken,
+      mediaId,
+    });
+    const url = str(lookup.url);
+    if (!lookup.ok || !url) return null;
+    const res = await fetchBinary({
+      url,
+      headers: { Authorization: `Bearer ${creds.accessToken}` },
+      timeoutMs: env.WHATSAPP_REQUEST_TIMEOUT_MS,
+      maxBytes: MAX_BINARY_FETCH_BYTES,
+    });
+    if (!res.ok || !res.buffer) return null;
+    return {
+      buffer: res.buffer,
+      mimeType:
+        res.mimeType ??
+        str(lookup.mimeType) ??
+        str(input.media.mimeType) ??
+        'audio/ogg',
     };
   }
 

@@ -25,6 +25,11 @@ export function getAccessToken(): string | null {
   return accessToken;
 }
 
+/** Absolute URL for an API path — for raw fetches (e.g. blob downloads). */
+export function apiUrl(path: string): string {
+  return `${BASE_URL}${API_PREFIX}${path}`;
+}
+
 // Registered by the AuthProvider; invoked once when a refresh definitively
 // fails so the app can clear auth state and redirect to login.
 let onAuthFailure: (() => void) | null = null;

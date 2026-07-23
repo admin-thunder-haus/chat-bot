@@ -75,6 +75,7 @@ others.
 
 ## Table of contents
 
+- [Day 11 — Advanced AI: PDF knowledge, handoff, summaries, analytics, suggestions, voice, languages](#day-11--advanced-ai-pdf-knowledge-handoff-summaries-analytics-suggestions-voice-languages)
 - [Day 10 — Email verification, catalog imports, products & AI images](#day-10--email-verification-catalog-imports-products--ai-images)
 - [Day 9 — Telegram Bot API](#day-9--telegram-bot-api)
 - [Day 8 — Facebook Messenger (Meta)](#day-8--facebook-messenger-meta)
@@ -102,6 +103,58 @@ others.
 - [Troubleshooting](#troubleshooting)
 
 ---
+
+## Day 11 — Advanced AI: PDF knowledge, handoff, summaries, analytics, suggestions, voice, languages
+
+Seven capabilities, all on the existing architecture — no new frameworks, one
+shared AI pipeline, provider-specific logic only inside providers.
+
+1. **PDF knowledge** — OWNER/ADMIN upload up to 5 PDFs per request
+   (`POST /api/v1/knowledge-documents`, `files` multipart field, ≤10 MB each,
+   configurable via `KNOWLEDGE_DOC_MAX_FILE_MB`). Text is extracted
+   (`pdf-parse`), chunked (~1500 chars, 200 overlap), and stored per tenant;
+   retrieval ranks chunks alongside services/products/FAQs/KB and injects a
+   `DOCUMENTS` block into the prompt, so answers ground in uploaded files
+   whenever relevant. Manage: list, activate/deactivate, replace
+   (`POST /:id/replace`), delete, download. Dashboard: Knowledge Base page →
+   "Documents (PDF)" section.
+2. **Human handoff** — configurable in AI Settings (`handoffOnRequest`,
+   `handoffOnLowConfidence`, custom `handoffKeywords`). Explicit requests are
+   detected multilingually (EN/AR/ES/FR/DE + custom phrases); low confidence
+   uses a prompt sentinel (`HANDOFF_REQUIRED`) that customers never see — they
+   receive the configured handoff message instead. Handoff pauses AI
+   (`aiMode PAUSED`, `handoffRequestedAt/-Reason` set, activity logged) until
+   OWNER/ADMIN presses "Return to AI" (clears the flags). The Inbox shows a
+   "Handed off to human" badge with the reason.
+3. **Conversation summaries** — resolving/closing a conversation generates an
+   AI summary (Issue / Details / Mentioned / Actions / Outcome, in the
+   conversation's language) stored on the conversation and shown in the
+   details drawer; `POST /api/v1/conversations/:id/summary` regenerates on
+   demand. Failures never block the status change.
+4. **AI analytics** — `GET /api/v1/analytics/ai?days=7|30|90` aggregates
+   conversation volume (per day/channel), resolution stats (incl. avg
+   resolution hours), handoff rate + reasons, generation success rate, and the
+   most-surfaced FAQs/services/products/documents (tallied from generation
+   context summaries) plus detected languages. Dashboard: new Analytics page.
+5. **Reply suggestions** — `POST /api/v1/conversations/:id/ai/suggestions`
+   `{ count: 1..3 }` returns full-context alternative replies (one provider
+   call, sentinel-split). In the Inbox, "Suggest" shows cards with one-click
+   Send / Use-in-composer — never overwriting typed text without confirmation.
+6. **Voice messages** — inbound voice notes on WhatsApp/Telegram/Messenger/
+   Instagram are stored (original audio served from the platform), transcribed
+   automatically (OpenAI, `AI_TRANSCRIPTION_ENABLED`,
+   `OPENAI_TRANSCRIPTION_MODEL`), and the AI answers the transcription through
+   the normal pipeline. Messages carry `contentType AUDIO` + `mediaUrl`
+   (player in Inbox) with the transcript as `content`.
+7. **Automatic language detection** — a dependency-free detector
+   (`src/utils/language-detect.ts`) runs on every inbound message in the
+   shared pipeline (all current and future channels), stores
+   `Conversation.detectedLanguage` / `Customer.preferredLanguage`, and steers
+   the reply language when AI settings use `auto` — mixed-language chats
+   follow the most recent message.
+
+New env vars (all optional, sensible defaults): `AI_TRANSCRIPTION_ENABLED`,
+`OPENAI_TRANSCRIPTION_MODEL`, `KNOWLEDGE_DOC_MAX_FILE_MB`.
 
 ## Day 10 — Email verification, catalog imports, products & AI images
 

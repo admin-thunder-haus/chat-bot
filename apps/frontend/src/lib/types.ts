@@ -201,6 +201,9 @@ export interface AISettings {
   maxReplyLength: number | null;
   useEmojis: boolean;
   autoReplyEnabled: boolean;
+  handoffOnRequest: boolean;
+  handoffOnLowConfidence: boolean;
+  handoffKeywords: string[];
   createdAt: string | null;
   updatedAt: string | null;
 }
@@ -363,6 +366,9 @@ export interface ConversationDetail {
   aiPausedAt: string | null;
   handoffRequestedAt: string | null;
   handoffReason: string | null;
+  aiSummary: string | null;
+  aiSummaryGeneratedAt: string | null;
+  detectedLanguage: string | null;
   createdAt: string;
   updatedAt: string;
   customer: Customer;
@@ -378,7 +384,7 @@ export interface Message {
   senderUserId: string | null;
   direction: MessageDirection;
   senderType: MessageSenderType;
-  contentType: 'TEXT' | 'IMAGE';
+  contentType: 'TEXT' | 'IMAGE' | 'AUDIO';
   content: string;
   mediaUrl: string | null;
   status: MessageStatus;
@@ -415,7 +421,13 @@ export interface Activity {
 // --- Day 4: AI response engine ---
 
 export type AIConversationMode = 'ENABLED' | 'PAUSED' | 'HUMAN_ONLY';
-export type AIGenerationType = 'DRAFT' | 'AUTO_REPLY' | 'PLAYGROUND' | 'REGENERATE';
+export type AIGenerationType =
+  | 'DRAFT'
+  | 'AUTO_REPLY'
+  | 'PLAYGROUND'
+  | 'REGENERATE'
+  | 'SUMMARY'
+  | 'SUGGESTION';
 
 export interface AIContextSummary {
   companyProfile: boolean;
@@ -650,4 +662,58 @@ export interface ChannelAccount {
   lastErrorMessage: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+// --- Day 11: knowledge documents (PDF) + AI analytics ---
+
+export type KnowledgeDocumentStatus = 'PROCESSING' | 'READY' | 'FAILED';
+
+export interface KnowledgeDocument {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  status: KnowledgeDocumentStatus;
+  pageCount: number | null;
+  extractedCharacters: number | null;
+  failureReason: string | null;
+  isActive: boolean;
+  chunkCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AIAnalytics {
+  rangeDays: number;
+  since: string;
+  conversationVolume: {
+    total: number;
+    byDay: { date: string; count: number }[];
+    byChannel: { channelType: ChannelType; count: number }[];
+  };
+  resolution: {
+    byStatus: { status: ConversationStatus; count: number }[];
+    resolvedInRange: number;
+    avgResolutionHours: number | null;
+  };
+  handoff: {
+    total: number;
+    /** 0..1 */
+    rate: number;
+    byReason: { reason: string; count: number }[];
+  };
+  aiGenerations: {
+    total: number;
+    completed: number;
+    failed: number;
+    /** 0..1 */
+    successRate: number;
+    byType: { type: string; count: number }[];
+    autoRepliesSent: number;
+  };
+  topFaqs: { id: string; question: string; count: number }[];
+  topServices: { id: string; name: string; count: number }[];
+  topProducts: { id: string; name: string; count: number }[];
+  topDocuments: { id: string; fileName: string; count: number }[];
+  languages: { code: string; count: number }[];
 }

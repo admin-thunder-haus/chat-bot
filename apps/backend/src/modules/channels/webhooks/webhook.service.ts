@@ -4,6 +4,9 @@ import type { ChannelAccount } from '@prisma/client';
 import { prisma } from '../../../config/prisma';
 import { AppError } from '../../../utils/AppError';
 import { logger } from '../../../utils/logger';
+import { imagesRepository } from '../../images/images.repository';
+import { publicImageUrl } from '../../images/images.service';
+import { aiTranscriptionService } from '../../ai/ai-transcription.service';
 import { channelRegistry } from '../channel-registry';
 import { channelsRepository } from '../channels.repository';
 import { channelNormalizerService } from '../channel-normalizer.service';
@@ -90,8 +93,11 @@ export const webhookService = {
     rawBody: Buffer;
     body: unknown;
     headers: Record<string, string | undefined>;
+    /** Absolute origin of this API (for building public media URLs). */
+    publicBaseUrl?: string;
   }): Promise<WebhookProcessingResult> {
     const { providerKey, channelAccountId, rawBody, body, headers } = params;
+    const publicBaseUrl = params.publicBaseUrl ?? '';
 
     const provider = channelRegistry.tryGet(providerKey);
     if (!provider) throw AppError.notFound('Not found');
@@ -149,7 +155,7 @@ export const webhookService = {
         }
         throw AppError.unauthorized('Invalid signature');
       }
-      return this.ingest(provider, account, providerKey, rawBody, body, headers, credentials);
+      return this.ingest(provider, account, providerKey, rawBody, body, headers, credentials, publicBaseUrl);
     }
 
     // --- Credential-free providers (existing behavior, unchanged) ---
@@ -163,7 +169,7 @@ export const webhookService = {
     );
     if (!account || !account.isEnabled) return empty;
 
-    return this.ingest(provider, account, providerKey, rawBody, body, headers, null);
+    return this.ingest(provider, account, providerKey, rawBody, body, headers, null, publicBaseUrl);
   },
 
   /** Parse (provider-specific) + process each normalized event. */
@@ -175,6 +181,7 @@ export const webhookService = {
     body: unknown,
     headers: Record<string, string | undefined>,
     credentials: ProviderCredentials | null,
+    publicBaseUrl = '',
   ): Promise<WebhookProcessingResult> {
     const rawHash = hashRaw(rawBody);
     let events: NormalizedChannelEvent[];
@@ -212,6 +219,7 @@ export const webhookService = {
         result,
         provider,
         credentials,
+        publicBaseUrl,
       );
     }
 
@@ -227,6 +235,7 @@ export const webhookService = {
     result: WebhookProcessingResult,
     provider: ChannelProvider,
     credentials: ProviderCredentials | null,
+    publicBaseUrl = '',
   ): Promise<void> {
     const companyId = account.companyId;
     const externalEventId = event.externalEventId ?? null;
@@ -288,6 +297,7 @@ export const webhookService = {
             result,
             provider,
             credentials,
+            publicBaseUrl,
           );
           break;
         case 'delivery_status':
@@ -330,9 +340,11 @@ export const webhookService = {
     result: WebhookProcessingResult,
     provider: ChannelProvider,
     credentials: ProviderCredentials | null,
+    publicBaseUrl = '',
   ): Promise<void> {
     const companyId = account.companyId;
     const normalized = channelNormalizerService.normalizeIncoming(event);
+    const isAudio = event.media?.kind === 'audio';
 
     // Best-effort profile enrichment so the Inbox shows a real name instead of
     // "Unknown customer". Only when the event carries no name AND the customer is
@@ -402,8 +414,100 @@ export const webhookService = {
     }
     result.processed += 1;
 
-    // Optional AI auto-reply AFTER the inbound commit (never throws).
-    await channelPipelineService.maybeAutoReply(companyId, ingest.messageId);
+    // Voice notes: download + store the audio and transcribe it BEFORE any
+    // auto-reply, only for freshly-created messages (replays returned above).
+    let transcript: string | null = null;
+    if (isAudio && event.media) {
+      transcript = await this.processInboundAudio({
+        companyId,
+        messageId: ingest.messageId,
+        event,
+        provider,
+        credentials,
+        publicBaseUrl,
+      });
+    }
+
+    // Optional AI auto-reply AFTER the inbound commit (never throws). Voice
+    // messages only qualify once a non-empty transcript exists — the AI then
+    // answers the transcription like any text question.
+    if (!isAudio || (transcript && transcript.trim() !== '')) {
+      await channelPipelineService.maybeAutoReply(companyId, ingest.messageId);
+    }
+  },
+
+  /**
+   * Post-ingest processing for an inbound voice note: download the bytes via
+   * the provider, store them (served on the public media URL), then transcribe
+   * and fill the message content. Best-effort by design — any failure leaves
+   * the AUDIO message intact and NEVER fails the webhook (providers would
+   * retry the whole delivery otherwise). Returns the transcript text, if any.
+   */
+  async processInboundAudio(params: {
+    companyId: string;
+    messageId: string;
+    event: NormalizedIncomingMessageEvent;
+    provider: ChannelProvider;
+    credentials: ProviderCredentials | null;
+    publicBaseUrl: string;
+  }): Promise<string | null> {
+    const { companyId, messageId, event, provider, credentials } = params;
+    try {
+      if (typeof provider.fetchInboundMedia !== 'function' || !event.media) {
+        return null;
+      }
+      const fetched = await provider.fetchInboundMedia({
+        media: event.media,
+        credentials,
+      });
+      if (!fetched) return null;
+
+      // Store the audio bytes and expose them on the public media URL.
+      const fileName = `voice-${event.externalMessageId}`;
+      const stored = await imagesRepository.create({
+        companyId,
+        fileName,
+        mimeType: fetched.mimeType,
+        sizeBytes: fetched.buffer.length,
+        data: fetched.buffer,
+      });
+      const mediaUrl = publicImageUrl(params.publicBaseUrl, stored.id);
+      await prisma.message.updateMany({
+        where: { id: messageId, companyId },
+        data: { mediaUrl },
+      });
+
+      // Transcribe (optional — disabled/unconfigured returns null, never throws).
+      const transcription = await aiTranscriptionService.transcribe({
+        buffer: fetched.buffer,
+        mimeType: fetched.mimeType,
+        fileName,
+      });
+      if (!transcription || transcription.text.trim() === '') return null;
+
+      await prisma.message.updateMany({
+        where: { id: messageId, companyId },
+        data: {
+          content: transcription.text,
+          metadata: {
+            transcription: {
+              model: transcription.model,
+              transcribedAt: new Date().toISOString(),
+            },
+          } as Prisma.InputJsonValue,
+        },
+      });
+      return transcription.text;
+    } catch (err) {
+      // Best-effort only — a failed download/transcription never fails the
+      // webhook (the AUDIO message is already stored).
+      logger.warn('webhook.audio.process.error', {
+        companyId,
+        messageId,
+        error: err instanceof Error ? err.message : 'unknown',
+      });
+      return null;
+    }
   },
 
   async processDeliveryStatus(

@@ -19,6 +19,7 @@ import {
   Skeleton,
 } from '@/components/ui';
 import { KnowledgeFormModal } from './KnowledgeFormModal';
+import { DocumentsPanel } from './DocumentsPanel';
 
 const LIMIT = 10;
 
@@ -114,6 +115,10 @@ export default function KnowledgeBasePage() {
           <Alert message={error} />
         </div>
       )}
+
+      <div className="mb-6">
+        <DocumentsPanel readOnly={readOnly} />
+      </div>
 
       <div className="mb-4 flex flex-col gap-2 sm:flex-row">
         <Input

@@ -94,11 +94,39 @@ function normalizeMessagingEvent(
       };
     }
 
+    // Voice note / audio attachment: normalized as an audio incoming message
+    // (content stays ''). The engine downloads the CDN URL and transcribes.
+    const first = m.message.attachments?.[0];
+    const audioUrl =
+      first?.type === 'audio' && m.message.is_deleted !== true
+        ? str(first.payload?.url)
+        : undefined;
+    if (audioUrl) {
+      return {
+        kind: 'incoming_message',
+        providerKey: PROVIDER_KEY,
+        channelType: CHANNEL_TYPE,
+        externalEventId: mid,
+        externalMessageId: mid,
+        externalConversationId: null,
+        customer: {
+          externalCustomerId: senderId,
+          username: null,
+          fullName: null,
+        },
+        content: '',
+        timestamp: ts,
+        replyToExternalMessageId: str(m.message.reply_to?.mid) ?? null,
+        media: { kind: 'audio', url: audioUrl },
+        metadata: { messageType: 'audio' },
+      };
+    }
+
     // Media / share / story mention / deletion / etc. — architecture-ready,
     // recorded as unsupported (never processed yet).
     const kind = m.message.is_deleted
       ? 'deleted'
-      : (m.message.attachments?.[0]?.type ?? 'unknown');
+      : (first?.type ?? 'unknown');
     return {
       kind: 'unsupported',
       providerKey: PROVIDER_KEY,

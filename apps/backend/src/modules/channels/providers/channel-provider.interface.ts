@@ -14,6 +14,8 @@ import type { ChannelType } from '@prisma/client';
 export interface ChannelCapabilities {
   textMessages: boolean;
   mediaMessages: boolean;
+  /** Inbound voice notes (downloaded, stored, and transcribed when AI is on). */
+  voiceMessages: boolean;
   messageReplies: boolean;
   deliveryReceipts: boolean;
   readReceipts: boolean;
@@ -39,6 +41,17 @@ export interface NormalizedCustomerProfile {
   avatarUrl?: string | null;
 }
 
+/** Normalized inbound media reference (voice notes today). Providers emit
+ *  either a direct CDN `url` (Meta) or a `providerMediaId` the provider later
+ *  resolves itself (Telegram file_id, WhatsApp media id) — never both required. */
+export interface NormalizedIncomingMedia {
+  kind: 'audio';
+  url?: string | null;
+  providerMediaId?: string | null;
+  mimeType?: string | null;
+  durationSeconds?: number | null;
+}
+
 /** A normalized inbound text message (the only fully-processed event in Part 1). */
 export interface NormalizedIncomingMessageEvent {
   kind: 'incoming_message';
@@ -51,6 +64,8 @@ export interface NormalizedIncomingMessageEvent {
   content: string;
   timestamp: Date;
   replyToExternalMessageId?: string | null;
+  /** Present for non-text inbound content (voice notes). `content` stays ''. */
+  media?: NormalizedIncomingMedia;
   /** Safe, non-sensitive summary only (never raw payloads / credentials). */
   metadata?: Record<string, unknown>;
 }
@@ -275,12 +290,25 @@ export interface ChannelProvider {
     NormalizedCustomerProfile,
     'fullName' | 'username' | 'avatarUrl'
   > | null>;
+
+  /**
+   * Optional best-effort download of an inbound media attachment (voice notes).
+   * Provider-specific resolution (Telegram getFile, WhatsApp media lookup, Meta
+   * CDN URLs) lives entirely inside the provider. Must be timeout-protected and
+   * never throw — the inbound message matters more than its media. Returns null
+   * when unavailable.
+   */
+  fetchInboundMedia?(input: {
+    media: NormalizedIncomingMedia;
+    credentials?: ProviderCredentials | null;
+  }): Promise<{ buffer: Buffer; mimeType: string } | null>;
 }
 
 /** A capability matrix with every flag false — a safe base for spreading. */
 export const NO_CAPABILITIES: ChannelCapabilities = {
   textMessages: false,
   mediaMessages: false,
+  voiceMessages: false,
   messageReplies: false,
   deliveryReceipts: false,
   readReceipts: false,

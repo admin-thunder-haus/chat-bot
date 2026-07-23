@@ -16,6 +16,7 @@ export interface BuiltContext {
     productIds: string[];
     faqIds: string[];
     knowledgeIds: string[];
+    documentIds: string[];
     approxCharacters: number;
   };
 }
@@ -133,6 +134,17 @@ export const aiContextService = {
       add(`KNOWLEDGE BASE\n${lines.join('\n')}\n`);
     }
 
+    // Relevant excerpts from uploaded PDF documents. Grouped under one block
+    // with the source file named, so the model can ground answers in them.
+    const documentIds: string[] = [];
+    if (retrieval.documentChunks.length > 0) {
+      const lines = retrieval.documentChunks.map((c) => {
+        if (!documentIds.includes(c.documentId)) documentIds.push(c.documentId);
+        return `[${c.fileName}] ${c.content}`;
+      });
+      add(`DOCUMENTS (excerpts from the company's uploaded files)\n${lines.join('\n---\n')}\n`);
+    }
+
     if (customer) {
       const name =
         customer.fullName || customer.username || 'the customer';
@@ -150,6 +162,7 @@ export const aiContextService = {
         productIds,
         faqIds,
         knowledgeIds,
+        documentIds,
         approxCharacters: contextText.length,
       },
     };

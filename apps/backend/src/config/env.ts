@@ -154,6 +154,17 @@ const envSchema = z.object({
   AI_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60000),
   AI_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(30),
 
+  // --- Day 11: voice transcription + PDF knowledge ---
+  // Voice notes are transcribed with OpenAI when AI is enabled; disable to
+  // store voice messages without transcription (AI skips them).
+  AI_TRANSCRIPTION_ENABLED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((v) => v === 'true'),
+  OPENAI_TRANSCRIPTION_MODEL: z.string().default('whisper-1'),
+  // Uploaded knowledge PDFs: per-file size cap (MB).
+  KNOWLEDGE_DOC_MAX_FILE_MB: z.coerce.number().int().min(1).max(25).default(10),
+
   // --- Day 5 Part 1: channel integration framework ---
   // Credential encryption. The key is a base64-encoded 32-byte key used for
   // AES-256-GCM. It is only *required* once a provider that stores credentials

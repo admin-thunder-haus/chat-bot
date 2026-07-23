@@ -14,6 +14,7 @@ import { messagesRepository } from '../messages/messages.repository';
 import { prisma } from '../../config/prisma';
 import { AppError } from '../../utils/AppError';
 import { logActivity } from '../../utils/activity';
+import { aiService } from '../ai/ai.service';
 import { paginate, type PaginatedResult } from '../../utils/pagination';
 import type {
   ConversationListQuery,
@@ -163,6 +164,12 @@ export const conversationsService = {
           newValue: { status },
         });
       });
+
+      // Day 11: resolving/closing generates the AI conversation summary.
+      // Best-effort — a summary failure never blocks the status change.
+      if (status === 'RESOLVED' || status === 'CLOSED') {
+        await aiService.trySummarizeOnClose(companyId, id, actorUserId);
+      }
     }
     return this.getDetail(companyId, id);
   },

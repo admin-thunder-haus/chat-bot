@@ -39,6 +39,8 @@ export const webhookController = {
       rawBody: req.rawBody ?? Buffer.from(''),
       body: req.body,
       headers: headerMap(req),
+      // Origin for public media URLs (voice notes). trust proxy is enabled.
+      publicBaseUrl: `${req.protocol}://${req.get('host')}`,
     });
     sendSuccess(res, result, 'Webhook received');
   },

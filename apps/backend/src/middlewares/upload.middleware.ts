@@ -1,6 +1,7 @@
 import multer, { MulterError } from 'multer';
 import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../utils/AppError';
+import { env } from '../config/env';
 
 /**
  * Excel (.xlsx) upload middleware. Files are held in memory only — parsed and
@@ -32,6 +33,63 @@ const excelMulter = multer({
     cb(null, true);
   },
 }).single('file');
+
+const MAX_PDF_FILES_PER_UPLOAD = 5;
+const MAX_PDF_FILE_BYTES = env.KNOWLEDGE_DOC_MAX_FILE_MB * 1024 * 1024;
+
+const pdfMulter = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_PDF_FILE_BYTES, files: MAX_PDF_FILES_PER_UPLOAD },
+  fileFilter: (_req, file, cb) => {
+    const isPdf =
+      /\.pdf$/i.test(file.originalname) &&
+      ['application/pdf', 'application/octet-stream'].includes(file.mimetype);
+    if (!isPdf) {
+      cb(
+        AppError.badRequest('Only PDF files are supported', [
+          { field: 'files', message: 'Upload PDF files (.pdf)' },
+        ]),
+      );
+      return;
+    }
+    cb(null, true);
+  },
+}).array('files', MAX_PDF_FILES_PER_UPLOAD);
+
+/** Parse one or more PDF "files" fields, translating Multer errors. */
+export function uploadPdfFiles(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): void {
+  pdfMulter(req, res, (err: unknown) => {
+    if (!err) {
+      if (!req.files || (req.files as Express.Multer.File[]).length === 0) {
+        next(
+          AppError.badRequest('At least one PDF file is required', [
+            { field: 'files', message: 'Attach PDFs as the "files" field' },
+          ]),
+        );
+        return;
+      }
+      next();
+      return;
+    }
+
+    if (err instanceof MulterError) {
+      const message =
+        err.code === 'LIMIT_FILE_SIZE'
+          ? `A file is too large (max ${env.KNOWLEDGE_DOC_MAX_FILE_MB} MB per PDF)`
+          : err.code === 'LIMIT_FILE_COUNT' || err.code === 'LIMIT_UNEXPECTED_FILE'
+            ? `Too many files (max ${MAX_PDF_FILES_PER_UPLOAD} per upload)`
+            : 'Invalid file upload';
+      next(AppError.badRequest(message, [{ field: 'files', message }]));
+      return;
+    }
+
+    next(err);
+  });
+}
 
 const MAX_IMAGE_FILE_BYTES = 2 * 1024 * 1024; // 2 MB
 

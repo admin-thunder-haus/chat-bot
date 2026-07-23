@@ -7,6 +7,7 @@ import {
 } from './telegram-error-classifier';
 import type {
   TelegramApiResponse,
+  TelegramGetFileResult,
   TelegramGetMeResult,
   TelegramSendResult,
 } from './telegram.types';
@@ -170,6 +171,31 @@ export const telegramApiClient = {
     } catch (err) {
       const c = classifyTelegramThrow(err);
       return { ok: false, category: c.category, retryable: c.retryable, code: c.code, reason: safeTelegramReason(c.category) };
+    }
+  },
+
+  /**
+   * Resolve a file_id to its download path (getFile). The returned file_path is
+   * appended to `/file/bot<token>/…` to download the bytes. Never throws.
+   */
+  async getFile(input: {
+    botToken: string;
+    fileId: string;
+  }): Promise<{ ok: boolean; filePath?: string | null }> {
+    try {
+      const res = await transport.request({
+        url: methodUrl(input.botToken, 'getFile'),
+        method: 'POST',
+        body: { file_id: input.fileId },
+        timeoutMs: env.TELEGRAM_API_TIMEOUT_MS,
+      });
+      const json = res.json as TelegramApiResponse<TelegramGetFileResult> | null;
+      if (res.ok && json?.ok) {
+        return { ok: true, filePath: json.result?.file_path ?? null };
+      }
+      return { ok: false };
+    } catch {
+      return { ok: false };
     }
   },
 

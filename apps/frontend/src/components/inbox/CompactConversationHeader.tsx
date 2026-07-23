@@ -1,6 +1,6 @@
 'use client';
 
-import { Button } from '@/components/ui';
+import { Badge, Button } from '@/components/ui';
 import { channelLabel, customerName } from '@/lib/format';
 import type {
   AIConversationMode,
@@ -65,6 +65,15 @@ export function CompactConversationHeader({
 }) {
   const assigned = conversation.tagAssignments.map((a) => a.tag);
 
+  const handedOff =
+    Boolean(conversation.handoffRequestedAt) && conversation.aiMode !== 'ENABLED';
+  const handoffReasonText =
+    conversation.handoffReason === 'customer_request'
+      ? 'Customer asked for a human'
+      : conversation.handoffReason === 'low_confidence'
+        ? "AI couldn't answer"
+        : null;
+
   return (
     <div className="shrink-0 border-b border-slate-200 px-3 py-2">
       {/* Top row: identity + actions */}
@@ -98,6 +107,37 @@ export function CompactConversationHeader({
           Details
         </Button>
       </div>
+
+      {/* Handoff / language row */}
+      {(handedOff || conversation.detectedLanguage) && (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          {handedOff && (
+            <>
+              <Badge color="amber">Handed off to human</Badge>
+              {handoffReasonText && (
+                <span className="text-xs text-amber-700">{handoffReasonText}</span>
+              )}
+              {writable && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={() => onSetMode('ENABLED')}
+                >
+                  Return to AI
+                </Button>
+              )}
+            </>
+          )}
+          {conversation.detectedLanguage && (
+            <span title="Detected customer language">
+              <Badge color="slate">
+                {conversation.detectedLanguage.toUpperCase()}
+              </Badge>
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Controls row */}
       <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1.5">

@@ -11,6 +11,7 @@ import { AIUsageSummary } from '@/components/ai/AIUsageSummary';
 import type { AISettings, ReplyTone } from '@/lib/types';
 import {
   Alert,
+  Badge,
   Button,
   ConfirmDialog,
   FieldError,
@@ -32,12 +33,29 @@ const TONES: ReplyTone[] = [
   'CONCISE',
 ];
 
+const MAX_KEYWORDS = 50;
+
+/** Comma-separated text → trimmed, de-duplicated keyword list (max 50). */
+function parseKeywords(text: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of text.split(',')) {
+    const kw = raw.trim();
+    if (!kw || seen.has(kw.toLowerCase())) continue;
+    seen.add(kw.toLowerCase());
+    out.push(kw);
+    if (out.length >= MAX_KEYWORDS) break;
+  }
+  return out;
+}
+
 export default function AISettingsPage() {
   const { user } = useAuth();
   const { notify } = useToast();
   const readOnly = !canWrite(user?.role);
 
   const [settings, setSettings] = useState<AISettings | null>(null);
+  const [keywordsText, setKeywordsText] = useState('');
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
@@ -47,7 +65,11 @@ export default function AISettingsPage() {
     let active = true;
     aiSettingsApi
       .get()
-      .then(({ settings }) => active && setSettings(settings))
+      .then(({ settings }) => {
+        if (!active) return;
+        setSettings(settings);
+        setKeywordsText((settings.handoffKeywords ?? []).join(', '));
+      })
       .catch((err) => active && setError(parseApiError(err).message));
     return () => {
       active = false;
@@ -74,6 +96,9 @@ export default function AISettingsPage() {
       maxReplyLength: settings.maxReplyLength,
       useEmojis: settings.useEmojis,
       autoReplyEnabled: settings.autoReplyEnabled,
+      handoffOnRequest: settings.handoffOnRequest,
+      handoffOnLowConfidence: settings.handoffOnLowConfidence,
+      handoffKeywords: parseKeywords(keywordsText),
     };
 
     setSaving(true);
@@ -262,6 +287,64 @@ export default function AISettingsPage() {
                   </span>
                 </span>
               </div>
+            </div>
+          </Panel>
+
+          <Panel className="mt-6 space-y-5">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-900">Human handoff</h2>
+              <p className="mt-0.5 text-sm text-slate-500">
+                Choose when the AI should stop replying and hand the conversation
+                to your team.
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-4 sm:flex-row sm:gap-8">
+              <div className="flex items-center gap-3">
+                <Toggle
+                  checked={settings.handoffOnRequest}
+                  disabled={readOnly || saving}
+                  onChange={(v) => update('handoffOnRequest', v)}
+                  label="Hand off when the customer asks for a human"
+                />
+                <span className="text-sm text-slate-700">
+                  Hand off when the customer asks for a human
+                </span>
+              </div>
+              <div className="flex items-center gap-3">
+                <Toggle
+                  checked={settings.handoffOnLowConfidence}
+                  disabled={readOnly || saving}
+                  onChange={(v) => update('handoffOnLowConfidence', v)}
+                  label="Hand off when the AI cannot answer"
+                />
+                <span className="text-sm text-slate-700">
+                  Hand off when the AI cannot answer
+                </span>
+              </div>
+            </div>
+
+            <div>
+              <Label htmlFor="ai-handoff-keywords">Handoff keywords</Label>
+              <Input
+                id="ai-handoff-keywords"
+                value={keywordsText}
+                placeholder="complaint, refund, manager…"
+                disabled={readOnly || saving}
+                onChange={(e) => setKeywordsText(e.target.value)}
+              />
+              <p className="mt-1 text-xs text-slate-400">
+                Comma-separated. A message containing any of these words is handed
+                to a human immediately (max {MAX_KEYWORDS}).
+              </p>
+              {parseKeywords(keywordsText).length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {parseKeywords(keywordsText).map((kw) => (
+                    <Badge key={kw}>{kw}</Badge>
+                  ))}
+                </div>
+              )}
+              <FieldError message={fieldErrors.handoffKeywords} />
             </div>
           </Panel>
         </form>

@@ -1,6 +1,11 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { ChannelType } from '@prisma/client';
+import { env } from '../../../../config/env';
 import { AppError } from '../../../../utils/AppError';
+import {
+  fetchBinary,
+  MAX_BINARY_FETCH_BYTES,
+} from '../../../../utils/binary-fetch';
 import { logger } from '../../../../utils/logger';
 import type {
   ChannelCapabilities,
@@ -11,6 +16,7 @@ import type {
   ChannelSendMessageInput,
   ChannelSendMessageResult,
   NormalizedChannelEvent,
+  NormalizedIncomingMedia,
   ProviderCredentials,
   RawWebhookInput,
   WebhookSignatureInput,
@@ -85,6 +91,8 @@ export class InstagramChannelProvider implements ChannelProvider {
     // Architecture-ready but intentionally not implemented in Day 7:
     // Outbound images via a paired attachment message (no caption support).
     mediaMessages: true,
+    // Inbound voice notes (CDN download + transcription).
+    voiceMessages: true,
     templates: false,
     reactions: false,
     typingIndicators: false,
@@ -274,6 +282,31 @@ export class InstagramChannelProvider implements ChannelProvider {
       accessToken: creds.accessToken,
       igsid,
     });
+  }
+
+  // --- Inbound media download (Meta CDN) -----------------------------------
+
+  /**
+   * Download an inbound voice note from the Instagram CDN URL carried by the
+   * webhook attachment (no auth header — the URL itself is the capability).
+   * Never throws; returns null on any failure.
+   */
+  async fetchInboundMedia(input: {
+    media: NormalizedIncomingMedia;
+    credentials?: ProviderCredentials | null;
+  }): Promise<{ buffer: Buffer; mimeType: string } | null> {
+    const url = str(input.media.url);
+    if (!url) return null;
+    const res = await fetchBinary({
+      url,
+      timeoutMs: env.INSTAGRAM_API_TIMEOUT_MS,
+      maxBytes: MAX_BINARY_FETCH_BYTES,
+    });
+    if (!res.ok || !res.buffer) return null;
+    return {
+      buffer: res.buffer,
+      mimeType: res.mimeType ?? str(input.media.mimeType) ?? 'audio/mp4',
+    };
   }
 
   // --- Connection health (Graph API) --------------------------------------

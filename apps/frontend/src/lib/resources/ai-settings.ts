@@ -11,6 +11,9 @@ export interface AISettingsInput {
   maxReplyLength?: number | null;
   useEmojis?: boolean;
   autoReplyEnabled?: boolean;
+  handoffOnRequest?: boolean;
+  handoffOnLowConfidence?: boolean;
+  handoffKeywords?: string[];
 }
 
 export const aiSettingsApi = {

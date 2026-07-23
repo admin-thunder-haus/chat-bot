@@ -100,6 +100,7 @@ describe('AI context building', () => {
         products: [],
         faqs: [],
         knowledge: [],
+        documentChunks: [],
         includeBusinessHours: false,
         includeContact: false,
         usedFallback: false,

@@ -90,4 +90,23 @@ export const aiApi = {
   }): Promise<AIGenerationResult> {
     return request('/ai/playground', { method: 'POST', body: input, auth: true });
   },
+  suggestions(
+    conversationId: string,
+    count: number,
+  ): Promise<{ generationId: string; suggestions: string[] }> {
+    return request(`/conversations/${conversationId}/ai/suggestions`, {
+      method: 'POST',
+      body: { count },
+      auth: true,
+    });
+  },
+  summarize(
+    conversationId: string,
+  ): Promise<{ summary: string; generatedAt: string }> {
+    return request(`/conversations/${conversationId}/summary`, {
+      method: 'POST',
+      body: {},
+      auth: true,
+    });
+  },
 };

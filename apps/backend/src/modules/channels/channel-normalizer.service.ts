@@ -19,6 +19,10 @@ export interface NormalizedInboundMessage {
     username: string | null;
   };
   content: string;
+  /** AUDIO for voice notes (content may then be '' until transcribed). */
+  contentType?: 'TEXT' | 'AUDIO';
+  /** Public URL of stored media; set post-ingest once the bytes are stored. */
+  mediaUrl?: string | null;
   timestamp: Date;
 }
 
@@ -46,6 +50,9 @@ export const channelNormalizerService = {
       MAX_EXTERNAL_ID,
     );
     const content = clean(event.content, MAX_MESSAGE_LENGTH);
+    // Voice notes legitimately arrive with empty content — the transcript is
+    // filled in post-ingest. Only text messages require non-empty content.
+    const isAudio = event.media?.kind === 'audio';
 
     if (!externalMessageId) {
       throw AppError.badRequest('Normalized event missing externalMessageId');
@@ -53,7 +60,7 @@ export const channelNormalizerService = {
     if (!externalCustomerId) {
       throw AppError.badRequest('Normalized event missing externalCustomerId');
     }
-    if (!content) {
+    if (!content && !isAudio) {
       throw AppError.badRequest('Normalized event has empty message content');
     }
 
@@ -73,7 +80,9 @@ export const channelNormalizerService = {
         email: clean(event.customer.email, 254)?.toLowerCase() ?? null,
         username: clean(event.customer.username, 120),
       },
-      content,
+      content: content ?? '',
+      contentType: isAudio ? 'AUDIO' : 'TEXT',
+      mediaUrl: null,
       timestamp: event.timestamp instanceof Date ? event.timestamp : new Date(),
     };
   },

@@ -8,6 +8,7 @@ export interface NavItem {
 export const NAV_ITEMS: NavItem[] = [
   { label: 'Overview', href: '/dashboard', icon: '▤' },
   { label: 'Inbox', href: '/dashboard/inbox', icon: '📥' },
+  { label: 'Analytics', href: '/dashboard/analytics', icon: '📊' },
   { label: 'Channels', href: '/dashboard/channels', icon: '🔌' },
   { label: 'Company Profile', href: '/dashboard/profile', icon: '🏢' },
   { label: 'Services', href: '/dashboard/services', icon: '🧾' },

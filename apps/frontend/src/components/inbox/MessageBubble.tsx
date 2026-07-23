@@ -74,22 +74,42 @@ export function MessageBubble({ message }: { message: Message }) {
         <div
           className={`whitespace-pre-wrap break-words rounded-2xl px-4 py-2 text-sm ${bubbleClass}`}
         >
-          {message.mediaUrl && (
-            <a
-              href={message.mediaUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block"
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element -- provider-hosted media URLs cannot go through next/image */}
-              <img
-                src={message.mediaUrl}
-                alt="Attached media"
-                className={`max-h-64 rounded-lg object-cover ${message.content ? 'mb-2' : ''}`}
+          {message.contentType === 'AUDIO' ? (
+            <>
+              {/* eslint-disable-next-line jsx-a11y/media-has-caption -- transcript rendered below when available */}
+              <audio
+                controls
+                src={message.mediaUrl ?? undefined}
+                className="max-w-full"
               />
-            </a>
+              {message.content ? (
+                <p className="mt-1.5 text-xs italic opacity-80">
+                  Transcript: {message.content}
+                </p>
+              ) : (
+                <p className="mt-1.5 text-xs opacity-60">Voice message</p>
+              )}
+            </>
+          ) : (
+            <>
+              {message.mediaUrl && (
+                <a
+                  href={message.mediaUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element -- provider-hosted media URLs cannot go through next/image */}
+                  <img
+                    src={message.mediaUrl}
+                    alt="Attached media"
+                    className={`max-h-64 rounded-lg object-cover ${message.content ? 'mb-2' : ''}`}
+                  />
+                </a>
+              )}
+              {message.content}
+            </>
           )}
-          {message.content}
         </div>
         <div
           className={`mt-1 flex gap-2 text-[11px] text-slate-400 ${

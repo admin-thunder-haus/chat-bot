@@ -19,6 +19,9 @@ export { aiApi } from './ai';
 export type { RegenerateAdjustment, AIGenerationRecord } from './ai';
 export { channelsApi } from './channels';
 export type { CreateChannelInput, UpdateChannelInput } from './channels';
+export { documentsApi } from './knowledge-documents';
+export { analyticsApi } from './analytics';
+export type { AnalyticsRange } from './analytics';
 
 export type { ProfileUpdate } from './company';
 export type { ServiceInput, ServiceListParams } from './services';

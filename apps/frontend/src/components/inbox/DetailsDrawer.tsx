@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import type { Activity, ConversationDetail, Note } from '@/lib/types';
+import { relativeTime } from '@/lib/format';
+import { Button } from '@/components/ui';
 import { CustomerDetails } from './CustomerDetails';
 import { InternalNotesPanel } from './InternalNotesPanel';
 import { ActivityTimeline } from './ActivityTimeline';
@@ -25,6 +27,7 @@ export function DetailsDrawer({
   onAddNote,
   onUpdateNote,
   onDeleteNote,
+  onGenerateSummary,
 }: {
   open: boolean;
   onClose: () => void;
@@ -38,8 +41,19 @@ export function DetailsDrawer({
   onAddNote: (content: string) => Promise<void>;
   onUpdateNote: (noteId: string, content: string) => Promise<void>;
   onDeleteNote: (noteId: string) => Promise<void>;
+  onGenerateSummary: () => Promise<void>;
 }) {
   const [tab, setTab] = useState<Tab>('details');
+  const [summaryLoading, setSummaryLoading] = useState(false);
+
+  async function generateSummary() {
+    setSummaryLoading(true);
+    try {
+      await onGenerateSummary();
+    } finally {
+      setSummaryLoading(false);
+    }
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -82,12 +96,49 @@ export function DetailsDrawer({
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
           {tab === 'details' && (
-            <CustomerDetails
-              customer={detail.customer}
-              canEdit={writable}
-              saving={customerSaving}
-              onSave={onSaveCustomer}
-            />
+            <>
+              <CustomerDetails
+                customer={detail.customer}
+                canEdit={writable}
+                saving={customerSaving}
+                onSave={onSaveCustomer}
+              />
+              <div className="border-t border-slate-200 p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-sm font-semibold text-slate-900">
+                    AI summary
+                  </h3>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    loading={summaryLoading}
+                    onClick={() => void generateSummary()}
+                  >
+                    {detail.aiSummary ? 'Regenerate' : 'Generate summary'}
+                  </Button>
+                </div>
+                {detail.aiSummary ? (
+                  <>
+                    <p className="mt-2 whitespace-pre-line text-sm text-slate-700">
+                      {detail.aiSummary}
+                    </p>
+                    {detail.aiSummaryGeneratedAt && (
+                      <p className="mt-1.5 text-[11px] text-slate-400">
+                        Generated{' '}
+                        {relativeTime(detail.aiSummaryGeneratedAt) === 'now'
+                          ? 'just now'
+                          : `${relativeTime(detail.aiSummaryGeneratedAt)} ago`}
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <p className="mt-2 text-sm text-slate-400">
+                    No summary yet. Generate one for a quick recap of this
+                    conversation.
+                  </p>
+                )}
+              </div>
+            </>
           )}
           {tab === 'notes' && (
             <InternalNotesPanel

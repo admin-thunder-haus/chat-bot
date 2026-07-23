@@ -61,6 +61,8 @@ export interface MetaMessage {
   timestamp?: string; // unix seconds (string)
   type?: string; // text | image | audio | video | document | location | contacts | sticker | reaction | button | interactive | unsupported
   text?: { body?: string };
+  /** Voice notes / audio messages (`voice: true` marks a recorded voice note). */
+  audio?: { id?: string; mime_type?: string; voice?: boolean };
   context?: { id?: string; from?: string }; // reply reference
   errors?: MetaError[];
 }

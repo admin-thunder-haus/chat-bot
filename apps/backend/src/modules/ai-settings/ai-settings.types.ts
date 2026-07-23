@@ -16,6 +16,10 @@ export interface AISettingsView {
   maxReplyLength: number | null;
   useEmojis: boolean;
   autoReplyEnabled: boolean;
+  // --- Day 11: human handoff rules ---
+  handoffOnRequest: boolean;
+  handoffOnLowConfidence: boolean;
+  handoffKeywords: string[];
   createdAt: Date | null;
   updatedAt: Date | null;
 }
@@ -35,6 +39,9 @@ export function buildDefaultSettings(companyId: string): AISettingsView {
     maxReplyLength: null,
     useEmojis: false,
     autoReplyEnabled: false,
+    handoffOnRequest: true,
+    handoffOnLowConfidence: true,
+    handoffKeywords: [],
     createdAt: null,
     updatedAt: null,
   };

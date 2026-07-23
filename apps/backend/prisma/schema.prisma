@@ -114,6 +114,9 @@ enum MessageContentType {
   TEXT
   // Image attachment (mediaUrl) with the text content as caption.
   IMAGE
+  // Voice/audio message: mediaUrl is the stored audio, content holds the
+  // automatic transcription so the AI pipeline can process it as text.
+  AUDIO
 }
 
 enum ActivityType {
@@ -233,6 +236,10 @@ enum AIGenerationType {
   AUTO_REPLY
   PLAYGROUND
   REGENERATE
+  // Post-conversation summary generated on resolve/close (or on demand).
+  SUMMARY
+  // Agent-facing reply suggestions generated while viewing a conversation.
+  SUGGESTION
 }
 
 enum AIGenerationStatus {
@@ -276,6 +283,8 @@ model Company {
   services                BusinessService[]
   products                Product[]
   storedImages            StoredImage[]
+  knowledgeDocuments      KnowledgeDocument[]
+  knowledgeDocumentChunks KnowledgeDocumentChunk[]
   businessHours           BusinessHour[]
   faqs                    FrequentlyAskedQuestion[]
   knowledgeBaseEntries    KnowledgeBaseEntry[]
@@ -503,6 +512,56 @@ model KnowledgeBaseEntry {
   @@map("knowledge_base_entries")
 }
 
+// Processing lifecycle of an uploaded knowledge document.
+enum KnowledgeDocumentStatus {
+  PROCESSING
+  READY
+  FAILED
+}
+
+// Uploaded PDF whose extracted text feeds AI retrieval. The original bytes
+// are kept (download/re-process); extracted text lives in chunks sized for
+// retrieval so large documents never blow the prompt budget.
+model KnowledgeDocument {
+  id                  String                  @id @default(uuid()) @db.Uuid
+  companyId           String                  @db.Uuid
+  fileName            String
+  mimeType            String
+  sizeBytes           Int
+  data                Bytes
+  status              KnowledgeDocumentStatus @default(PROCESSING)
+  pageCount           Int?
+  extractedCharacters Int?
+  failureReason       String?
+  isActive            Boolean                 @default(true)
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+
+  company Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  chunks  KnowledgeDocumentChunk[]
+
+  @@index([companyId])
+  @@index([companyId, status])
+  @@map("knowledge_documents")
+}
+
+// Retrieval unit: a contiguous slice of a document's extracted text.
+model KnowledgeDocumentChunk {
+  id         String   @id @default(uuid()) @db.Uuid
+  companyId  String   @db.Uuid
+  documentId String   @db.Uuid
+  chunkIndex Int
+  content    String
+  createdAt  DateTime @default(now())
+
+  company  Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  document KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, chunkIndex])
+  @@index([companyId])
+  @@map("knowledge_document_chunks")
+}
+
 model CompanyAISettings {
   id                  String    @id @default(uuid()) @db.Uuid
   companyId           String    @unique @db.Uuid
@@ -516,6 +575,14 @@ model CompanyAISettings {
   useEmojis           Boolean   @default(false)
   // Stays false until AI + channel integrations exist in a later phase.
   autoReplyEnabled    Boolean   @default(false)
+  // --- Day 11: human handoff rules ---
+  // Hand off when the customer explicitly asks for a human.
+  handoffOnRequest         Boolean  @default(true)
+  // Hand off when the AI cannot answer from company information.
+  handoffOnLowConfidence   Boolean  @default(true)
+  // Extra company-specific trigger phrases (checked case-insensitively),
+  // future rules build on this without schema changes.
+  handoffKeywords          String[] @default([])
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
@@ -541,6 +608,8 @@ model Customer {
   username    String?
   avatarUrl   String?
   notes       String?
+  // Auto-detected from inbound messages; never requires configuration.
+  preferredLanguage String?
   metadata    Json?
   firstSeenAt DateTime    @default(now())
   lastSeenAt  DateTime    @default(now())
@@ -588,6 +657,12 @@ model Conversation {
   aiPausedByUserId       String?              @db.Uuid
   handoffRequestedAt     DateTime?
   handoffReason          String?
+  // --- Day 11: AI conversation summary (generated on resolve/close) ---
+  aiSummary              String?
+  aiSummaryGeneratedAt   DateTime?
+  // Last detected customer language (ISO 639-1 or 'unknown'); drives
+  // reply-language mirroring when the company's responseLanguage is 'auto'.
+  detectedLanguage       String?
   createdAt              DateTime             @default(now())
   updatedAt              DateTime             @updatedAt
 

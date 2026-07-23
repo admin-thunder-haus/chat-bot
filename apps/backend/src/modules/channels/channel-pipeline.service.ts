@@ -14,6 +14,7 @@ import { channelsRepository } from './channels.repository';
 import { channelRegistry } from './channel-registry';
 import { channelDeliveryService } from './channel-delivery.service';
 import type { NormalizedInboundMessage } from './channel-normalizer.service';
+import { detectLanguage } from '../../utils/language-detect';
 
 export interface IngestInboundParams {
   companyId: string;
@@ -85,6 +86,10 @@ export const channelPipelineService = {
     }
 
     try {
+      // Automatic language detection: channel-agnostic, runs once for every
+      // inbound message. 'unknown' never overwrites a previous detection.
+      const detectedLanguage = detectLanguage(message.content);
+
       const result = await prisma.$transaction(async (tx) => {
         const now = message.timestamp ?? new Date();
 
@@ -108,6 +113,8 @@ export const channelPipelineService = {
               phone: message.customer.phone,
               email: message.customer.email,
               username: message.customer.username,
+              preferredLanguage:
+                detectedLanguage !== 'unknown' ? detectedLanguage : null,
               firstSeenAt: now,
               lastSeenAt: now,
             },
@@ -125,6 +132,11 @@ export const channelPipelineService = {
                 : {}),
               ...(!customer.username && message.customer.username
                 ? { username: message.customer.username }
+                : {}),
+              // Follow the customer's latest language (mixed conversations
+              // track the most recent message).
+              ...(detectedLanguage !== 'unknown'
+                ? { preferredLanguage: detectedLanguage }
                 : {}),
             },
           });
@@ -170,7 +182,9 @@ export const channelPipelineService = {
           customerId: customer.id,
           direction: 'INBOUND',
           senderType: 'CUSTOMER',
+          contentType: message.contentType ?? 'TEXT',
           content: message.content,
+          mediaUrl: message.mediaUrl ?? null,
           status: 'RECEIVED',
           externalMessageId: message.externalMessageId,
           sentAt: now,
@@ -186,6 +200,7 @@ export const channelPipelineService = {
             lastMessageAt: now,
             lastInboundMessageAt: now,
             unreadCount: { increment: 1 },
+            ...(detectedLanguage !== 'unknown' ? { detectedLanguage } : {}),
             ...(reopen
               ? { status: 'OPEN', resolvedAt: null, closedAt: null }
               : {}),

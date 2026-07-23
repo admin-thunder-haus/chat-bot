@@ -68,6 +68,35 @@ function normalizeMessage(
     };
   }
 
+  // Voice note: normalized as an audio incoming_message (content stays '').
+  // The engine downloads the bytes via getFile and transcribes them later.
+  if (m.voice && !text) {
+    return {
+      kind: 'incoming_message',
+      providerKey: PROVIDER_KEY,
+      channelType: CHANNEL_TYPE,
+      externalEventId: eventId,
+      externalMessageId: messageId,
+      externalConversationId: null,
+      customer: {
+        externalCustomerId: chatId,
+        fullName: fullName(m),
+        username: str(m.from?.username ?? m.chat?.username) ?? null,
+      },
+      content: '',
+      timestamp: parseTimestamp(m.date),
+      replyToExternalMessageId: str(m.reply_to_message?.message_id) ?? null,
+      media: {
+        kind: 'audio',
+        providerMediaId: str(m.voice.file_id) ?? null,
+        mimeType: str(m.voice.mime_type) ?? null,
+        durationSeconds:
+          typeof m.voice.duration === 'number' ? m.voice.duration : null,
+      },
+      metadata: { messageType: 'voice' },
+    };
+  }
+
   // Media / stickers / location / etc. — recorded as unsupported (never crash).
   return {
     kind: 'unsupported',

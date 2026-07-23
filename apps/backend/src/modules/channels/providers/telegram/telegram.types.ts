@@ -44,13 +44,21 @@ export interface TelegramMessage {
   date?: number; // unix seconds
   text?: string;
   reply_to_message?: { message_id?: number };
+  /** Inbound voice note (downloaded via getFile + transcribed). */
+  voice?: TelegramVoice;
   // Non-text content markers (recorded as unsupported):
   photo?: unknown[];
   document?: unknown;
   sticker?: unknown;
-  voice?: unknown;
   video?: unknown;
   location?: unknown;
+}
+
+export interface TelegramVoice {
+  file_id?: string;
+  file_unique_id?: string;
+  duration?: number; // seconds
+  mime_type?: string;
 }
 
 export interface TelegramUser {
@@ -81,6 +89,14 @@ export interface TelegramApiResponse<T> {
 
 export interface TelegramSendResult {
   message_id?: number;
+}
+
+/** getFile result: the relative path used on the file-download endpoint. */
+export interface TelegramGetFileResult {
+  file_id?: string;
+  file_unique_id?: string;
+  file_size?: number;
+  file_path?: string;
 }
 
 export interface TelegramGetMeResult {

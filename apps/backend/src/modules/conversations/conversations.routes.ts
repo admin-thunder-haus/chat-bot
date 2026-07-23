@@ -19,6 +19,8 @@ import {
   draftSchema,
   regenerateSchema,
   replySchema,
+  suggestionsSchema,
+  summarySchema,
 } from '../ai/ai.validation';
 import { uuidParam } from '../../validations/common.validation';
 import { authenticate, authorizeRoles } from '../../middlewares/auth.middleware';
@@ -91,6 +93,20 @@ router.patch(
   '/:conversationId/ai-mode',
   validate({ params: convParam, body: aiModeSchema }),
   asyncHandler(aiController.setMode),
+);
+
+// --- Day 11: reply suggestions + on-demand conversation summary ---
+router.post(
+  '/:conversationId/ai/suggestions',
+  aiRateLimiter,
+  validate({ params: convParam, body: suggestionsSchema }),
+  asyncHandler(aiController.suggestions),
+);
+router.post(
+  '/:conversationId/summary',
+  aiRateLimiter,
+  validate({ params: convParam, body: summarySchema }),
+  asyncHandler(aiController.summarize),
 );
 
 // --- single-conversation state changes ---

@@ -33,6 +33,25 @@ export const aiController = {
     sendSuccess(res, { result, message }, 'AI reply sent successfully', 201);
   },
 
+  async suggestions(req: Request, res: Response): Promise<void> {
+    const result = await aiService.generateSuggestions(
+      req.user!.companyId,
+      req.params.conversationId,
+      req.user!.id,
+      req.body.count,
+    );
+    sendSuccess(res, result, 'AI suggestions generated successfully');
+  },
+
+  async summarize(req: Request, res: Response): Promise<void> {
+    const result = await aiService.generateConversationSummary(
+      req.user!.companyId,
+      req.params.conversationId,
+      req.user!.id,
+    );
+    sendSuccess(res, result, 'Conversation summary generated successfully');
+  },
+
   async setMode(req: Request, res: Response): Promise<void> {
     const conversation = await aiService.setMode(
       req.user!.companyId,

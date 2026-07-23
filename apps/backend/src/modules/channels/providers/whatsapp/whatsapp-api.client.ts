@@ -200,6 +200,31 @@ export const whatsAppApiClient = {
     }
   },
 
+  /**
+   * Resolve an inbound media id to its short-lived CDN URL (GET /{media-id}).
+   * The returned URL must be fetched with the same access token. Never throws.
+   */
+  async getMediaUrl(input: {
+    accessToken: string;
+    mediaId: string;
+  }): Promise<{ ok: boolean; url?: string | null; mimeType?: string | null }> {
+    try {
+      const res = await transport.request({
+        url: graphUrl(encodeURIComponent(input.mediaId)),
+        method: 'GET',
+        accessToken: input.accessToken,
+        timeoutMs: env.WHATSAPP_REQUEST_TIMEOUT_MS,
+      });
+      if (res.ok) {
+        const j = res.json as { url?: string; mime_type?: string } | null;
+        return { ok: true, url: j?.url ?? null, mimeType: j?.mime_type ?? null };
+      }
+      return { ok: false };
+    } catch {
+      return { ok: false };
+    }
+  },
+
   /** Validate the connection by reading the phone number node. Never throws. */
   async checkPhoneNumber(input: {
     accessToken: string;

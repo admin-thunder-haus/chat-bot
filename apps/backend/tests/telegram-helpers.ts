@@ -20,12 +20,22 @@ export function makeTelegramTransport(
     send?: () => { status: number; ok: boolean; json: unknown };
     getMe?: () => { status: number; ok: boolean; json: unknown };
     setWebhook?: () => { status: number; ok: boolean; json: unknown };
+    getFile?: () => { status: number; ok: boolean; json: unknown };
   } = {},
 ): { transport: TelegramTransport; calls: { method: string; url: string }[] } {
   const calls: { method: string; url: string }[] = [];
   const transport: TelegramTransport = {
     async request(input) {
       calls.push({ method: input.method, url: input.url });
+      if (input.url.includes('/getFile')) {
+        return (
+          overrides.getFile?.() ?? {
+            status: 200,
+            ok: true,
+            json: { ok: true, result: { file_path: 'voice/file_1.oga' } },
+          }
+        );
+      }
       if (input.url.includes('/getMe')) {
         return (
           overrides.getMe?.() ?? {
@@ -82,6 +92,32 @@ export function tgWebhook(
     .set('Content-Type', 'application/json');
   if (secretToken) req.set('x-telegram-bot-api-secret-token', secretToken);
   return req.send(JSON.stringify(body));
+}
+
+/** Build a Telegram voice-note Update. */
+export function tgVoiceUpdate(opts: {
+  updateId: number;
+  messageId: number;
+  fileId?: string;
+  duration?: number;
+  chatId?: string;
+}) {
+  const chatId = Number(opts.chatId ?? TG.chatId);
+  return {
+    update_id: opts.updateId,
+    message: {
+      message_id: opts.messageId,
+      from: { id: chatId, is_bot: false, first_name: TG.userFirst, last_name: TG.userLast, username: TG.userName },
+      chat: { id: chatId, type: 'private', first_name: TG.userFirst },
+      date: 1710000000,
+      voice: {
+        file_id: opts.fileId ?? 'tg-voice-file-id-1',
+        file_unique_id: 'tg-voice-uniq-1',
+        duration: opts.duration ?? 3,
+        mime_type: 'audio/ogg',
+      },
+    },
+  };
 }
 
 /** Build a Telegram text-message Update. */

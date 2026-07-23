@@ -16,6 +16,7 @@ export interface ContextSummary {
   productIds: string[];
   faqIds: string[];
   knowledgeIds: string[];
+  documentIds: string[];
   historyMessageCount: number;
   approxCharacters: number;
   injectionSuspected: boolean;
@@ -34,6 +35,10 @@ export interface AIGenerationResult {
   estimatedCostUsd: number | null;
   latencyMs: number;
   handoffRequested: boolean;
+  /** True when the model signalled it cannot answer from company info. */
+  lowConfidence: boolean;
+  /** Auto-detected language of the customer's message (ISO 639-1 or 'unknown'). */
+  detectedLanguage: string;
   usedFallback: boolean;
   contextSummary: ContextSummary;
   /**

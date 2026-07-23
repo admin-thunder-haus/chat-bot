@@ -36,6 +36,12 @@ export const updateAISettingsSchema = z
       .optional(),
     useEmojis: z.boolean().optional(),
     autoReplyEnabled: z.boolean().optional(),
+    handoffOnRequest: z.boolean().optional(),
+    handoffOnLowConfidence: z.boolean().optional(),
+    handoffKeywords: z
+      .array(z.string().trim().min(2).max(80))
+      .max(50, 'Too many keywords')
+      .optional(),
   })
   .strict();
 

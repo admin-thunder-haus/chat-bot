@@ -1,6 +1,11 @@
 import { timingSafeEqual } from 'node:crypto';
 import type { ChannelType } from '@prisma/client';
+import { env } from '../../../../config/env';
 import { AppError } from '../../../../utils/AppError';
+import {
+  fetchBinary,
+  MAX_BINARY_FETCH_BYTES,
+} from '../../../../utils/binary-fetch';
 import { logger } from '../../../../utils/logger';
 import type {
   ChannelCapabilities,
@@ -11,6 +16,7 @@ import type {
   ChannelSendMessageInput,
   ChannelSendMessageResult,
   NormalizedChannelEvent,
+  NormalizedIncomingMedia,
   ProviderCredentials,
   RawWebhookInput,
   WebhookSignatureInput,
@@ -70,6 +76,8 @@ export class TelegramChannelProvider implements ChannelProvider {
     webhookVerification: false, // no GET challenge handshake
     // Outbound photos (public URL + caption) via the Bot API sendPhoto.
     mediaMessages: true,
+    // Inbound voice notes (getFile download + transcription).
+    voiceMessages: true,
     templates: false,
     reactions: false,
     typingIndicators: false,
@@ -191,6 +199,36 @@ export class TelegramChannelProvider implements ChannelProvider {
       retryable: outcome.retryable === true,
       failureCode: outcome.code ?? 'TG_SEND_FAILED',
       failureReason: outcome.reason ?? 'Telegram send failed',
+    };
+  }
+
+  /**
+   * Download an inbound voice note: resolve the file_id via getFile, then fetch
+   * the bytes from the file endpoint (the token is in the URL path — never
+   * logged). Never throws; returns null on any failure.
+   */
+  async fetchInboundMedia(input: {
+    media: NormalizedIncomingMedia;
+    credentials?: ProviderCredentials | null;
+  }): Promise<{ buffer: Buffer; mimeType: string } | null> {
+    const creds = asCredentials(input.credentials);
+    const fileId = str(input.media.providerMediaId);
+    if (!creds || !fileId) return null;
+    const file = await telegramApiClient.getFile({
+      botToken: creds.botToken,
+      fileId,
+    });
+    const filePath = str(file.filePath);
+    if (!file.ok || !filePath) return null;
+    const res = await fetchBinary({
+      url: `${env.TELEGRAM_API_BASE_URL}/file/bot${creds.botToken}/${filePath}`,
+      timeoutMs: env.TELEGRAM_API_TIMEOUT_MS,
+      maxBytes: MAX_BINARY_FETCH_BYTES,
+    });
+    if (!res.ok || !res.buffer) return null;
+    return {
+      buffer: res.buffer,
+      mimeType: res.mimeType ?? str(input.media.mimeType) ?? 'audio/ogg',
     };
   }
 

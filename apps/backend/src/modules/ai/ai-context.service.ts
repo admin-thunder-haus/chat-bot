@@ -156,10 +156,12 @@ export const aiContextService = {
   },
 
   /**
-   * Pick the image to attach to an AI reply: the first retrieved service or
-   * product that (a) has an image and (b) is actually mentioned by name in
-   * the generated text. Deterministic — the model itself never sees or emits
-   * URLs; the attachment rides out-of-band next to the text.
+   * Pick the image to attach to an AI reply: the retrieved service/product
+   * that (a) has an image and (b) is mentioned in the generated text —
+   * tolerating partial mentions ("CRM Pro" for "CRM Pro License"), which
+   * happen routinely when the model replies in another language and
+   * translates the generic part of a name. Deterministic — the model never
+   * sees or emits URLs; the attachment rides out-of-band next to the text.
    */
   findRecommendedAttachment(
     responseText: string,
@@ -167,29 +169,79 @@ export const aiContextService = {
   ): RecommendedAttachment | null {
     const lowered = responseText.toLowerCase();
 
-    for (const s of retrieval.services) {
-      if (s.imageUrl && lowered.includes(s.name.toLowerCase())) {
-        return {
-          imageUrl: s.imageUrl,
-          sourceType: 'service',
-          sourceId: s.id,
-          sourceName: s.name,
+    let best: RecommendedAttachment | null = null;
+    let bestScore = -1;
+
+    const consider = (
+      item: { id: string; name: string; imageUrl: string | null },
+      sourceType: 'service' | 'product',
+    ) => {
+      if (!item.imageUrl) return;
+      const score = mentionScore(lowered, item.name);
+      if (score > bestScore) {
+        bestScore = score;
+        best = {
+          imageUrl: item.imageUrl,
+          sourceType,
+          sourceId: item.id,
+          sourceName: item.name,
         };
       }
-    }
-    for (const p of retrieval.products) {
-      if (p.imageUrl && lowered.includes(p.name.toLowerCase())) {
-        return {
-          imageUrl: p.imageUrl,
-          sourceType: 'product',
-          sourceId: p.id,
-          sourceName: p.name,
-        };
-      }
-    }
-    return null;
+    };
+
+    for (const s of retrieval.services) consider(s, 'service');
+    for (const p of retrieval.products) consider(p, 'product');
+
+    return bestScore >= 0 ? best : null;
   },
 };
+
+// Words too generic to identify WHICH catalog item a reply refers to. A name
+// consisting only of these (e.g. "Premium Support Plan") still matches via
+// the full-name path, never via single generic words.
+const GENERIC_NAME_TOKENS = new Set([
+  'license', 'licence', 'plan', 'pack', 'kit', 'bundle', 'set',
+  'add', 'addon', 'addons', 'on',
+  'service', 'services', 'product', 'products', 'support',
+  'hour', 'hours', 'standard', 'premium', 'basic', 'starter',
+  'pro', 'plus', 'custom', 'the', 'and', 'for', 'with', 'of', 'a', 'an',
+]);
+
+function tokenizeName(name: string): string[] {
+  return name
+    .toLowerCase()
+    .split(/[^a-z0-9؀-ۿ]+/)
+    .filter((t) => t.length >= 2);
+}
+
+/** Whole-word occurrence check (boundaries = anything non-alphanumeric). */
+function tokenInText(lowered: string, token: string): boolean {
+  const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(
+    `(^|[^a-z0-9؀-ۿ])${escaped}([^a-z0-9؀-ۿ]|$)`,
+  ).test(lowered);
+}
+
+/**
+ * How strongly `name` is mentioned in the (lowercased) reply; -1 = not
+ * mentioned. Full-name substring outranks everything; otherwise EVERY
+ * distinctive token of the name must appear, and the count of matched tokens
+ * ranks competing items ("CRM Pro" prefers "CRM Pro License" over
+ * "CRM Basic License").
+ */
+function mentionScore(lowered: string, name: string): number {
+  const full = name.toLowerCase().trim();
+  const tokens = tokenizeName(name);
+  if (full.length > 0 && lowered.includes(full)) {
+    return 1000 + tokens.length;
+  }
+
+  const distinctive = tokens.filter((t) => !GENERIC_NAME_TOKENS.has(t));
+  if (distinctive.length === 0) return -1;
+  if (!distinctive.every((t) => tokenInText(lowered, t))) return -1;
+
+  return tokens.filter((t) => tokenInText(lowered, t)).length;
+}
 
 function buildProfile(company: Company, includeContact: boolean): string {
   const lines: string[] = [

@@ -118,6 +118,48 @@ describe('findRecommendedAttachment', () => {
     expect(hit?.sourceType).toBe('product');
   });
 
+  it('matches a partial mention in a translated reply (production repro)', () => {
+    const r = retrieval({
+      products: [
+        fakeProduct('CRM Pro License', 'https://img.example.com/crm.png'),
+      ],
+    });
+    // The model translated "License" to Arabic and kept only "CRM Pro".
+    const hit = aiContextService.findRecommendedAttachment(
+      'مرحباً! سعر ترخيص CRM Pro هو 120 دينار أردني. يشمل الترخيص السنوي التحديثات والدعم.',
+      r,
+    );
+    expect(hit?.sourceName).toBe('CRM Pro License');
+  });
+
+  it('prefers the item with the strongest token match', () => {
+    const r = retrieval({
+      products: [
+        fakeProduct('CRM Basic License', 'https://img.example.com/basic.png'),
+        fakeProduct('CRM Pro License', 'https://img.example.com/pro.png'),
+      ],
+    });
+    const hit = aiContextService.findRecommendedAttachment(
+      'I suggest CRM Pro for your team size.',
+      r,
+    );
+    expect(hit?.sourceName).toBe('CRM Pro License');
+  });
+
+  it('does not match on generic words alone', () => {
+    const r = retrieval({
+      services: [
+        fakeService('Premium Support Plan', 'https://img.example.com/s.png'),
+      ],
+    });
+    expect(
+      aiContextService.findRecommendedAttachment(
+        'We offer premium support to all customers on every plan.',
+        r,
+      ),
+    ).toBeNull();
+  });
+
   it('returns null when nothing with an image is mentioned', () => {
     const r = retrieval({
       services: [fakeService('Premium Wash', 'https://img.example.com/p.jpg')],

@@ -8,7 +8,11 @@ import type {
   AIGenerationType,
 } from '@prisma/client';
 import { prisma } from '../../config/prisma';
-import { env, isAiActionsEnabled } from '../../config/env';
+import {
+  env,
+  isAiActionsEnabled,
+  isAutoReplyGloballyEnabled,
+} from '../../config/env';
 import { logger } from '../../utils/logger';
 import { AppError } from '../../utils/AppError';
 import { logActivity } from '../../utils/activity';
@@ -26,14 +30,16 @@ import { aiSettingsService } from '../ai-settings/ai-settings.service';
 import type { AISettingsView } from '../ai-settings/ai-settings.types';
 import { getAIProvider } from './ai.provider.factory';
 import { aiRetrievalService } from './ai-retrieval.service';
-import { aiContextService } from './ai-context.service';
+import { aiContextService, detectImageRequest } from './ai-context.service';
 import {
   aiPromptService,
   detectInjection,
   parseActionRequest,
+  stripSpeakerPrefix,
   HANDOFF_SENTINEL,
   PROMPT_VERSION,
 } from './ai-prompt.service';
+import { formatOutgoingText } from '../../utils/message-format';
 import { actionRegistry, actionsService } from '../actions';
 import { detectLanguage } from '../../utils/language-detect';
 import { emitDomainEvent } from '../events/domain-events.service';
@@ -287,23 +293,48 @@ async function runGeneration(input: RunInput): Promise<AIGenerationResult> {
       totalTokens: providerResult.totalTokens,
     });
 
+    // The history turns are labelled ("Customer: …" / "AI: …") so the model
+    // keeps roles straight — but it also imitates the pattern and emits
+    // "AI: <reply>". Strip that label FIRST, before anything (sentinels,
+    // attachments, summaries, suggestions) looks at the text.
+    const providerText = stripSpeakerPrefix(providerResult.text);
+
     // Low-confidence signal: the model emits the sentinel when it cannot help
     // from company information. Customers never see the sentinel — the reply
     // becomes the configured handoff message and callers pause the AI.
     const lowConfidence =
       (input.allowHandoffSignal ?? false) &&
-      providerResult.text.includes(HANDOFF_SENTINEL);
+      providerText.includes(HANDOFF_SENTINEL);
+    // Defensive markdown normalization: channels render our text literally, so
+    // a stray `*bold*`/`### heading` would be visible to the customer.
     const text = lowConfidence
       ? settings.humanHandoffMessage
-      : providerResult.text;
+      : formatOutgoingText(providerText);
 
     // Action protocol (sentinel pattern, like handoff): only runs that
-    // advertised actions may yield one. The raw text is kept; callers execute
-    // the action instead of sending the sentinel line to the customer.
+    // advertised actions may yield one. Parsed from the un-normalized text so
+    // the JSON payload is never touched; callers execute the action instead of
+    // sending the sentinel line to the customer.
     const actionRequest =
-      allowActions && !lowConfidence
-        ? parseActionRequest(providerResult.text)
-        : null;
+      allowActions && !lowConfidence ? parseActionRequest(providerText) : null;
+
+    // Deterministic image post-step: normally the attachment is the retrieved
+    // service/product the reply NAMES. When the customer explicitly asked for a
+    // photo and the reply named nothing matchable, fall back to the first
+    // retrieved item that has one so they still get a picture of what was under
+    // discussion. Never for handoff replies or action requests.
+    let attachment =
+      lowConfidence || actionRequest
+        ? null
+        : aiContextService.findRecommendedAttachment(text, retrieval);
+    if (
+      attachment === null &&
+      !lowConfidence &&
+      !actionRequest &&
+      detectImageRequest(input.question)
+    ) {
+      attachment = aiContextService.firstAttachmentCandidate(retrieval);
+    }
 
     return {
       generationId: generation.id,
@@ -324,16 +355,7 @@ async function runGeneration(input: RunInput): Promise<AIGenerationResult> {
       detectedLanguage,
       usedFallback: retrieval.usedFallback,
       contextSummary,
-      // Deterministic post-step: if the reply names a retrieved service or
-      // product that has an image, that image rides along with the reply.
-      // Never attached to action requests (the sentinel line is not a reply).
-      attachment:
-        lowConfidence || actionRequest
-          ? null
-          : aiContextService.findRecommendedAttachment(
-              providerResult.text,
-              retrieval,
-            ),
+      attachment,
       actionRequest,
     };
   } catch (err) {
@@ -681,7 +703,9 @@ export const aiService = {
     const { companyId, conversation, sourceMessageId, question, customer } = params;
 
     if (!env.AI_FEATURE_ENABLED) return { generated: false, reason: 'ai_disabled' };
-    if (!env.AI_AUTO_REPLY_ENABLED) {
+    // Global kill switch only (enabled by default). The per-company toggle
+    // checked below is the actual opt-in.
+    if (!isAutoReplyGloballyEnabled()) {
       return { generated: false, reason: 'auto_reply_disabled_env' };
     }
     if (conversation.aiMode !== 'ENABLED') {

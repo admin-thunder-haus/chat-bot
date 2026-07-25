@@ -206,8 +206,7 @@ export function ChatWidget({
             message={{ id: 'welcome', role: 'assistant', content: config.welcomeMessage, createdAt: '' }}
             accent={accent}
             colors={c}
-            assistantLabel={config.assistantLabel}
-            agentLabel={config.agentLabel}
+            teamLabel={config.agentLabel}
             showTime={false}
           />
         )}
@@ -217,14 +216,13 @@ export function ChatWidget({
             message={m}
             accent={accent}
             colors={c}
-            assistantLabel={config?.assistantLabel ?? 'Assistant'}
-            agentLabel={config?.agentLabel ?? 'Support'}
+            teamLabel={config?.agentLabel ?? 'Support'}
           />
         ))}
         {assistantTyping && (
           <div className="flex items-center gap-1 px-1 text-xs" style={{ color: c.muted }}>
             <TypingDots color={c.muted} />
-            <span>{config?.assistantLabel ?? 'Assistant'} {STRINGS.typing}</span>
+            <span>{config?.agentLabel ?? 'Support'} {STRINGS.typing}</span>
           </div>
         )}
         {status === 'connecting' && (
@@ -345,24 +343,21 @@ function Bubble({
   message,
   accent,
   colors,
-  assistantLabel,
-  agentLabel,
+  teamLabel,
   showTime = true,
 }: {
   message: WidgetMessage;
   accent: string;
   colors: Colors;
-  assistantLabel: string;
-  agentLabel: string;
+  /** One label for every non-visitor message — see the note below. */
+  teamLabel: string;
   showTime?: boolean;
 }) {
   const visitor = message.role === 'visitor';
-  const label =
-    message.role === 'assistant'
-      ? assistantLabel
-      : message.role === 'agent'
-        ? agentLabel
-        : null;
+  // Assistant and agent messages render IDENTICALLY (same label, same bubble):
+  // the visitor is never told which replies were machine-written. The role is
+  // still carried in the data for the dashboard/analytics.
+  const label = visitor ? null : teamLabel;
   const bubbleStyle: CSSProperties = visitor
     ? { background: accent, color: '#fff' }
     : { background: colors.agentBubble, color: colors.agentText };

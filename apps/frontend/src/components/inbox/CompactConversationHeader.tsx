@@ -1,6 +1,6 @@
 'use client';
 
-import { Badge, Button } from '@/components/ui';
+import { Badge, Button, Toggle } from '@/components/ui';
 import { channelLabel, customerName } from '@/lib/format';
 import type {
   AIConversationMode,
@@ -30,6 +30,8 @@ export function CompactConversationHeader({
   writable,
   aiGenerating,
   hasDraft,
+  companyAutoReplyEnabled,
+  canManageCompanyAI,
   onBack,
   onOpenDetails,
   onStatus,
@@ -39,6 +41,7 @@ export function CompactConversationHeader({
   onDetachTag,
   onArchive,
   onSetMode,
+  onToggleAutoReply,
   onDraft,
   onRegenerate,
   onReply,
@@ -50,6 +53,10 @@ export function CompactConversationHeader({
   writable: boolean;
   aiGenerating: boolean;
   hasDraft: boolean;
+  /** Company-wide auto-reply flag; null while the AI settings are loading. */
+  companyAutoReplyEnabled: boolean | null;
+  /** OWNER/ADMIN — only they may flip the company-wide flag. */
+  canManageCompanyAI: boolean;
   onBack: () => void;
   onOpenDetails: () => void;
   onStatus: (s: ConversationStatus) => void;
@@ -59,11 +66,36 @@ export function CompactConversationHeader({
   onDetachTag: (tagId: string) => void;
   onArchive: () => void;
   onSetMode: (mode: AIConversationMode) => void;
+  onToggleAutoReply: (next: boolean) => void;
   onDraft: () => void;
   onRegenerate: (adjustment: RegenerateAdjustment) => void;
   onReply: () => void;
 }) {
   const assigned = conversation.tagAssignments.map((a) => a.tag);
+
+  // The AI answers this conversation automatically only when BOTH gates are
+  // open: the company opted in AND this conversation is not paused.
+  const autoReplyOn =
+    companyAutoReplyEnabled === true && conversation.aiMode === 'ENABLED';
+  // Turning it ON may need the company-wide flag, which is OWNER/ADMIN only.
+  // Turning it OFF only pauses THIS conversation, which every role may do.
+  const needsCompanyFlag = companyAutoReplyEnabled !== true;
+  const autoReplyDisabled =
+    busy ||
+    companyAutoReplyEnabled === null ||
+    (!autoReplyOn && needsCompanyFlag && !canManageCompanyAI) ||
+    (!autoReplyOn && !writable);
+  const autoReplyHint = autoReplyOn
+    ? 'The AI answers new customer messages in this conversation instantly. Turning this off pauses the AI here only.'
+    : companyAutoReplyEnabled === null
+      ? 'Loading AI settings…'
+      : needsCompanyFlag && !canManageCompanyAI
+        ? 'Auto-reply is off for your company. Ask an owner or admin to enable it.'
+        : needsCompanyFlag
+          ? 'Turn on to let the AI answer instantly. This also enables auto-reply for your company.'
+          : !writable
+            ? 'Only an owner or admin can resume the AI for this conversation.'
+            : 'Turn on to let the AI answer new messages in this conversation instantly.';
 
   const handedOff =
     Boolean(conversation.handoffRequestedAt) && conversation.aiMode !== 'ENABLED';
@@ -149,6 +181,23 @@ export function CompactConversationHeader({
           disabled={busy}
           onChange={onAssign}
         />
+        {/* One click = the AI answers this conversation instantly. Reflects both
+            gates (company opt-in + this conversation's AI mode) and uses the
+            existing endpoints: PUT /ai-settings and PATCH .../ai-mode. */}
+        <span
+          title={autoReplyHint}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2 py-1"
+        >
+          <span className="text-xs font-medium text-slate-600">
+            AI auto-reply
+          </span>
+          <Toggle
+            checked={autoReplyOn}
+            disabled={autoReplyDisabled}
+            label="AI auto-reply"
+            onChange={onToggleAutoReply}
+          />
+        </span>
         <AIConversationModeSelector
           mode={conversation.aiMode}
           canResume={writable}

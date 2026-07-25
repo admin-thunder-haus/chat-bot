@@ -230,15 +230,10 @@ export default function WebChatConfigPage() {
                     onChange={(e) => update('agentLabel', e.target.value)}
                   />
                 </div>
-                <div>
-                  <Label htmlFor="wc-assistant">Assistant label</Label>
-                  <Input
-                    id="wc-assistant"
-                    value={config.assistantLabel}
-                    disabled={readOnly || saving}
-                    onChange={(e) => update('assistantLabel', e.target.value)}
-                  />
-                </div>
+                {/* No separate "Assistant label": the widget deliberately
+                    labels every reply — AI or human — with the agent label so
+                    visitors are never told which ones were automated. The
+                    stored value is kept for backwards compatibility. */}
               </div>
             </Panel>
           </form>

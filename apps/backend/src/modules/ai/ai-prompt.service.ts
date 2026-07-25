@@ -120,6 +120,47 @@ export function detectInjection(text: string): boolean {
   return INJECTION_PATTERNS.some((re) => re.test(text));
 }
 
+/**
+ * Speaker labels the model can copy from the labelled history turns
+ * (`buildMessages` writes "Customer: …" / "AI: …" / "Agent: …" so the model
+ * keeps roles straight). Production evidence: replies arrived starting with a
+ * literal "AI: " that the customer could see.
+ */
+const SPEAKER_LABELS = [
+  'ai',
+  'assistant',
+  'agent',
+  'bot',
+  'customer',
+  // Arabic equivalents.
+  'مساعد',
+  'المساعد',
+  'الذكاء الاصطناعي',
+  'الوكيل',
+  'العميل',
+];
+
+/**
+ * Matches ONE leading speaker label followed by a colon (ASCII `:` or the
+ * full-width `：`). Anchored at the very start, so a product named
+ * "AI Chatbot Setup: 300 JOD" appearing mid-reply is never touched.
+ */
+const SPEAKER_PREFIX_RE = new RegExp(
+  `^\\s*(?:${SPEAKER_LABELS.map((l) => l.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\s*[:：]\\s*`,
+  'i',
+);
+
+/**
+ * Remove a single leading "AI:" / "Assistant:" / "العميل:" style speaker label
+ * from a generated reply. Non-global + anchored: only the first occurrence at
+ * the very start is stripped, never text inside the message. If stripping would
+ * leave nothing, the original text is returned unchanged.
+ */
+export function stripSpeakerPrefix(text: string): string {
+  const stripped = text.replace(SPEAKER_PREFIX_RE, '');
+  return stripped.trim().length > 0 ? stripped : text;
+}
+
 const TONE_HINT: Record<string, string> = {
   PROFESSIONAL: 'Maintain a professional, polished tone.',
   FRIENDLY: 'Use a warm, friendly tone.',
@@ -140,6 +181,36 @@ function languageHint(pref: string, detectedLanguage?: string | null): string {
     ? `The customer is currently writing in ${detected}. ${base}`
     : base;
 }
+
+/**
+ * Messaging channels (Telegram / Messenger / Instagram / WhatsApp) show our
+ * text verbatim — markdown is NOT rendered, so `*bold*` and `### Heading`
+ * arrive with the raw characters visible. These rules are the first layer; the
+ * `formatOutgoingText` normalizer is the defensive second one.
+ */
+const FORMATTING_RULES = [
+  'FORMATTING (the customer sees your text exactly as written — markdown is NOT rendered):',
+  '- Plain text only. No HTML and no markdown of any kind: never use *, **, _, #, backticks, code fences, or tables.',
+  '- For a list of items, put ONE item per line starting with "• ".',
+  '- On each of those lines put the item name first, then the price after an en dash "–", then a very short benefit — all on the SAME line.',
+  '- Separate logical sections with a single blank line.',
+  '- Keep the reply under about 6 short lines, unless the customer asked for the full list.',
+  "- Never repeat the customer's question back to them; answer it.",
+].join('\n');
+
+/**
+ * Every channel provider in the platform supports media messages, and the
+ * pipeline attaches a retrieved item's image out-of-band (it degrades to
+ * text-only when a provider cannot deliver media). Production evidence: the
+ * model apologised that it "cannot send images" while the product had one.
+ */
+const MEDIA_RULES = [
+  'PHOTOS AND MEDIA:',
+  '- The platform AUTOMATICALLY attaches the product/service photo whenever your reply names an item that has one. You never write, paste, or invent URLs.',
+  '- NEVER say or imply that you cannot send images, photos, or files. That is false — the platform sends them for you.',
+  '- When the customer asks for a photo of an item, name that item explicitly in your reply (for example: "Here is the POS Terminal X1") and the photo is delivered together with your message.',
+  '- If you are unsure which item they mean, name the most likely one and ask a short confirming question in the same reply.',
+].join('\n');
 
 export interface PromptBuildInput {
   companyName: string;
@@ -186,7 +257,10 @@ export const aiPromptService = {
         ? '- Never claim you completed a booking/order/ticket yourself. To actually perform one of the supported actions listed below, emit an ACTION_REQUEST — and once the customer has stated or confirmed the required details ONCE, emit it immediately instead of asking again.'
         : '- Do not pretend to complete transactions or promise staff actions unless the handoff flow requests it.',
       '- Ask a short clarifying question when the request is ambiguous.',
-      '- Return plain text only. No HTML. Avoid Markdown tables unless clearly useful.',
+      // The history turns are labelled ("Customer: …", "AI: …") so roles stay
+      // clear; without this rule the model imitates the pattern and the label
+      // leaks into the text the customer receives.
+      '- Never prefix your reply with a speaker name or role label (no "AI:", "Assistant:", "Agent:", "مساعد:"). Reply with the message text only.',
       ...(input.allowHandoffSignal
         ? [
             `- If the customer explicitly asks for a human/agent, OR you cannot help at all because the answer is not in the supplied information and no clarifying question would help, respond with exactly "${HANDOFF_SENTINEL}" and nothing else.`,
@@ -221,6 +295,8 @@ export const aiPromptService = {
 
     const parts = [
       platform,
+      FORMATTING_RULES,
+      MEDIA_RULES,
       prefs.join('\n'),
       `COMPANY INFORMATION (the only allowed source of business facts):\n${contextText || '(no company information available)'}`,
     ];

@@ -47,30 +47,22 @@ export function MessageBubble({ message }: { message: Message }) {
   const outbound = message.direction === 'OUTBOUND';
   const isAI = message.senderType === 'AI';
 
+  // AI replies must be indistinguishable from an agent reply: customers (and
+  // anyone shown a screenshot of the thread) should never be told which
+  // outbound messages were machine-written. `senderType` stays 'AI' in the
+  // database for analytics/audit — only the presentation is unified.
   const senderName = outbound
-    ? isAI
-      ? `AI${message.senderUser ? ` · ${message.senderUser.fullName}` : ''}`
-      : (message.senderUser?.fullName ?? 'Agent')
+    ? (message.senderUser?.fullName ?? 'Agent')
     : 'Customer';
 
-  // Outbound agent: slate. Outbound AI: indigo (distinct but professional).
-  // Inbound customer: light bordered.
+  // Outbound (agent or AI): slate. Inbound customer: light bordered.
   const bubbleClass = !outbound
     ? 'border border-slate-200 bg-white text-slate-800'
-    : isAI
-      ? 'border border-indigo-300 bg-indigo-50 text-indigo-900'
-      : 'bg-slate-900 text-white';
+    : 'bg-slate-900 text-white';
 
   return (
     <div className={`flex ${outbound ? 'justify-end' : 'justify-start'}`}>
       <div className={`max-w-[85%] sm:max-w-[75%] ${outbound ? 'items-end' : 'items-start'}`}>
-        {isAI && (
-          <div className="mb-0.5 flex justify-end">
-            <span className="rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-700">
-              AI
-            </span>
-          </div>
-        )}
         <div
           className={`whitespace-pre-wrap break-words rounded-2xl px-4 py-2 text-sm ${bubbleClass}`}
         >
@@ -118,7 +110,11 @@ export function MessageBubble({ message }: { message: Message }) {
         >
           <span>{senderName}</span>
           <span>·</span>
-          <span>{fullTime(message.sentAt ?? message.createdAt)}</span>
+          {/* Internal-only hint for staff: a neutral tooltip, never a badge or
+              a different colour, so the thread reads as one human voice. */}
+          <span title={isAI ? 'Sent automatically by the assistant' : undefined}>
+            {fullTime(message.sentAt ?? message.createdAt)}
+          </span>
           {outbound &&
             (() => {
               const label = deliveryLabel(message.status, message.delivery);

@@ -9,6 +9,7 @@ import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { parseApiError } from '@/lib/form';
 import {
   aiApi,
+  aiSettingsApi,
   conversationsApi,
   customersApi,
   messagesApi,
@@ -20,6 +21,7 @@ import {
 import type {
   Activity,
   AIConversationMode,
+  AISettings,
   ConversationDetail,
   ConversationListItem,
   ConversationPriority,
@@ -54,6 +56,9 @@ function InboxInner() {
 
   const [allTags, setAllTags] = useState<Tag[]>([]);
   const [assignableUsers, setAssignableUsers] = useState<UserSummary[]>([]);
+  // Company-wide AI settings: needed so the header's auto-reply toggle can show
+  // the REAL state (company opt-in AND this conversation's AI mode).
+  const [aiSettings, setAiSettings] = useState<AISettings | null>(null);
 
   // Conversation list.
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
@@ -101,6 +106,9 @@ function InboxInner() {
   useEffect(() => {
     tagsApi.list().then((r) => setAllTags(r.tags)).catch(() => undefined);
     usersApi.assignable().then((r) => setAssignableUsers(r.users)).catch(() => undefined);
+    // Readable by every role; a failure just leaves the toggle in its
+    // "loading" (disabled) state rather than breaking the inbox.
+    aiSettingsApi.get().then((r) => setAiSettings(r.settings)).catch(() => undefined);
   }, []);
 
   const buildParams = useCallback(
@@ -509,6 +517,36 @@ function InboxInner() {
       notify('AI mode updated', 'success');
     });
 
+  /**
+   * One-click auto-reply. Reuses the existing endpoints only:
+   * ON  -> enable the company flag if it is off (OWNER/ADMIN), then resume this
+   *        conversation's AI mode if it was paused.
+   * OFF -> pause THIS conversation only; the company-wide flag is never
+   *        disabled from here (that stays in AI Settings).
+   */
+  const onToggleAutoReply = (next: boolean) =>
+    withHeader(async () => {
+      const id = detail!.id;
+      if (next) {
+        if (aiSettings && !aiSettings.autoReplyEnabled) {
+          const { settings } = await aiSettingsApi.save({ autoReplyEnabled: true });
+          setAiSettings(settings);
+        }
+        if (detail!.aiMode !== 'ENABLED') {
+          const { conversation } = await aiApi.setMode(id, 'ENABLED');
+          applyDetail(conversation);
+        }
+      } else if (detail!.aiMode !== 'PAUSED') {
+        const { conversation } = await aiApi.setMode(id, 'PAUSED');
+        applyDetail(conversation);
+      }
+      await refreshActivities(id);
+      notify(
+        next ? 'AI auto-reply is on for this conversation' : 'AI auto-reply paused',
+        'success',
+      );
+    });
+
   async function addNote(content: string) {
     if (!detail) return;
     const { note } = await notesApi.create(detail.id, content);
@@ -606,6 +644,8 @@ function InboxInner() {
                   writable={writable}
                   aiGenerating={aiGenerating}
                   hasDraft={hasDraft}
+                  companyAutoReplyEnabled={aiSettings?.autoReplyEnabled ?? null}
+                  canManageCompanyAI={writable}
                   onBack={() => {
                     setActiveId(null);
                     router.replace('/dashboard/inbox', { scroll: false });
@@ -618,6 +658,7 @@ function InboxInner() {
                   onDetachTag={onDetachTag}
                   onArchive={onArchive}
                   onSetMode={onSetMode}
+                  onToggleAutoReply={onToggleAutoReply}
                   onDraft={() => void generateDraft()}
                   onRegenerate={(a) => void regenerate(a)}
                   onReply={() => void directReply()}

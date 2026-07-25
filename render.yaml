@@ -48,8 +48,11 @@ services:
       # --- non-secret app config ---
       - key: AI_FEATURE_ENABLED
         value: "true"
+      # Platform-wide kill switch only — each company opts in with its own
+      # "Auto-reply" toggle (off by default). Set to "false" to stop AI
+      # auto-replies for every company at once.
       - key: AI_AUTO_REPLY_ENABLED
-        value: "false"
+        value: "true"
       - key: OPENAI_MODEL
         value: gpt-4o-mini
       - key: FAKE_CHANNEL_ENABLED

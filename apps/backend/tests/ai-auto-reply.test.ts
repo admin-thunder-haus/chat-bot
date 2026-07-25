@@ -94,6 +94,41 @@ describe('AI auto-reply for mock inbound', () => {
     expect(second.body.data.autoReply.reason).toBe('ai_paused');
   });
 
+  // The global env flag is a KILL SWITCH, not the opt-in: it defaults to
+  // enabled so an operator who cannot edit Render env vars still gets replies,
+  // while the per-company toggle (default false) remains the real opt-in.
+  describe('AI_AUTO_REPLY_ENABLED is a kill switch, read lazily', () => {
+    const original = process.env.AI_AUTO_REPLY_ENABLED;
+    afterEach(() => {
+      if (original === undefined) delete process.env.AI_AUTO_REPLY_ENABLED;
+      else process.env.AI_AUTO_REPLY_ENABLED = original;
+    });
+
+    it('auto-replies with the env var UNSET when the company opted in', async () => {
+      delete process.env.AI_AUTO_REPLY_ENABLED;
+      await enableAutoReply();
+      const res = await mockInbound('m-unset');
+      expect(res.body.data.autoReply.generated).toBe(true);
+      expect(await messageCount(res.body.data.conversation.id)).toBe(2);
+    });
+
+    it('still requires the per-company opt-in when the env var is unset', async () => {
+      delete process.env.AI_AUTO_REPLY_ENABLED;
+      const res = await mockInbound('m-unset-nocompany');
+      expect(res.body.data.autoReply.generated).toBe(false);
+      expect(res.body.data.autoReply.reason).toBe('auto_reply_disabled_company');
+    });
+
+    it('does not auto-reply when the env var is explicitly false', async () => {
+      process.env.AI_AUTO_REPLY_ENABLED = 'false';
+      await enableAutoReply();
+      const res = await mockInbound('m-off');
+      expect(res.body.data.autoReply.generated).toBe(false);
+      expect(res.body.data.autoReply.reason).toBe('auto_reply_disabled_env');
+      expect(await messageCount(res.body.data.conversation.id)).toBe(1);
+    });
+  });
+
   it('pauses AI and skips auto-reply on a human-handoff request', async () => {
     await enableAutoReply();
     const res = await mockInbound('m1', 'I want to speak to a human please');

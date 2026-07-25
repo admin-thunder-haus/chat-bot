@@ -4,7 +4,10 @@ import { setupTenant, authHeader, type Tenant } from './helpers';
 import { prisma } from './setup';
 import { setAIProviderForTesting } from '../src/modules/ai';
 import { makeFakeProvider } from './ai-helpers';
-import { aiContextService } from '../src/modules/ai/ai-context.service';
+import {
+  aiContextService,
+  detectImageRequest,
+} from '../src/modules/ai/ai-context.service';
 import type { RetrievalResult } from '../src/modules/ai/ai-retrieval.service';
 import {
   WhatsAppChannelProvider,
@@ -175,6 +178,65 @@ describe('findRecommendedAttachment', () => {
   });
 });
 
+describe('detectImageRequest', () => {
+  it('is true for English photo requests', () => {
+    expect(detectImageRequest('Can you send me a photo of product 5?')).toBe(true);
+    expect(detectImageRequest('Do you have pictures?')).toBe(true);
+    expect(detectImageRequest('any IMAGES of the terminal')).toBe(true);
+    expect(detectImageRequest('send a pic please')).toBe(true);
+  });
+
+  it('is true for Arabic photo requests (production repro)', () => {
+    expect(detectImageRequest('ابعتلي صورة للبرودكت الخمس')).toBe(true);
+    expect(detectImageRequest('بدي صور للمنتجات')).toBe(true);
+    expect(detectImageRequest('الصورة موجودة؟')).toBe(true);
+    expect(detectImageRequest('شو شكله؟')).toBe(true);
+  });
+
+  it('is false for ordinary questions', () => {
+    expect(detectImageRequest('How much does the CRM Pro License cost?')).toBe(
+      false,
+    );
+    expect(detectImageRequest('كم سعر البرودكت الخمس؟')).toBe(false);
+    // "مشكلة" contains شكل and "بشكل عام" contains شكل — neither is a photo ask.
+    expect(detectImageRequest('عندي مشكلة في الطلب')).toBe(false);
+    expect(detectImageRequest('بشكل عام كم التوصيل؟')).toBe(false);
+  });
+});
+
+describe('firstAttachmentCandidate', () => {
+  it('prefers the first imaged product, then falls back to services', () => {
+    const r = retrieval({
+      services: [fakeService('Setup', 'https://img.example.com/setup.png')],
+      products: [
+        fakeProduct('No Photo', null),
+        fakeProduct('Has Photo', 'https://img.example.com/p.png'),
+      ],
+    });
+    expect(aiContextService.firstAttachmentCandidate(r)).toEqual({
+      imageUrl: 'https://img.example.com/p.png',
+      sourceType: 'product',
+      sourceId: 'prd-Has Photo',
+      sourceName: 'Has Photo',
+    });
+    expect(
+      aiContextService.firstAttachmentCandidate(
+        retrieval({
+          services: [fakeService('Setup', 'https://img.example.com/setup.png')],
+        }),
+      )?.sourceType,
+    ).toBe('service');
+  });
+
+  it('returns null when nothing has an image', () => {
+    expect(
+      aiContextService.firstAttachmentCandidate(
+        retrieval({ products: [fakeProduct('Plain', null)] }),
+      ),
+    ).toBeNull();
+  });
+});
+
 describe('auto-reply attaches images on the local (webchat/manual) path', () => {
   async function enableAutoReply() {
     await prisma.companyAISettings.upsert({
@@ -224,6 +286,54 @@ describe('auto-reply attaches images on the local (webchat/manual) path', () => 
     });
     expect(ai?.mediaUrl).toBe('https://img.example.com/premium.jpg');
     expect(ai?.contentType).toBe('IMAGE');
+  });
+
+  it('attaches a photo for an explicit Arabic photo request even when the reply names nothing (production repro)', async () => {
+    await enableAutoReply();
+    await prisma.product.create({
+      data: {
+        companyId: acme.company.id,
+        name: 'POS Terminal X1',
+        price: '250',
+        currency: 'JOD',
+        imageUrl: 'https://img.example.com/pos.jpg',
+      },
+    });
+    // The reply the model actually sent in production: an apology that names
+    // no item at all — findRecommendedAttachment can never match it.
+    setAIProviderForTesting(
+      makeFakeProvider({ text: 'آسف، لا أستطيع مساعدتك بهذا الطلب.' }).provider,
+    );
+
+    const res = await mockInbound('ابعتلي صورة للمنتج');
+    expect(res.body.data.autoReply.generated).toBe(true);
+    const ai = await prisma.message.findFirst({
+      where: { conversationId: res.body.data.conversation.id, senderType: 'AI' },
+    });
+    expect(ai?.mediaUrl).toBe('https://img.example.com/pos.jpg');
+    expect(ai?.contentType).toBe('IMAGE');
+  });
+
+  it('does not attach a photo when the customer did not ask for one', async () => {
+    await enableAutoReply();
+    await prisma.product.create({
+      data: {
+        companyId: acme.company.id,
+        name: 'POS Terminal X1',
+        price: '250',
+        currency: 'JOD',
+        imageUrl: 'https://img.example.com/pos.jpg',
+      },
+    });
+    setAIProviderForTesting(
+      makeFakeProvider({ text: 'Our prices start at 250 JOD.' }).provider,
+    );
+
+    const res = await mockInbound('كم سعر التوصيل؟');
+    const ai = await prisma.message.findFirst({
+      where: { conversationId: res.body.data.conversation.id, senderType: 'AI' },
+    });
+    expect(ai?.mediaUrl).toBeNull();
   });
 
   it('stays TEXT when the recommended service has no image', async () => {

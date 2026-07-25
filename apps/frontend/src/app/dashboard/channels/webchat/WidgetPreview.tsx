@@ -37,9 +37,11 @@ export function WidgetPreview({
         <span aria-hidden="true">✕</span>
       </div>
       <div className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
+        {/* The live widget labels EVERY non-visitor message with the agent
+            label — assistant replies are indistinguishable from an agent's. */}
         <Row side="left">
           <p className="mb-0.5 text-[10px] font-semibold" style={{ color: c.muted }}>
-            {config.assistantLabel}
+            {config.agentLabel}
           </p>
           <Bubble style={{ background: c.agent, color: c.text }}>
             {config.welcomeMessage}

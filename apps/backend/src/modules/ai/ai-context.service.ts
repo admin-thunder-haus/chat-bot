@@ -207,7 +207,60 @@ export const aiContextService = {
 
     return bestScore >= 0 ? best : null;
   },
+
+  /**
+   * Fallback used when the customer explicitly asked for a photo but the reply
+   * text names nothing matchable (e.g. an apologetic or very short answer).
+   * Returns the FIRST retrieved product with an image, then the first service —
+   * products first because photo requests are overwhelmingly about goods, and
+   * retrieval order is already relevance-ranked.
+   */
+  firstAttachmentCandidate(
+    retrieval: RetrievalResult,
+  ): RecommendedAttachment | null {
+    const product = retrieval.products.find((p) => p.imageUrl);
+    if (product?.imageUrl) {
+      return {
+        imageUrl: product.imageUrl,
+        sourceType: 'product',
+        sourceId: product.id,
+        sourceName: product.name,
+      };
+    }
+    const service = retrieval.services.find((s) => s.imageUrl);
+    if (service?.imageUrl) {
+      return {
+        imageUrl: service.imageUrl,
+        sourceType: 'service',
+        sourceId: service.id,
+        sourceName: service.name,
+      };
+    }
+    return null;
+  },
 };
+
+/**
+ * Explicit "send me a photo" intent. Multilingual and deliberately
+ * noun-anchored so ordinary questions never trigger it.
+ *
+ * Arabic notes: the boundary guards matter — `مشكلة` ("problem") contains
+ * `شكل`, and `بصورة عامة` ("generally") contains `صور`; both must stay FALSE.
+ * The optional `ال`/`و`/`ف` prefixes keep `الصورة` and `وصورة` TRUE.
+ */
+const IMAGE_REQUEST_PATTERNS: RegExp[] = [
+  // English nouns (whole word): photo(s), picture(s), image(s), pic(s), snapshot.
+  /\b(photos?|photograph|pictures?|images?|pics?|snapshots?)\b/i,
+  // Arabic: صورة / صور / الصور / صورته …
+  /(^|[^ء-ي])(ال|و|ف|)صور/,
+  // Arabic: شكل / الشكل / شكله ("how does it look")
+  /(^|[^ء-ي])(ال|)شكل/,
+];
+
+/** True when the customer is asking to SEE the item, not just to hear about it. */
+export function detectImageRequest(text: string): boolean {
+  return IMAGE_REQUEST_PATTERNS.some((re) => re.test(text));
+}
 
 // Words too generic to identify WHICH catalog item a reply refers to. A name
 // consisting only of these (e.g. "Premium Support Plan") still matches via

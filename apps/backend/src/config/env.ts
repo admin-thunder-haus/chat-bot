@@ -115,10 +115,15 @@ const envSchema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((v) => v === 'true'),
-  // Global gate for automatic replies; per-company opt-in is also required.
+  // Platform-wide KILL SWITCH for automatic replies — NOT the opt-in. The real
+  // opt-in is the per-company `CompanyAISettings.autoReplyEnabled` toggle
+  // (default false), so no tenant auto-replies until it turns the feature on.
+  // Set this to `false` only to disable auto-reply for every company at once.
+  // Validated here; READ LAZILY via isAutoReplyGloballyEnabled() so tests can
+  // toggle it without re-importing env.
   AI_AUTO_REPLY_ENABLED: z
     .enum(['true', 'false'])
-    .default('false')
+    .default('true')
     .transform((v) => v === 'true'),
 
   OPENAI_API_KEY: z.string().optional(),
@@ -433,4 +438,15 @@ export const isTelegramEnabled = env.TELEGRAM_PROVIDER_ENABLED;
  */
 export function isAiActionsEnabled(): boolean {
   return (process.env.AI_ACTIONS_ENABLED ?? 'true') !== 'false';
+}
+
+/**
+ * Platform-wide kill switch for automatic AI replies. Enabled unless explicitly
+ * set to 'false' — the meaningful opt-in is the per-company
+ * `CompanyAISettings.autoReplyEnabled` flag, which still defaults to false.
+ * Deliberately a FUNCTION reading process.env at call time (same reason as
+ * isAiActionsEnabled): the frozen `env` snapshot cannot be toggled by tests.
+ */
+export function isAutoReplyGloballyEnabled(): boolean {
+  return (process.env.AI_AUTO_REPLY_ENABLED ?? 'true') !== 'false';
 }

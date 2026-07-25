@@ -220,3 +220,21 @@ describe('AI prompt safety', () => {
     expect(wholePrompt).not.toContain('sk-'); // no key-like strings
   });
 });
+
+describe('multilingual retrieval hints', () => {
+  it('includes business hours for an Arabic working-hours question', async () => {
+    const r = await aiRetrievalService.retrieve(
+      acme.company.id,
+      'شو مواعيد العمل عندكم؟',
+    );
+    expect(r.includeBusinessHours).toBe(true);
+  });
+
+  it('includes contact details for an Arabic contact question', async () => {
+    const r = await aiRetrievalService.retrieve(
+      acme.company.id,
+      'ممكن رقم الهاتف او الايميل؟',
+    );
+    expect(r.includeContact).toBe(true);
+  });
+});

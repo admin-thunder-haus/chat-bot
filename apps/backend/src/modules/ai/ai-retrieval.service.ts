@@ -39,13 +39,28 @@ const STOPWORDS = new Set([
   'will', 'would', 'about', 'from', 'they', 'them', 'our', 'was', 'were',
 ]);
 
+// Hint words are matched case-insensitively as substrings against the raw
+// question, so they MUST cover the languages customers actually write in —
+// an Arabic "شو مواعيد العمل؟" previously missed business hours entirely.
 const HOURS_HINTS = [
   'open', 'hour', 'close', 'time', 'when', 'available', 'schedule', 'today',
   'tomorrow', 'weekend', 'working',
+  // Arabic
+  'مواعيد', 'ساعات', 'دوام', 'وقت', 'متى', 'مفتوح', 'مسكر', 'مغلق', 'بكرا',
+  'بكرة', 'اليوم', 'الجمعة', 'العطلة', 'شغل',
+  // Other common languages
+  'horario', 'abierto', 'heures', 'ouvert', 'öffnungszeiten', 'geöffnet',
+  'saat', 'çalışma', 'orario', 'aperto',
 ];
 const CONTACT_HINTS = [
   'contact', 'phone', 'call', 'email', 'address', 'location', 'where',
   'website', 'reach', 'whatsapp', 'number',
+  // Arabic
+  'تواصل', 'اتصال', 'رقم', 'هاتف', 'تلفون', 'موبايل', 'ايميل', 'بريد',
+  'عنوان', 'موقع', 'وين', 'فين', 'واتساب', 'فرع',
+  // Other common languages
+  'contacto', 'telefono', 'teléfono', 'dirección', 'adresse', 'telefon',
+  'kontakt', 'iletişim', 'indirizzo',
 ];
 
 const MAX_SERVICES = 5;

@@ -366,11 +366,32 @@ export const webhookService = {
         const profile = await provider
           .fetchCustomerProfile({
             externalCustomerId: normalized.externalCustomerId,
+            // Some platforms only expose the sender's name through an
+            // account-scoped node (e.g. the Facebook Page's conversation list).
+            externalAccountId: account.externalAccountId,
             credentials,
           })
-          .catch(() => null);
+          .catch((err: unknown) => {
+            // Never fatal, but never silent either: a swallowed error here is
+            // exactly why "Unknown customer" was undiagnosable in production.
+            logger.warn('channel.profile.fetchFailed', {
+              companyId,
+              channelAccountId: account.id,
+              providerKey: account.providerKey,
+              error: err instanceof Error ? err.message : 'unknown',
+            });
+            return null;
+          });
         if (profile?.fullName) normalized.customer.fullName = profile.fullName;
         if (profile?.username) normalized.customer.username = profile.username;
+        if (!profile?.fullName && !profile?.username) {
+          logger.warn('channel.profile.fetchFailed', {
+            companyId,
+            channelAccountId: account.id,
+            providerKey: account.providerKey,
+            reason: 'no_name_resolved',
+          });
+        }
       }
     }
 

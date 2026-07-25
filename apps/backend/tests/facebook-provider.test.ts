@@ -161,6 +161,68 @@ describe('Facebook provider — profile enrichment', () => {
   it('returns null without credentials', async () => {
     expect(await provider.fetchCustomerProfile({ externalCustomerId: 'x', credentials: null })).toBeNull();
   });
+
+  /**
+   * Live behavior: GET /{PSID} answers 400 ("cannot be loaded due to missing
+   * permissions") for most apps, while the Page's conversation list returns the
+   * participant names — including the same PSID.
+   */
+  it('falls back to the Page conversation participants when the PSID lookup 400s', async () => {
+    setFacebookTransportForTesting({
+      async request(input) {
+        if (input.url.includes('/conversations?')) {
+          return {
+            status: 200,
+            ok: true,
+            json: {
+              data: [
+                {
+                  id: 't_1',
+                  participants: {
+                    data: [
+                      { name: 'Ahmad Jomhawi', id: FB.customerPsid },
+                      { name: FB.pageName, id: FB.pageId },
+                    ],
+                  },
+                },
+              ],
+            },
+          };
+        }
+        return {
+          status: 400,
+          ok: false,
+          json: {
+            error: {
+              message: `Object with ID '${FB.customerPsid}' does not exist, cannot be loaded due to missing permissions`,
+              code: 100,
+            },
+          },
+        };
+      },
+    });
+
+    const p = await provider.fetchCustomerProfile({
+      externalCustomerId: FB.customerPsid,
+      externalAccountId: FB.pageId,
+      credentials: creds,
+    });
+    expect(p?.fullName).toBe('Ahmad Jomhawi');
+  });
+
+  it('returns null without throwing when both the PSID lookup and the conversation list fail', async () => {
+    setFacebookTransportForTesting({
+      async request() {
+        return { status: 400, ok: false, json: { error: { code: 100 } } };
+      },
+    });
+    const p = await provider.fetchCustomerProfile({
+      externalCustomerId: FB.customerPsid,
+      externalAccountId: FB.pageId,
+      credentials: creds,
+    });
+    expect(p).toBeNull();
+  });
 });
 
 describe('Facebook error classifier', () => {

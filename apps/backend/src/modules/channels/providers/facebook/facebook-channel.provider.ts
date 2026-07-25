@@ -225,14 +225,34 @@ export class FacebookChannelProvider implements ChannelProvider {
     };
   }
 
+  /**
+   * Best-effort customer name. The direct PSID profile lookup is tried first,
+   * but Meta rejects it (400 "missing permissions") for most apps, so the Page's
+   * own conversation list — which the same Page token CAN read — is used as a
+   * fallback. Never throws; returns null when neither source yields a name.
+   */
   async fetchCustomerProfile(input: {
     externalCustomerId: string;
+    externalAccountId?: string | null;
     credentials?: ProviderCredentials | null;
   }): Promise<{ fullName?: string | null } | null> {
     const creds = asCredentials(input.credentials);
     const psid = str(input.externalCustomerId);
     if (!creds || !psid) return null;
-    return facebookApiClient.getProfile({ accessToken: creds.accessToken, psid });
+    const profile = await facebookApiClient.getProfile({
+      accessToken: creds.accessToken,
+      psid,
+    });
+    if (profile?.fullName) return profile;
+
+    const pageId = str(input.externalAccountId);
+    if (!pageId) return profile;
+    const fullName = await facebookApiClient.findParticipantName({
+      accessToken: creds.accessToken,
+      pageId,
+      psid,
+    });
+    return fullName ? { fullName } : profile;
   }
 
   /**

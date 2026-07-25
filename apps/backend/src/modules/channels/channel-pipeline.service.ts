@@ -7,12 +7,16 @@ import type {
 } from '@prisma/client';
 import { prisma } from '../../config/prisma';
 import { logActivity } from '../../utils/activity';
+import { logger } from '../../utils/logger';
 import { messagesRepository } from '../messages/messages.repository';
 import { conversationsRepository } from '../conversations/conversations.repository';
 import { aiService } from '../ai/ai.service';
-import { channelsRepository } from './channels.repository';
-import { channelRegistry } from './channel-registry';
 import { channelDeliveryService } from './channel-delivery.service';
+import {
+  channelNotConnectedError,
+  isPushChannel,
+  resolveOutboundTarget,
+} from './channel-outbound-target.service';
 import type { NormalizedInboundMessage } from './channel-normalizer.service';
 import { detectLanguage } from '../../utils/language-detect';
 import { emitDomainEvent } from '../events/domain-events.service';
@@ -193,7 +197,22 @@ export const channelPipelineService = {
           sentAt: now,
         });
 
-        // 4. Update conversation: unread++, timestamps, reopen if needed.
+        // 4. Update conversation: unread++, timestamps, reopen if needed, and
+        //    (re-)link the receiving channel account. A hard-deleted +
+        //    reconnected channel nulls `Conversation.channelAccountId`
+        //    (`onDelete: SetNull`), which orphans every existing conversation;
+        //    inbound still resolves the account from the webhook URL, so this is
+        //    the natural place to heal the link — otherwise the outbound gate
+        //    silently falls back to a local persist and nothing ever reaches the
+        //    provider. Done inside the SAME update (no extra round-trip).
+        const relink =
+          !createdConversation &&
+          !!params.channelAccountId &&
+          conversation.channelAccountId !== params.channelAccountId;
+        const backfillExternalConversationId =
+          !createdConversation &&
+          !conversation.externalConversationId &&
+          !!message.externalConversationId;
         const reopen =
           conversation.status === 'RESOLVED' ||
           conversation.status === 'CLOSED';
@@ -206,6 +225,15 @@ export const channelPipelineService = {
             ...(detectedLanguage !== 'unknown' ? { detectedLanguage } : {}),
             ...(reopen
               ? { status: 'OPEN', resolvedAt: null, closedAt: null }
+              : {}),
+            ...(relink
+              ? {
+                  channelAccountId: params.channelAccountId,
+                  providerKey: params.providerKey ?? conversation.providerKey,
+                }
+              : {}),
+            ...(backfillExternalConversationId
+              ? { externalConversationId: message.externalConversationId }
               : {}),
           },
         });
@@ -232,8 +260,20 @@ export const channelPipelineService = {
           createdConversation,
           createdCustomer,
           reopened: reopen,
+          relinked: relink,
+          previousChannelAccountId: conversation.channelAccountId,
         };
       });
+
+      if (result.relinked) {
+        logger.info('channel.conversation.relinked', {
+          companyId,
+          conversationId: result.conversationId,
+          channelAccountId: params.channelAccountId,
+          providerKey: params.providerKey ?? null,
+          previousChannelAccountId: result.previousChannelAccountId,
+        });
+      }
 
       // Day 12: domain events AFTER the transaction commits. emitDomainEvent
       // never throws, so ingestion is never affected.
@@ -354,24 +394,23 @@ export const channelPipelineService = {
   async sendOutbound(params: SendOutboundParams): Promise<SendOutboundResult> {
     const { companyId, conversation } = params;
 
-    const account =
-      conversation.channelAccountId && conversation.providerKey
-        ? await channelsRepository.findByIdScoped(
-            companyId,
-            conversation.channelAccountId,
-          )
-        : null;
-    const provider = conversation.providerKey
-      ? channelRegistry.tryGet(conversation.providerKey)
-      : null;
-    const viaProvider =
-      !!account &&
-      account.isEnabled &&
-      !!provider &&
-      provider.capabilities.outboundMessaging &&
-      provider.capabilities.textMessages;
+    // ONE shared resolver (also used by the AI reply path) — it self-heals a
+    // conversation whose channel account was nulled by a reconnect.
+    const target = await resolveOutboundTarget(companyId, conversation);
 
-    if (!viaProvider) {
+    if (!target) {
+      // A push channel has NO local delivery: persisting a "SENT" message here
+      // would show the agent a sent reply the customer never receives. Refuse
+      // instead, with an actionable message.
+      if (isPushChannel(conversation.channelType)) {
+        logger.warn('channel.outbound.notConnected', {
+          companyId,
+          conversationId: conversation.id,
+          channelType: conversation.channelType,
+          providerKey: conversation.providerKey,
+        });
+        throw channelNotConnectedError();
+      }
       // --- Local path (Day 3 behavior, unchanged) ---
       const message = await prisma.$transaction(async (tx) => {
         const now = new Date();
@@ -408,16 +447,17 @@ export const channelPipelineService = {
     // The engine persists the message + a QUEUED delivery, runs the first
     // attempt (claiming atomically), records the attempt + health, and schedules
     // a retry on a temporary failure — all provider-independent.
+    const { account, provider } = target;
     const message = await channelDeliveryService.dispatchOutbound({
       companyId,
       conversation,
-      account: account!,
+      account,
       senderUserId: params.senderUserId,
       senderType: params.senderType,
       content: params.content,
       // Media capability gate: unsupported providers fall back to text-only.
       mediaUrl:
-        params.mediaUrl && provider!.capabilities.mediaMessages
+        params.mediaUrl && provider.capabilities.mediaMessages
           ? params.mediaUrl
           : null,
       replyToMessageId: params.replyToMessageId ?? null,

@@ -119,6 +119,23 @@ export const conversationsRepository = {
     return this.findByIdScoped(companyId, id);
   },
 
+  /**
+   * (Re-)link a conversation to the channel account that owns it. Used to heal
+   * conversations orphaned by a channel disconnect/reconnect (the FK is
+   * `onDelete: SetNull`), so outbound messages keep flowing to the provider.
+   */
+  async linkChannelAccount(
+    companyId: string,
+    id: string,
+    data: { channelAccountId: string; providerKey: string },
+  ): Promise<number> {
+    const result = await prisma.conversation.updateMany({
+      where: { id, companyId },
+      data,
+    });
+    return result.count;
+  },
+
   countByStatus(companyId: string): Promise<number> {
     return prisma.conversation.count({ where: { companyId } });
   },

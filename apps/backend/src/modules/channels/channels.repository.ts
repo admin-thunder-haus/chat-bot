@@ -42,6 +42,32 @@ export const channelsRepository = {
   },
 
   /**
+   * The company's best usable account for a provider (or channel type): only
+   * CONNECTED + enabled accounts qualify, preferring the default one and then
+   * the most recently connected. Used to re-link conversations orphaned by a
+   * channel disconnect/reconnect — provider-independent by design.
+   */
+  findBestConnectedAccount(
+    companyId: string,
+    filter: { providerKey?: string; channelType?: ChannelType },
+  ): Promise<ChannelAccount | null> {
+    return prisma.channelAccount.findFirst({
+      where: {
+        companyId,
+        status: 'CONNECTED',
+        isEnabled: true,
+        ...(filter.providerKey ? { providerKey: filter.providerKey } : {}),
+        ...(filter.channelType ? { channelType: filter.channelType } : {}),
+      },
+      orderBy: [
+        { isDefault: 'desc' },
+        { connectedAt: 'desc' },
+        { createdAt: 'desc' },
+      ],
+    });
+  },
+
+  /**
    * Resolve an account by its PUBLIC widget key (no JWT). The publicId itself is
    * the tenant resolver — everything downstream is scoped to `account.companyId`.
    * Returns null for unknown keys (never leaks existence beyond a generic 404).

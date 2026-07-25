@@ -1,4 +1,5 @@
 import { env } from '../../../../config/env';
+import { describeMetaError } from '../meta-error-messages';
 import {
   classifyInstagramHttp,
   classifyInstagramThrow,
@@ -148,7 +149,7 @@ export const instagramApiClient = {
         category: c.category,
         retryable: c.retryable,
         code: c.code,
-        reason: safeInstagramReason(c.category),
+        reason: describeMetaError(res.json, safeInstagramReason(c.category)),
       };
     } catch (err) {
       const c = classifyInstagramThrow(err);
@@ -196,7 +197,7 @@ export const instagramApiClient = {
         category: c.category,
         retryable: c.retryable,
         code: c.code,
-        reason: safeInstagramReason(c.category),
+        reason: describeMetaError(res.json, safeInstagramReason(c.category)),
       };
     } catch (err) {
       const c = classifyInstagramThrow(err);

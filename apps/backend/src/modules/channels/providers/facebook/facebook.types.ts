@@ -74,6 +74,20 @@ export interface FacebookSendResponse {
   message_id?: string;
 }
 
+/**
+ * Page conversations response: GET /{PAGE_ID}/conversations?fields=participants.
+ * The Page's own thread list is readable with the Page token even when a direct
+ * PSID profile lookup is rejected, so it is the reliable source for the
+ * customer's display name.
+ */
+export interface FacebookConversationsResponse {
+  data?: {
+    id?: string;
+    updated_time?: string;
+    participants?: { data?: { id?: string; name?: string }[] };
+  }[];
+}
+
 /** Page/health response: GET /{PAGE_ID}?fields=id,name. */
 export interface FacebookPageResponse {
   id?: string;

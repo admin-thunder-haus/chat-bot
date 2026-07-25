@@ -16,8 +16,12 @@ import { conversationsRepository } from '../conversations/conversations.reposito
 import type { ConversationDetail } from '../conversations/conversations.repository';
 import { messagesRepository } from '../messages/messages.repository';
 import { channelDeliveryService } from '../channels/channel-delivery.service';
-import { channelRegistry } from '../channels/channel-registry';
-import { channelsRepository } from '../channels/channels.repository';
+import {
+  channelNotConnectedError,
+  isChannelNotConnectedError,
+  isPushChannel,
+  resolveOutboundTarget,
+} from '../channels/channel-outbound-target.service';
 import { aiSettingsService } from '../ai-settings/ai-settings.service';
 import type { AISettingsView } from '../ai-settings/ai-settings.types';
 import { getAIProvider } from './ai.provider.factory';
@@ -376,33 +380,29 @@ async function persistAiReply(
   senderType: 'AI' | 'SYSTEM' = 'AI',
 ): Promise<Message> {
   // When the conversation belongs to a push channel (WhatsApp / Instagram /
-  // Facebook), the AI reply MUST go through the delivery engine so it is
-  // actually sent to the provider — persisting the message alone never reaches
-  // the customer. Web Chat / manual conversations keep the local persist path
-  // (the widget pulls; manual has no provider).
+  // Facebook / Telegram), the AI reply MUST go through the delivery engine so it
+  // is actually sent to the provider — persisting the message alone never
+  // reaches the customer. Web Chat / manual conversations keep the local persist
+  // path (the widget pulls; manual has no provider). The target is resolved by
+  // the SAME shared resolver the manual send path uses (it also self-heals a
+  // conversation orphaned by a channel reconnect).
   const conv = await prisma.conversation.findFirst({
     where: { id: conversationId, companyId },
   });
-  const account =
-    conv?.channelAccountId && conv.providerKey
-      ? await channelsRepository.findByIdScoped(companyId, conv.channelAccountId)
-      : null;
-  const provider = conv?.providerKey
-    ? channelRegistry.tryGet(conv.providerKey)
-    : null;
-  const viaProvider =
-    !!conv &&
-    !!account &&
-    account.isEnabled &&
-    !!provider &&
-    provider.capabilities.outboundMessaging &&
-    provider.capabilities.textMessages;
+  const target = conv ? await resolveOutboundTarget(companyId, conv) : null;
 
-  if (viaProvider && conv && account) {
+  if (conv && !target && isPushChannel(conv.channelType)) {
+    // Never persist a fake "SENT" reply on a push channel with no deliverable
+    // account. Callers (auto-reply) treat this as "not generated".
+    throw channelNotConnectedError();
+  }
+
+  if (conv && target) {
+    const { account, provider } = target;
     // Attach the image only when the provider can actually deliver media;
     // otherwise the reply gracefully falls back to text-only.
     const mediaUrl =
-      attachmentUrl && provider!.capabilities.mediaMessages
+      attachmentUrl && provider.capabilities.mediaMessages
         ? attachmentUrl
         : null;
     const message = await channelDeliveryService.dispatchOutbound({
@@ -766,7 +766,13 @@ export const aiService = {
     } catch (err) {
       // Provider/quota failure must NOT roll back the inbound message. It is
       // already recorded as a FAILED generation inside runGeneration.
-      const reason = err instanceof AIError ? err.code : 'ai_error';
+      // A disconnected push channel is the same shape of problem: never throw
+      // into the webhook — report "not generated" so ingestion is unaffected.
+      const reason = isChannelNotConnectedError(err)
+        ? 'channel_not_connected'
+        : err instanceof AIError
+          ? err.code
+          : 'ai_error';
       logger.warn('ai.autoReply.skipped', { companyId, conversationId: conversation.id, reason });
       // Day 12: domain event (never throws, never affects the inbound flow).
       await emitDomainEvent({

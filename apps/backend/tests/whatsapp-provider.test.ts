@@ -194,6 +194,50 @@ describe('WhatsApp provider — outbound send (Graph API, mocked)', () => {
     expect(res.retryable).toBe(false);
   });
 
+  /**
+   * Operators cannot act on "Meta error 133010". The failure message must say
+   * what is wrong (the Cloud API number is not registered) while keeping the
+   * failure code and the permanent classification intact.
+   */
+  it('turns Meta error 133010 into an actionable permanent failure message', async () => {
+    setWhatsAppTransportForTesting(
+      makeWhatsAppTransport({
+        send: () => ({
+          status: 400,
+          ok: false,
+          json: { error: { code: 133010, message: 'Phone number not registered' } },
+        }),
+      }).transport,
+    );
+    const res = await provider.sendMessage({
+      channelType: 'WHATSAPP',
+      externalAccountId: WA.phoneNumberId,
+      externalCustomerId: '15551230000',
+      text: 'x',
+      credentials: creds,
+    });
+    expect(res.status).toBe('failed');
+    expect(res.retryable).toBe(false);
+    expect(res.failureCode).toBe('WA_HTTP_400');
+    expect(res.failureReason).toMatch(/registrat/i);
+    // The numeric code stays available for support.
+    expect(res.failureReason).toContain('133010');
+  });
+
+  it('explains the 24-hour window (131047) and keeps unknown codes as before', async () => {
+    setWhatsAppTransportForTesting(
+      makeWhatsAppTransport({ send: () => ({ status: 400, ok: false, json: { error: { code: 131047 } } }) }).transport,
+    );
+    const windowExpired = await provider.sendMessage({ channelType: 'WHATSAPP', externalAccountId: WA.phoneNumberId, externalCustomerId: '1', text: 'x', credentials: creds });
+    expect(windowExpired.failureReason).toMatch(/24-hour/i);
+
+    setWhatsAppTransportForTesting(
+      makeWhatsAppTransport({ send: () => ({ status: 400, ok: false, json: { error: { code: 999999 } } }) }).transport,
+    );
+    const unknown = await provider.sendMessage({ channelType: 'WHATSAPP', externalAccountId: WA.phoneNumberId, externalCustomerId: '1', text: 'x', credentials: creds });
+    expect(unknown.failureReason).toBe('Meta error 999999');
+  });
+
   it('classifies 429 and 5xx as retryable (transient)', async () => {
     setWhatsAppTransportForTesting(
       makeWhatsAppTransport({ send: () => ({ status: 429, ok: false, json: {} }) }).transport,

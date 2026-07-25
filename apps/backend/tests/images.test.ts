@@ -79,6 +79,19 @@ describe('GET /api/v1/public/images/:imageId', () => {
     expect(Buffer.compare(res.body as Buffer, PNG_1PX)).toBe(0);
   });
 
+  it('is embeddable cross-origin (overrides the helmet same-origin CORP)', async () => {
+    const uploaded = await uploadImage(acme.tokens.owner);
+    const id = uploaded.body.data.image.id as string;
+
+    const res = await request(app).get(`/api/v1/public/images/${id}`);
+
+    expect(res.status).toBe(200);
+    // helmet() defaults to same-origin, which makes browsers block the image in
+    // the dashboard and in the widget embedded on customer domains.
+    expect(res.headers['cross-origin-resource-policy']).toBe('cross-origin');
+    expect(res.headers['access-control-allow-origin']).toBe('*');
+  });
+
   it('returns 404 for an unknown image', async () => {
     const res = await request(app).get(
       '/api/v1/public/images/00000000-0000-4000-8000-000000000000',

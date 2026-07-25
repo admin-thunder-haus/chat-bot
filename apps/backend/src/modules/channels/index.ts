@@ -6,6 +6,15 @@ export {
   type ChannelProviderDescriptor,
 } from './channel-registry';
 export { channelPipelineService } from './channel-pipeline.service';
+export {
+  resolveOutboundTarget,
+  isPushChannel,
+  channelNotConnectedError,
+  isChannelNotConnectedError,
+  CHANNEL_NOT_CONNECTED_CODE,
+  PUSH_CHANNEL_TYPES,
+  type OutboundTarget,
+} from './channel-outbound-target.service';
 export { channelDeliveryService } from './channel-delivery.service';
 export { channelRetryService, getRetryPolicy } from './channel-retry.service';
 export { channelsService } from './channels.service';

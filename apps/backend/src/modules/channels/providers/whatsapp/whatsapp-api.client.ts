@@ -1,5 +1,5 @@
 import { env } from '../../../../config/env';
-import type { MetaApiError } from './whatsapp.types';
+import { describeMetaError } from '../meta-error-messages';
 
 /**
  * Minimal transport abstraction over the Meta Graph API. Injectable so tests
@@ -108,10 +108,10 @@ function classify(status: number): {
 }
 
 function metaErrorReason(json: unknown): string {
-  const err = (json as MetaApiError | null)?.error;
   // Safe, user-presentable summary only — never tokens or internal details.
-  if (err?.code) return `Meta error ${err.code}`;
-  return 'WhatsApp API request failed';
+  // Known Meta codes are translated into an actionable operator message (the
+  // numeric code is kept in the tail for support).
+  return describeMetaError(json, 'WhatsApp API request failed');
 }
 
 export const whatsAppApiClient = {

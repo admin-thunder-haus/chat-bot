@@ -273,6 +273,8 @@ export class InstagramChannelProvider implements ChannelProvider {
 
   async fetchCustomerProfile(input: {
     externalCustomerId: string;
+    /** Unused: the IGSID lookup returns name + username directly. */
+    externalAccountId?: string | null;
     credentials?: ProviderCredentials | null;
   }): Promise<{ fullName?: string | null; username?: string | null } | null> {
     const creds = asCredentials(input.credentials);

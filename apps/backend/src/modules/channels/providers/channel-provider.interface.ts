@@ -285,6 +285,12 @@ export interface ChannelProvider {
    */
   fetchCustomerProfile?(input: {
     externalCustomerId: string;
+    /**
+     * The provider-side account id the message arrived on (Page id, IG account
+     * id, …). Some platforms only expose a sender's name through an
+     * account-scoped node, so providers may need it; those that don't ignore it.
+     */
+    externalAccountId?: string | null;
     credentials?: ProviderCredentials | null;
   }): Promise<Pick<
     NormalizedCustomerProfile,

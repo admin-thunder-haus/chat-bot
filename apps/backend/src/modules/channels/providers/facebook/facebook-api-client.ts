@@ -1,4 +1,5 @@
 import { env } from '../../../../config/env';
+import { describeMetaError } from '../meta-error-messages';
 import {
   classifyFacebookHttp,
   classifyFacebookThrow,
@@ -6,6 +7,7 @@ import {
   type FacebookErrorCategory,
 } from './facebook-error-classifier';
 import type {
+  FacebookConversationsResponse,
   FacebookPageResponse,
   FacebookSendResponse,
 } from './facebook.types';
@@ -133,7 +135,7 @@ export const facebookApiClient = {
         return { ok: true, externalMessageId: id };
       }
       const c = classifyFacebookHttp(res.status, res.json);
-      return { ok: false, category: c.category, retryable: c.retryable, code: c.code, reason: safeFacebookReason(c.category) };
+      return { ok: false, category: c.category, retryable: c.retryable, code: c.code, reason: describeMetaError(res.json, safeFacebookReason(c.category)) };
     } catch (err) {
       const c = classifyFacebookThrow(err);
       return { ok: false, category: c.category, retryable: c.retryable, code: c.code, reason: safeFacebookReason(c.category) };
@@ -174,7 +176,7 @@ export const facebookApiClient = {
         return { ok: true, externalMessageId: id };
       }
       const c = classifyFacebookHttp(res.status, res.json);
-      return { ok: false, category: c.category, retryable: c.retryable, code: c.code, reason: safeFacebookReason(c.category) };
+      return { ok: false, category: c.category, retryable: c.retryable, code: c.code, reason: describeMetaError(res.json, safeFacebookReason(c.category)) };
     } catch (err) {
       const c = classifyFacebookThrow(err);
       return { ok: false, category: c.category, retryable: c.retryable, code: c.code, reason: safeFacebookReason(c.category) };
@@ -213,6 +215,47 @@ export const facebookApiClient = {
     }
   },
 
+  /**
+   * Resolve an inbound sender's display name from the PAGE's conversation list.
+   *
+   * A direct `GET /{PSID}` profile lookup is rejected (400 "Object with ID …
+   * does not exist, cannot be loaded due to missing permissions") unless the app
+   * has advanced Messenger profile access, but
+   * `GET /{PAGE_ID}/conversations?fields=participants` succeeds with the same
+   * Page token and carries `participants.data[] = [{ name, id }]` — including the
+   * customer's PSID. Best-effort: bounded timeout, never throws, returns null.
+   */
+  async findParticipantName(input: {
+    accessToken: string;
+    pageId: string;
+    psid: string;
+  }): Promise<string | null> {
+    try {
+      const res = await transport.request({
+        url: graphUrl(
+          `${encodeURIComponent(input.pageId)}/conversations?fields=participants&limit=25`,
+        ),
+        method: 'GET',
+        accessToken: input.accessToken,
+        timeoutMs: Math.min(env.FACEBOOK_API_TIMEOUT_MS, 4000),
+      });
+      if (!res.ok) return null;
+      const j = res.json as FacebookConversationsResponse | null;
+      for (const thread of j?.data ?? []) {
+        for (const participant of thread?.participants?.data ?? []) {
+          // Skip the Page's own participant entry.
+          if (participant?.id !== input.psid) continue;
+          const name =
+            typeof participant.name === 'string' ? participant.name.trim() : '';
+          if (name) return name;
+        }
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  },
+
   /** Validate the connection by reading the Page node. Never throws. */
   async checkPage(input: {
     accessToken: string;
@@ -231,7 +274,7 @@ export const facebookApiClient = {
         return { state: 'HEALTHY', name: j?.name ?? null };
       }
       const c = classifyFacebookHttp(res.status, res.json);
-      return { state: stateFromCategory(c.category), code: c.code, reason: safeFacebookReason(c.category) };
+      return { state: stateFromCategory(c.category), code: c.code, reason: describeMetaError(res.json, safeFacebookReason(c.category)) };
     } catch (err) {
       const c = classifyFacebookThrow(err);
       return { state: 'UNAVAILABLE', code: c.code, reason: safeFacebookReason(c.category) };

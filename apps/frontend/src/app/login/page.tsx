@@ -5,14 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { ApiClientError } from '@/lib/api';
-import {
-  Alert,
-  Button,
-  Card,
-  FieldError,
-  Input,
-  Label,
-} from '@/components/ui';
+import { Alert, Button, Card, FieldError, Input, Label } from '@/components/ui';
 
 export default function LoginPage() {
   const { login, user, initializing } = useAuth();
@@ -65,11 +58,16 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center px-4">
+    <main className="flex min-h-dvh items-center justify-center bg-slate-50 px-4 py-10">
       <Card>
-        <h1 className="mb-1 text-2xl font-semibold">Welcome back</h1>
-        <p className="mb-6 text-sm text-slate-500">
-          Sign in to your workspace.
+        <p className="text-[11px] font-medium uppercase tracking-wider text-slate-400">
+          AI customer support
+        </p>
+        <h1 className="mt-2 text-xl font-semibold text-slate-900 sm:text-2xl">
+          Welcome back
+        </h1>
+        <p className="mb-6 mt-1 text-sm text-slate-500">
+          Sign in to your workspace to reach your inbox and settings.
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-4" noValidate>
@@ -81,6 +79,7 @@ export default function LoginPage() {
               id="email"
               type="email"
               value={email}
+              invalid={Boolean(fieldErrors.email)}
               onChange={(e) => setEmail(e.target.value)}
               autoComplete="email"
               required
@@ -94,6 +93,7 @@ export default function LoginPage() {
               id="password"
               type="password"
               value={password}
+              invalid={Boolean(fieldErrors.password)}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="current-password"
               required
@@ -101,14 +101,22 @@ export default function LoginPage() {
             <FieldError message={fieldErrors.password} />
           </div>
 
-          <Button type="submit" loading={loading} fullWidth>
+          <Button
+            type="submit"
+            loading={loading}
+            loadingLabel="Signing in…"
+            fullWidth
+          >
             Sign in
           </Button>
         </form>
 
         <p className="mt-6 text-center text-sm text-slate-500">
           Don&apos;t have an account?{' '}
-          <Link href="/register" className="font-medium text-slate-900 underline">
+          <Link
+            href="/register"
+            className="font-medium text-slate-900 underline"
+          >
             Register a company
           </Link>
         </p>

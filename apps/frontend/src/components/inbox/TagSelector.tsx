@@ -34,15 +34,17 @@ export function TagSelector({
               : undefined
           }
         >
-          {tag.name}
+          <span className="max-w-[8rem] truncate" title={tag.name}>
+            {tag.name}
+          </span>
           {!disabled && (
             <button
               type="button"
               aria-label={`Remove tag ${tag.name}`}
               onClick={() => onDetach(tag.id)}
-              className="text-slate-400 hover:text-slate-700"
+              className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900"
             >
-              ✕
+              <span aria-hidden="true">✕</span>
             </button>
           )}
         </span>
@@ -59,7 +61,7 @@ export function TagSelector({
               setSelected('');
             }
           }}
-          className="w-auto text-xs"
+          className="!w-auto max-w-full text-xs"
         >
           <option value="">+ Add tag</option>
           {available.map((t) => (

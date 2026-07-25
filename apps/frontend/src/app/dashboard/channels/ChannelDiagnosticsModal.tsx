@@ -14,11 +14,40 @@ function scoreColor(score: number): 'green' | 'amber' | 'red' {
   return 'red';
 }
 
+/** `AUTH_EXPIRED` → `Auth expired`; `delivered` → `Delivered` (§8). */
+function humanize(raw: string): string {
+  return raw
+    .toLowerCase()
+    .replace(/_/g, ' ')
+    .replace(/^./, (c) => c.toUpperCase());
+}
+
 function Stat({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-      <p className="text-[11px] uppercase tracking-wide text-slate-400">{label}</p>
-      <p className="text-sm font-semibold text-slate-800">{value}</p>
+      <p className="text-[11px] uppercase tracking-wider text-slate-400">
+        {label}
+      </p>
+      <p className="text-sm font-semibold tabular-nums text-slate-800">
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function Section({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <p className="mb-1 text-[11px] font-medium uppercase tracking-wider text-slate-400">
+        {title}
+      </p>
+      {children}
     </div>
   );
 }
@@ -57,8 +86,14 @@ export function ChannelDiagnosticsModal({
   async function retry(deliveryId: string) {
     setRetryingId(deliveryId);
     try {
-      const { result } = await channelsApi.retryDelivery(account.id, deliveryId);
-      notify(`Retry: ${result.status}`, result.status === 'failed' ? 'error' : 'success');
+      const { result } = await channelsApi.retryDelivery(
+        account.id,
+        deliveryId,
+      );
+      notify(
+        `Retry ${humanize(result.status).toLowerCase()}`,
+        result.status === 'failed' ? 'error' : 'success',
+      );
       await load();
     } catch (err) {
       notify(parseApiError(err).message, 'error');
@@ -68,101 +103,142 @@ export function ChannelDiagnosticsModal({
   }
 
   return (
-    <Modal open onClose={onClose} title={`Diagnostics — ${account.displayName}`}>
+    <Modal
+      open
+      onClose={onClose}
+      title={`Diagnostics — ${account.displayName}`}
+      footer={
+        <>
+          <Button
+            variant="secondary"
+            loading={loading}
+            loadingLabel="Refreshing…"
+            onClick={() => void load()}
+          >
+            Refresh
+          </Button>
+          <Button onClick={onClose}>Close</Button>
+        </>
+      }
+    >
       {loading ? (
-        <div className="space-y-3">
+        <div className="space-y-3" aria-busy="true">
           {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-16" />
+            <Skeleton key={i} className="h-16 rounded-lg" />
           ))}
         </div>
       ) : error ? (
-        <Alert message={error} />
+        <Alert>
+          <div className="flex flex-col gap-2">
+            <span>{error} Diagnostics could not be loaded.</span>
+            <Button
+              size="md"
+              variant="secondary"
+              className="self-start"
+              onClick={() => void load()}
+            >
+              Try again
+            </Button>
+          </div>
+        </Alert>
       ) : data ? (
         <div className="space-y-5">
           {/* Health summary */}
           <div>
-            <div className="mb-2 flex items-center gap-2">
+            <div className="mb-2 flex flex-wrap items-center gap-2">
               <Badge color={scoreColor(data.health.healthScore)}>
-                Health {data.health.healthScore}/100
+                Health score {data.health.healthScore}/100
               </Badge>
-              <Badge color={data.health.connectionState === 'HEALTHY' ? 'green' : 'amber'}>
-                {data.health.connectionState}
+              <Badge
+                color={
+                  data.health.connectionState === 'HEALTHY' ? 'green' : 'amber'
+                }
+              >
+                {humanize(data.health.connectionState)}
               </Badge>
             </div>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <Stat label="Success" value={data.health.successCount} />
-              <Stat label="Failures" value={data.health.failureCount} />
-              <Stat label="Consecutive" value={data.health.consecutiveFailures} />
+              <Stat label="Delivered" value={data.health.successCount} />
+              <Stat label="Failed" value={data.health.failureCount} />
+              <Stat label="In a row" value={data.health.consecutiveFailures} />
               <Stat label="Retried" value={data.retryStats.retriedDeliveries} />
             </div>
             <div className="mt-2 grid grid-cols-1 gap-1 text-xs text-slate-500 sm:grid-cols-2">
-              <div>Last success: {fullTime(data.health.lastSuccessfulDeliveryAt)}</div>
-              <div>Last failure: {fullTime(data.health.lastFailedDeliveryAt)}</div>
+              <div>
+                Last success:{' '}
+                {fullTime(data.health.lastSuccessfulDeliveryAt) || 'Never'}
+              </div>
+              <div>
+                Last failure:{' '}
+                {fullTime(data.health.lastFailedDeliveryAt) || 'Never'}
+              </div>
             </div>
           </div>
 
-          {/* Delivery metrics */}
-          <div>
-            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Delivery metrics ({data.deliveryMetrics.total})
-            </p>
+          <Section title={`Deliveries (${data.deliveryMetrics.total})`}>
             <div className="flex flex-wrap gap-1">
-              {Object.entries(data.deliveryMetrics.byStatus).map(([status, count]) => (
-                <span
-                  key={status}
-                  className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600"
-                >
-                  {status.toLowerCase()}: {count}
-                </span>
-              ))}
+              {Object.entries(data.deliveryMetrics.byStatus).map(
+                ([status, count]) => (
+                  <span
+                    key={status}
+                    className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] tabular-nums text-slate-600"
+                  >
+                    {humanize(status)}: {count}
+                  </span>
+                ),
+              )}
               {data.deliveryMetrics.total === 0 && (
-                <span className="text-xs text-slate-400">No deliveries yet</span>
-              )}
-            </div>
-          </div>
-
-          {/* Retry stats */}
-          <div>
-            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Retry stats ({data.retryStats.totalAttempts} attempts)
-            </p>
-            <div className="flex flex-wrap gap-1">
-              {Object.entries(data.retryStats.byOutcome).map(([outcome, count]) => (
-                <span
-                  key={outcome}
-                  className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600"
-                >
-                  {outcome.toLowerCase()}: {count}
+                <span className="text-xs text-slate-500">
+                  No deliveries yet
                 </span>
-              ))}
-              {data.retryStats.totalAttempts === 0 && (
-                <span className="text-xs text-slate-400">No attempts yet</span>
               )}
             </div>
-          </div>
+          </Section>
 
-          {/* Recent failures */}
-          <div>
-            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Recent failures
-            </p>
+          <Section
+            title={`Retries (${data.retryStats.totalAttempts} attempts)`}
+          >
+            <div className="flex flex-wrap gap-1">
+              {Object.entries(data.retryStats.byOutcome).map(
+                ([outcome, count]) => (
+                  <span
+                    key={outcome}
+                    className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] tabular-nums text-slate-600"
+                  >
+                    {humanize(outcome)}: {count}
+                  </span>
+                ),
+              )}
+              {data.retryStats.totalAttempts === 0 && (
+                <span className="text-xs text-slate-500">No attempts yet</span>
+              )}
+            </div>
+          </Section>
+
+          <Section title="Recent failures">
             {data.recentFailures.length === 0 ? (
-              <p className="text-xs text-slate-400">None 🎉</p>
+              <p className="text-xs text-slate-500">
+                None — every recent message went through.
+              </p>
             ) : (
-              <ul className="space-y-1">
+              <ul className="space-y-2">
                 {data.recentFailures.map((f) => (
                   <li
                     key={f.id}
-                    className="flex items-center justify-between rounded-lg border border-slate-200 px-2 py-1.5 text-xs"
+                    className="flex flex-col gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs sm:flex-row sm:items-center sm:justify-between"
                   >
-                    <span className="min-w-0 truncate text-slate-600">
-                      <span className="text-red-600">{f.status}</span>{' '}
-                      {f.failureCode ?? f.failureType} · {f.attemptCount}/{f.maxAttempts} · {fullTime(f.updatedAt)}
+                    <span className="min-w-0 break-words text-slate-600">
+                      <span className="font-medium text-red-600">
+                        {humanize(f.status)}
+                      </span>{' '}
+                      · {humanize(f.failureCode ?? f.failureType)} · attempt{' '}
+                      {f.attemptCount}/{f.maxAttempts} · {fullTime(f.updatedAt)}
                     </span>
                     {canManage && (
                       <Button
-                        size="sm"
+                        size="md"
                         variant="secondary"
+                        className="sm:shrink-0"
                         loading={retryingId === f.id}
                         onClick={() => void retry(f.id)}
                       >
@@ -173,58 +249,55 @@ export function ChannelDiagnosticsModal({
                 ))}
               </ul>
             )}
-          </div>
+          </Section>
 
-          {/* Recent recoveries */}
-          <div>
-            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Recent recoveries
-            </p>
+          <Section title="Recent recoveries">
             {data.recentRecoveries.length === 0 ? (
-              <p className="text-xs text-slate-400">None</p>
+              <p className="text-xs text-slate-500">None recorded.</p>
             ) : (
               <ul className="space-y-1 text-xs text-slate-600">
                 {data.recentRecoveries.map((r) => (
-                  <li key={r.id}>
-                    {r.activityType.replaceAll('_', ' ').toLowerCase()} · {fullTime(r.createdAt)}
+                  <li key={r.id} className="break-words">
+                    {humanize(r.activityType)} · {fullTime(r.createdAt)}
                   </li>
                 ))}
               </ul>
             )}
-          </div>
+          </Section>
 
-          {/* Health history */}
-          <div>
-            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Health history
-            </p>
+          <Section title="Health history">
             <div className="max-h-40 overflow-y-auto rounded-lg border border-slate-200">
               {data.healthHistory.length === 0 ? (
-                <p className="px-2 py-2 text-xs text-slate-400">No samples yet</p>
+                <p className="px-3 py-2 text-xs text-slate-500">
+                  No samples yet — run a health check to take one.
+                </p>
               ) : (
                 <ul className="divide-y divide-slate-100 text-xs">
                   {data.healthHistory.map((h) => (
-                    <li key={h.id} className="flex items-center justify-between px-2 py-1.5">
+                    <li
+                      key={h.id}
+                      className="flex flex-col gap-0.5 px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
+                    >
                       <span className="text-slate-600">
-                        <span className={h.healthy ? 'text-green-600' : 'text-amber-600'}>
-                          {h.state}
+                        <span
+                          className={
+                            h.healthy ? 'text-green-700' : 'text-amber-700'
+                          }
+                        >
+                          {humanize(h.state)}
                         </span>{' '}
-                        · {h.checkType.toLowerCase()} · score {h.healthScore}
+                        · {humanize(h.checkType)} · score{' '}
+                        <span className="tabular-nums">{h.healthScore}</span>
                       </span>
-                      <span className="text-slate-400">{fullTime(h.createdAt)}</span>
+                      <span className="text-slate-400">
+                        {fullTime(h.createdAt)}
+                      </span>
                     </li>
                   ))}
                 </ul>
               )}
             </div>
-          </div>
-
-          <div className="flex justify-end gap-2">
-            <Button variant="secondary" onClick={() => void load()}>
-              Refresh
-            </Button>
-            <Button onClick={onClose}>Close</Button>
-          </div>
+          </Section>
         </div>
       ) : null}
     </Modal>

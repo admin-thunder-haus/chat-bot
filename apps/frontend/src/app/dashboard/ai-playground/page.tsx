@@ -3,7 +3,14 @@
 import { useState } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { canWrite } from '@/lib/permissions';
-import { Alert, PageHeader, Panel, Spinner } from '@/components/ui';
+import {
+  Alert,
+  EmptyState,
+  PageHeader,
+  Panel,
+  SectionCard,
+  Skeleton,
+} from '@/components/ui';
 import { AIPlaygroundForm } from '@/components/ai/AIPlaygroundForm';
 import { AIPlaygroundResult } from '@/components/ai/AIPlaygroundResult';
 import { AIUsageSummary } from '@/components/ai/AIUsageSummary';
@@ -16,48 +23,59 @@ export default function AIPlaygroundPage() {
 
   if (!canWrite(user?.role)) {
     return (
-      <div>
-        <PageHeader title="AI Playground" />
-        <Alert message="Only OWNER or ADMIN can access the AI Playground." />
+      <div className="mx-auto max-w-6xl">
+        <PageHeader
+          title="AI playground"
+          description="Try the assistant against your own company knowledge."
+        />
+        <Alert
+          variant="info"
+          message="Only owners and admins can use the AI playground. Ask an owner if you need access."
+        />
       </div>
     );
   }
 
   return (
-    <div>
+    <div className="mx-auto max-w-6xl">
       <PageHeader
-        title="AI Playground"
-        description="Test how the assistant answers using your current company knowledge. Nothing is sent to customers."
+        title="AI playground"
+        description="Ask the assistant a test question and see exactly how it would answer. Nothing here is sent to customers."
       />
 
-      <div className="mb-4">
+      <div className="space-y-6">
         <Alert
           variant="warning"
-          message="Answers use only your configured company data (services, FAQs, knowledge base, hours). Missing or outdated data affects results. AI can make mistakes."
+          message="Answers use only your configured company data — services, products, FAQs, knowledge base and hours. Missing or outdated data shows up here first, and the AI can still make mistakes."
         />
-      </div>
 
-      <div className="mb-6">
         <AIUsageSummary />
-      </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Panel>
-          <AIPlaygroundForm onResult={setResult} onBusyChange={setBusy} />
-        </Panel>
+        <div className="grid gap-6 lg:grid-cols-2">
+          <SectionCard
+            title="Test question"
+            description="Write what a customer might ask."
+          >
+            <AIPlaygroundForm onResult={setResult} onBusyChange={setBusy} />
+          </SectionCard>
 
-        <div>
-          {busy ? (
-            <Panel className="flex items-center justify-center py-16">
-              <Spinner size={24} />
-            </Panel>
-          ) : result ? (
-            <AIPlaygroundResult result={result} />
-          ) : (
-            <Panel className="py-16 text-center text-sm text-slate-400">
-              Run a test question to see the AI response and its metadata.
-            </Panel>
-          )}
+          <div>
+            {busy ? (
+              <Panel className="space-y-3" aria-busy="true">
+                <Skeleton className="h-4 w-1/3" />
+                <Skeleton className="h-20 w-full" />
+                <Skeleton className="h-4 w-2/3" />
+                <Skeleton className="h-4 w-1/2" />
+              </Panel>
+            ) : result ? (
+              <AIPlaygroundResult result={result} />
+            ) : (
+              <EmptyState
+                title="No answer yet"
+                description="Run a test question and the reply will appear here with the sources and settings it used."
+              />
+            )}
+          </div>
         </div>
       </div>
     </div>

@@ -19,20 +19,23 @@ import {
   Alert,
   Badge,
   Button,
+  DataList,
   EmptyState,
   PageHeader,
-  Panel,
+  PaginationBar,
   Select,
-  Skeleton,
+  Tabs,
+  type DataListColumn,
+  type TabItem,
 } from '@/components/ui';
 
 type Tab = 'appointments' | 'orders' | 'tickets' | 'activity';
 
-const TABS: { key: Tab; label: string }[] = [
-  { key: 'appointments', label: 'Appointments' },
-  { key: 'orders', label: 'Orders' },
-  { key: 'tickets', label: 'Tickets' },
-  { key: 'activity', label: 'AI Activity' },
+const TABS: readonly TabItem<Tab>[] = [
+  { key: 'appointments', label: 'Appointments', panelId: 'ops-panel' },
+  { key: 'orders', label: 'Orders', panelId: 'ops-panel' },
+  { key: 'tickets', label: 'Tickets', panelId: 'ops-panel' },
+  { key: 'activity', label: 'AI activity', panelId: 'ops-panel' },
 ];
 
 type BadgeColor = 'slate' | 'green' | 'red' | 'amber' | 'blue';
@@ -90,44 +93,12 @@ function formatWhen(iso: string): string {
   });
 }
 
+/** `IN_PROGRESS` → `In progress` — never show a raw enum to a user (§8). */
 function statusLabel(status: string): string {
-  return status.replace(/_/g, ' ').toLowerCase();
-}
-
-function Pager({
-  pagination,
-  onPage,
-}: {
-  pagination: Pagination | null;
-  onPage: (page: number) => void;
-}) {
-  if (!pagination || pagination.totalPages <= 1) return null;
-  return (
-    <div className="mt-4 flex items-center justify-between">
-      <p className="text-xs text-slate-500">
-        Page {pagination.page} of {pagination.totalPages} ({pagination.total}{' '}
-        total)
-      </p>
-      <div className="flex gap-2">
-        <Button
-          variant="secondary"
-          size="sm"
-          disabled={pagination.page <= 1}
-          onClick={() => onPage(pagination.page - 1)}
-        >
-          Previous
-        </Button>
-        <Button
-          variant="secondary"
-          size="sm"
-          disabled={pagination.page >= pagination.totalPages}
-          onClick={() => onPage(pagination.page + 1)}
-        >
-          Next
-        </Button>
-      </div>
-    </div>
-  );
+  return status
+    .toLowerCase()
+    .replace(/_/g, ' ')
+    .replace(/^./, (c) => c.toUpperCase());
 }
 
 export default function OperationsPage() {
@@ -180,7 +151,10 @@ export default function OperationsPage() {
     setPage(1);
   }
 
-  async function changeAppointmentStatus(id: string, status: AppointmentStatus) {
+  async function changeAppointmentStatus(
+    id: string,
+    status: AppointmentStatus,
+  ) {
     try {
       const res = await actionsApi.setAppointmentStatus(id, status);
       setAppointments((rows) =>
@@ -212,249 +186,335 @@ export default function OperationsPage() {
     }
   }
 
+  const appointmentColumns: DataListColumn<Appointment>[] = [
+    {
+      key: 'when',
+      header: 'Scheduled for',
+      primary: true,
+      cell: (a) => (
+        <span className="font-medium text-slate-900">
+          {formatWhen(a.scheduledAt)}
+          {a.durationMinutes ? ` · ${a.durationMinutes} min` : ''}
+        </span>
+      ),
+    },
+    {
+      key: 'notes',
+      header: 'Notes',
+      cell: (a) => a.notes || '—',
+    },
+    {
+      key: 'via',
+      header: 'Booked via',
+      cell: (a) => statusLabel(a.createdVia),
+    },
+    {
+      key: 'created',
+      header: 'Created',
+      cell: (a) => `${relativeTime(a.createdAt)} ago`,
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      cell: (a) => (
+        <Badge color={APPOINTMENT_COLORS[a.status]}>
+          {statusLabel(a.status)}
+        </Badge>
+      ),
+    },
+  ];
+
+  const orderColumns: DataListColumn<Order>[] = [
+    {
+      key: 'items',
+      header: 'Items',
+      primary: true,
+      cell: (o) => (
+        <span className="font-medium text-slate-900">
+          {o.items.map((i) => `${i.quantity}× ${i.name}`).join(', ') ||
+            'No items'}
+        </span>
+      ),
+    },
+    {
+      key: 'total',
+      header: 'Total',
+      className: 'tabular-nums',
+      cell: (o) => (o.totalAmount ? `${o.totalAmount} ${o.currency}` : '—'),
+    },
+    {
+      key: 'notes',
+      header: 'Notes',
+      cell: (o) => o.notes || '—',
+    },
+    {
+      key: 'created',
+      header: 'Created',
+      cell: (o) => `${relativeTime(o.createdAt)} ago`,
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      cell: (o) => (
+        <Badge color={ORDER_COLORS[o.status]}>{statusLabel(o.status)}</Badge>
+      ),
+    },
+  ];
+
+  const ticketColumns: DataListColumn<SupportTicket>[] = [
+    {
+      key: 'subject',
+      header: 'Subject',
+      primary: true,
+      cell: (t) => (
+        <div className="min-w-0">
+          <p className="font-medium text-slate-900">{t.subject}</p>
+          {t.description && (
+            <p className="mt-0.5 line-clamp-2 text-xs text-slate-500">
+              {t.description}
+            </p>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: 'priority',
+      header: 'Priority',
+      cell: (t) => statusLabel(t.priority),
+    },
+    {
+      key: 'created',
+      header: 'Created',
+      cell: (t) => `${relativeTime(t.createdAt)} ago`,
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      cell: (t) => (
+        <Badge color={TICKET_COLORS[t.status]}>{statusLabel(t.status)}</Badge>
+      ),
+    },
+  ];
+
+  const executionColumns: DataListColumn<AIActionExecution>[] = [
+    {
+      key: 'action',
+      header: 'Action',
+      primary: true,
+      cell: (ex) => (
+        <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-800">
+          {ex.actionKey}
+        </code>
+      ),
+    },
+    {
+      key: 'detail',
+      header: 'Detail',
+      cell: (ex) => (
+        <span className="break-words">
+          {ex.status === 'completed'
+            ? (ex.result?.summary ?? 'Completed')
+            : (ex.errorMessage ?? 'No details recorded')}
+        </span>
+      ),
+    },
+    {
+      key: 'when',
+      header: 'When',
+      cell: (ex) => `${relativeTime(ex.createdAt)} ago`,
+    },
+    {
+      key: 'status',
+      header: 'Outcome',
+      cell: (ex) => (
+        <Badge color={EXECUTION_COLORS[ex.status] ?? 'slate'}>
+          {statusLabel(ex.status)}
+        </Badge>
+      ),
+    },
+  ];
+
   return (
-    <div>
+    <div className="mx-auto max-w-6xl">
       <PageHeader
         title="Operations"
         description="Appointments, orders and tickets the AI created for you — plus its full action log."
       />
 
-      <div className="mb-4 flex border-b border-slate-200">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            onClick={() => switchTab(t.key)}
-            className={`px-4 py-3 text-sm font-medium ${
-              tab === t.key
-                ? 'border-b-2 border-slate-900 text-slate-900'
-                : 'text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <div className="space-y-6">
+        <Tabs
+          tabs={TABS}
+          value={tab}
+          onChange={switchTab}
+          label="Operations sections"
+          idPrefix="ops-tab"
+        />
 
-      {error && (
-        <div className="mb-4">
-          <Alert message={error} />
+        {error && (
+          <Alert>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <span>{error} This list could not be loaded.</span>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => void load()}
+                className="sm:shrink-0"
+              >
+                Try again
+              </Button>
+            </div>
+          </Alert>
+        )}
+
+        <div id="ops-panel" role="tabpanel" aria-labelledby={`ops-tab-${tab}`}>
+          {tab === 'appointments' && (
+            <DataList
+              items={appointments}
+              loading={loading}
+              keyOf={(a) => a.id}
+              columns={appointmentColumns}
+              caption="Appointments"
+              actionsHeader="Change status"
+              actions={(a) => (
+                <>
+                  <label htmlFor={`appt-status-${a.id}`} className="sr-only">
+                    Change status for the appointment on{' '}
+                    {formatWhen(a.scheduledAt)}
+                  </label>
+                  <Select
+                    id={`appt-status-${a.id}`}
+                    value={a.status}
+                    className="!w-auto"
+                    onChange={(e) =>
+                      void changeAppointmentStatus(
+                        a.id,
+                        e.target.value as AppointmentStatus,
+                      )
+                    }
+                  >
+                    {APPOINTMENT_STATUSES.map((s) => (
+                      <option key={s} value={s}>
+                        {statusLabel(s)}
+                      </option>
+                    ))}
+                  </Select>
+                </>
+              )}
+              empty={
+                <EmptyState
+                  title="No appointments yet"
+                  description="When the AI books an appointment for a customer, it appears here for your team to confirm."
+                />
+              }
+            />
+          )}
+
+          {tab === 'orders' && (
+            <DataList
+              items={orders}
+              loading={loading}
+              keyOf={(o) => o.id}
+              columns={orderColumns}
+              caption="Orders"
+              actionsHeader="Change status"
+              actions={(o) => (
+                <>
+                  <label htmlFor={`order-status-${o.id}`} className="sr-only">
+                    Change order status
+                  </label>
+                  <Select
+                    id={`order-status-${o.id}`}
+                    value={o.status}
+                    className="!w-auto"
+                    onChange={(e) =>
+                      void changeOrderStatus(
+                        o.id,
+                        e.target.value as OrderStatus,
+                      )
+                    }
+                  >
+                    {ORDER_STATUSES.map((s) => (
+                      <option key={s} value={s}>
+                        {statusLabel(s)}
+                      </option>
+                    ))}
+                  </Select>
+                </>
+              )}
+              empty={
+                <EmptyState
+                  title="No orders yet"
+                  description="Orders the AI creates from customer conversations appear here, ready for you to confirm and fulfil."
+                />
+              }
+            />
+          )}
+
+          {tab === 'tickets' && (
+            <DataList
+              items={tickets}
+              loading={loading}
+              keyOf={(t) => t.id}
+              columns={ticketColumns}
+              caption="Support tickets"
+              actionsHeader="Change status"
+              actions={(t) => (
+                <>
+                  <label htmlFor={`ticket-status-${t.id}`} className="sr-only">
+                    Change status for “{t.subject}”
+                  </label>
+                  <Select
+                    id={`ticket-status-${t.id}`}
+                    value={t.status}
+                    className="!w-auto"
+                    onChange={(e) =>
+                      void changeTicketStatus(
+                        t.id,
+                        e.target.value as TicketStatus,
+                      )
+                    }
+                  >
+                    {TICKET_STATUSES.map((s) => (
+                      <option key={s} value={s}>
+                        {statusLabel(s)}
+                      </option>
+                    ))}
+                  </Select>
+                </>
+              )}
+              empty={
+                <EmptyState
+                  title="No tickets yet"
+                  description="Support tickets the AI opens for customer issues it cannot resolve appear here."
+                />
+              }
+            />
+          )}
+
+          {tab === 'activity' && (
+            <DataList
+              items={executions}
+              loading={loading}
+              keyOf={(ex) => ex.id}
+              columns={executionColumns}
+              caption="AI action log"
+              empty={
+                <EmptyState
+                  title="No AI activity yet"
+                  description="Every action the AI attempts — completed, failed or rejected — is logged here so you can audit it."
+                />
+              }
+            />
+          )}
         </div>
-      )}
 
-      {loading ? (
-        <Panel>
-          <div className="space-y-3">
-            <Skeleton className="h-6 w-full" />
-            <Skeleton className="h-6 w-4/5" />
-            <Skeleton className="h-6 w-3/5" />
-          </div>
-        </Panel>
-      ) : (
-        <>
-          {tab === 'appointments' &&
-            (appointments.length === 0 ? (
-              <EmptyState
-                title="No appointments yet"
-                description="When the AI books an appointment for a customer, it appears here for your team to confirm."
-              />
-            ) : (
-              <Panel className="!p-0">
-                <ul className="divide-y divide-slate-100">
-                  {appointments.map((a) => (
-                    <li
-                      key={a.id}
-                      className="flex flex-col gap-2 px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
-                    >
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-slate-900">
-                          {formatWhen(a.scheduledAt)}
-                          {a.durationMinutes ? ` · ${a.durationMinutes} min` : ''}
-                        </p>
-                        <p className="mt-0.5 text-xs text-slate-500">
-                          {a.notes || 'No notes'} · via {a.createdVia} ·{' '}
-                          {relativeTime(a.createdAt)} ago
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-3">
-                        <Badge color={APPOINTMENT_COLORS[a.status]}>
-                          {statusLabel(a.status)}
-                        </Badge>
-                        <Select
-                          aria-label="Change appointment status"
-                          value={a.status}
-                          className="!w-auto"
-                          onChange={(e) =>
-                            void changeAppointmentStatus(
-                              a.id,
-                              e.target.value as AppointmentStatus,
-                            )
-                          }
-                        >
-                          {APPOINTMENT_STATUSES.map((s) => (
-                            <option key={s} value={s}>
-                              {statusLabel(s)}
-                            </option>
-                          ))}
-                        </Select>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </Panel>
-            ))}
-
-          {tab === 'orders' &&
-            (orders.length === 0 ? (
-              <EmptyState
-                title="No orders yet"
-                description="Orders the AI creates from customer conversations appear here."
-              />
-            ) : (
-              <Panel className="!p-0">
-                <ul className="divide-y divide-slate-100">
-                  {orders.map((o) => (
-                    <li
-                      key={o.id}
-                      className="flex flex-col gap-2 px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
-                    >
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-slate-900">
-                          {o.items
-                            .map((i) => `${i.quantity}× ${i.name}`)
-                            .join(', ') || 'No items'}
-                        </p>
-                        <p className="mt-0.5 text-xs text-slate-500">
-                          {o.totalAmount
-                            ? `Total ${o.totalAmount} ${o.currency}`
-                            : 'No total'}
-                          {o.notes ? ` · ${o.notes}` : ''} ·{' '}
-                          {relativeTime(o.createdAt)} ago
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-3">
-                        <Badge color={ORDER_COLORS[o.status]}>
-                          {statusLabel(o.status)}
-                        </Badge>
-                        <Select
-                          aria-label="Change order status"
-                          value={o.status}
-                          className="!w-auto"
-                          onChange={(e) =>
-                            void changeOrderStatus(
-                              o.id,
-                              e.target.value as OrderStatus,
-                            )
-                          }
-                        >
-                          {ORDER_STATUSES.map((s) => (
-                            <option key={s} value={s}>
-                              {statusLabel(s)}
-                            </option>
-                          ))}
-                        </Select>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </Panel>
-            ))}
-
-          {tab === 'tickets' &&
-            (tickets.length === 0 ? (
-              <EmptyState
-                title="No tickets yet"
-                description="Support tickets the AI opens for customer issues appear here."
-              />
-            ) : (
-              <Panel className="!p-0">
-                <ul className="divide-y divide-slate-100">
-                  {tickets.map((t) => (
-                    <li
-                      key={t.id}
-                      className="flex flex-col gap-2 px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
-                    >
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-slate-900">
-                          {t.subject}
-                        </p>
-                        <p className="mt-0.5 text-xs text-slate-500">
-                          Priority {statusLabel(t.priority)}
-                          {t.description ? ` · ${t.description}` : ''} ·{' '}
-                          {relativeTime(t.createdAt)} ago
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-3">
-                        <Badge color={TICKET_COLORS[t.status]}>
-                          {statusLabel(t.status)}
-                        </Badge>
-                        <Select
-                          aria-label="Change ticket status"
-                          value={t.status}
-                          className="!w-auto"
-                          onChange={(e) =>
-                            void changeTicketStatus(
-                              t.id,
-                              e.target.value as TicketStatus,
-                            )
-                          }
-                        >
-                          {TICKET_STATUSES.map((s) => (
-                            <option key={s} value={s}>
-                              {statusLabel(s)}
-                            </option>
-                          ))}
-                        </Select>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </Panel>
-            ))}
-
-          {tab === 'activity' &&
-            (executions.length === 0 ? (
-              <EmptyState
-                title="No AI activity yet"
-                description="Every action the AI attempts (completed, failed or rejected) is logged here."
-              />
-            ) : (
-              <Panel className="!p-0">
-                <ul className="divide-y divide-slate-100">
-                  {executions.map((ex) => (
-                    <li
-                      key={ex.id}
-                      className="flex flex-col gap-2 px-5 py-4 sm:flex-row sm:items-start sm:justify-between"
-                    >
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-slate-900">
-                          <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs">
-                            {ex.actionKey}
-                          </code>
-                        </p>
-                        <p className="mt-1 text-xs text-slate-600">
-                          {ex.status === 'completed'
-                            ? ex.result?.summary ?? 'Completed'
-                            : ex.errorMessage ?? 'No details'}
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-3">
-                        <Badge color={EXECUTION_COLORS[ex.status] ?? 'slate'}>
-                          {ex.status}
-                        </Badge>
-                        <span className="text-xs text-slate-400">
-                          {relativeTime(ex.createdAt)} ago
-                        </span>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </Panel>
-            ))}
-
-          <Pager pagination={pagination} onPage={setPage} />
-        </>
-      )}
+        <PaginationBar
+          page={pagination?.page ?? page}
+          totalPages={pagination?.totalPages ?? 1}
+          total={pagination?.total}
+          onChange={setPage}
+        />
+      </div>
     </div>
   );
 }

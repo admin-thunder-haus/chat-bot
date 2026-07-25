@@ -16,14 +16,27 @@ export function WidgetPreview({
   dark: boolean;
 }) {
   const c = dark
-    ? { bg: '#0b1220', text: '#e2e8f0', muted: '#94a3b8', border: '#1e293b', agent: '#1e293b' }
-    : { bg: '#ffffff', text: '#0f172a', muted: '#64748b', border: '#e2e8f0', agent: '#f1f5f9' };
+    ? {
+        bg: '#0b1220',
+        text: '#e2e8f0',
+        muted: '#94a3b8',
+        border: '#1e293b',
+        agent: '#1e293b',
+      }
+    : {
+        bg: '#ffffff',
+        text: '#0f172a',
+        muted: '#64748b',
+        border: '#e2e8f0',
+        agent: '#f1f5f9',
+      };
   const accent = config.themeColor;
 
   return (
     <div
-      className="mx-auto flex flex-col overflow-hidden rounded-2xl shadow-xl"
-      style={{ width: 340, height: 460, background: c.bg, color: c.text }}
+      // Fluid up to 340px so it never widens the page on a 375px phone (§5).
+      className="mx-auto flex w-full max-w-[340px] flex-col overflow-hidden rounded-2xl shadow-xl"
+      style={{ height: 460, background: c.bg, color: c.text }}
       aria-label="Widget preview"
     >
       <div
@@ -40,7 +53,10 @@ export function WidgetPreview({
         {/* The live widget labels EVERY non-visitor message with the agent
             label — assistant replies are indistinguishable from an agent's. */}
         <Row side="left">
-          <p className="mb-0.5 text-[10px] font-semibold" style={{ color: c.muted }}>
+          <p
+            className="mb-0.5 text-[10px] font-semibold"
+            style={{ color: c.muted }}
+          >
             {config.agentLabel}
           </p>
           <Bubble style={{ background: c.agent, color: c.text }}>
@@ -53,7 +69,10 @@ export function WidgetPreview({
           </Bubble>
         </Row>
         <Row side="left">
-          <p className="mb-0.5 text-[10px] font-semibold" style={{ color: c.muted }}>
+          <p
+            className="mb-0.5 text-[10px] font-semibold"
+            style={{ color: c.muted }}
+          >
             {config.agentLabel}
           </p>
           <Bubble style={{ background: c.agent, color: c.text }}>
@@ -61,7 +80,10 @@ export function WidgetPreview({
           </Bubble>
         </Row>
       </div>
-      <div className="flex items-center gap-2 border-t px-3 py-2" style={{ borderColor: c.border }}>
+      <div
+        className="flex items-center gap-2 border-t px-3 py-2"
+        style={{ borderColor: c.border }}
+      >
         <div
           className="flex-1 rounded-lg px-3 py-2 text-sm"
           style={{ border: `1px solid ${c.border}`, color: c.muted }}
@@ -79,9 +101,17 @@ export function WidgetPreview({
   );
 }
 
-function Row({ side, children }: { side: 'left' | 'right'; children: React.ReactNode }) {
+function Row({
+  side,
+  children,
+}: {
+  side: 'left' | 'right';
+  children: React.ReactNode;
+}) {
   return (
-    <div className={`flex ${side === 'right' ? 'justify-end' : 'justify-start'}`}>
+    <div
+      className={`flex ${side === 'right' ? 'justify-end' : 'justify-start'}`}
+    >
       <div className="max-w-[82%]">{children}</div>
     </div>
   );

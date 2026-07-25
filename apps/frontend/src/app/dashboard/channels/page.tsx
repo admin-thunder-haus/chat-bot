@@ -8,7 +8,7 @@ import { channelsApi } from '@/lib/resources';
 import type { MetaOauthStatus } from '@/lib/resources/channels';
 import { parseApiError } from '@/lib/form';
 import { useToast } from '@/components/toast';
-import { fullTime } from '@/lib/format';
+import { channelLabel, fullTime } from '@/lib/format';
 import { ChannelDiagnosticsModal } from './ChannelDiagnosticsModal';
 import { WhatsAppConnectModal } from './WhatsAppConnectModal';
 import { InstagramConnectModal } from './InstagramConnectModal';
@@ -16,6 +16,7 @@ import { FacebookConnectModal } from './FacebookConnectModal';
 import { TelegramConnectModal } from './TelegramConnectModal';
 import type {
   ChannelAccount,
+  ChannelAccountStatus,
   ChannelConnectionState,
   ChannelProviderDescriptor,
 } from '@/lib/types';
@@ -24,31 +25,49 @@ import {
   Badge,
   Button,
   ConfirmDialog,
+  DataList,
   EmptyState,
   FieldError,
   Input,
   Label,
   Modal,
   PageHeader,
-  Panel,
+  SectionCard,
   Skeleton,
+  type DataListColumn,
 } from '@/components/ui';
 
-const CONNECTION_COLOR: Record<
+type BadgeColor = 'slate' | 'green' | 'red' | 'amber' | 'blue';
+
+/** Humanised connection health — colour always sits next to the word (§3). */
+const CONNECTION_STATE: Record<
   ChannelConnectionState,
-  'slate' | 'green' | 'red' | 'amber' | 'blue'
+  { label: string; color: BadgeColor }
 > = {
-  HEALTHY: 'green',
-  DEGRADED: 'amber',
-  UNAVAILABLE: 'red',
-  AUTH_EXPIRED: 'red',
-  UNKNOWN: 'slate',
+  HEALTHY: { label: 'Healthy', color: 'green' },
+  DEGRADED: { label: 'Degraded', color: 'amber' },
+  UNAVAILABLE: { label: 'Unavailable', color: 'red' },
+  AUTH_EXPIRED: { label: 'Sign-in expired', color: 'red' },
+  UNKNOWN: { label: 'Not checked yet', color: 'slate' },
+};
+
+/** Humanised account status (§8). */
+const ACCOUNT_STATUS: Record<
+  ChannelAccountStatus,
+  { label: string; color: BadgeColor }
+> = {
+  DRAFT: { label: 'Draft', color: 'slate' },
+  CONNECTED: { label: 'Connected', color: 'green' },
+  DISCONNECTED: { label: 'Disconnected', color: 'slate' },
+  ERROR: { label: 'Error', color: 'red' },
+  SUSPENDED: { label: 'Suspended', color: 'amber' },
 };
 
 /** Safe WhatsApp display number from account metadata (never a secret). */
 function whatsAppDisplay(a: ChannelAccount): string | null {
-  const wa = (a.metadata as { whatsapp?: { displayPhoneNumber?: string } } | null)
-    ?.whatsapp;
+  const wa = (
+    a.metadata as { whatsapp?: { displayPhoneNumber?: string } } | null
+  )?.whatsapp;
   return wa?.displayPhoneNumber ?? null;
 }
 
@@ -57,25 +76,24 @@ function instagramConfig(
   a: ChannelAccount,
 ): { instagramUsername?: string; facebookPageId?: string } | null {
   return (
-    (a.metadata as {
-      instagram?: { instagramUsername?: string; facebookPageId?: string };
-    } | null)?.instagram ?? null
+    (
+      a.metadata as {
+        instagram?: { instagramUsername?: string; facebookPageId?: string };
+      } | null
+    )?.instagram ?? null
   );
 }
 
 /** Safe Facebook config from account metadata (never a secret). */
-function facebookConfig(
-  a: ChannelAccount,
-): { pageName?: string } | null {
+function facebookConfig(a: ChannelAccount): { pageName?: string } | null {
   return (
-    (a.metadata as { facebook?: { pageName?: string } } | null)?.facebook ?? null
+    (a.metadata as { facebook?: { pageName?: string } } | null)?.facebook ??
+    null
   );
 }
 
 /** Safe Telegram config from account metadata (never a secret). */
-function telegramConfig(
-  a: ChannelAccount,
-): { botUsername?: string } | null {
+function telegramConfig(a: ChannelAccount): { botUsername?: string } | null {
   return (
     (a.metadata as { telegram?: { botUsername?: string } } | null)?.telegram ??
     null
@@ -106,17 +124,76 @@ const CONNECTED_LABELS: Record<string, string> = {
   whatsapp: 'WhatsApp',
 };
 
-const CAPABILITY_LABELS: { key: keyof NonNullable<ChannelAccount['capabilities']>; label: string }[] =
-  [
-    { key: 'textMessages', label: 'Text' },
-    { key: 'inboundMessaging', label: 'Inbound' },
-    { key: 'outboundMessaging', label: 'Outbound' },
-    { key: 'messageReplies', label: 'Replies' },
-    { key: 'deliveryReceipts', label: 'Delivery' },
-    { key: 'readReceipts', label: 'Read' },
-    { key: 'webhookSignatures', label: 'Signed' },
-    { key: 'mediaMessages', label: 'Media' },
+/** Provider key → the name a person recognises (§8). */
+const PROVIDER_LABELS: Record<string, string> = {
+  whatsapp: 'WhatsApp',
+  instagram: 'Instagram',
+  facebook: 'Facebook Messenger',
+  telegram: 'Telegram',
+  webchat: 'Web chat',
+  fake: 'Fake / test channel',
+};
+
+function providerLabel(key: string): string {
+  return PROVIDER_LABELS[key] ?? key;
+}
+
+const CAPABILITY_LABELS: {
+  key: keyof NonNullable<ChannelAccount['capabilities']>;
+  label: string;
+}[] = [
+  { key: 'textMessages', label: 'Text' },
+  { key: 'inboundMessaging', label: 'Inbound' },
+  { key: 'outboundMessaging', label: 'Outbound' },
+  { key: 'messageReplies', label: 'Replies' },
+  { key: 'deliveryReceipts', label: 'Delivery' },
+  { key: 'readReceipts', label: 'Read' },
+  { key: 'webhookSignatures', label: 'Signed' },
+  { key: 'mediaMessages', label: 'Media' },
+];
+
+/** Provider-specific identity rows, safe to display (never secrets). */
+function accountDetails(a: ChannelAccount): { label: string; value: string }[] {
+  if (a.providerKey === 'whatsapp') {
+    return [
+      {
+        label: 'Phone',
+        value: whatsAppDisplay(a) ?? a.externalAccountId ?? '—',
+      },
+      { label: 'Business account', value: a.externalPageId ?? '—' },
+    ];
+  }
+  if (a.providerKey === 'instagram') {
+    const username = instagramConfig(a)?.instagramUsername;
+    return [
+      {
+        label: 'Account',
+        value: username ? `@${username}` : (a.externalAccountId ?? '—'),
+      },
+      { label: 'Facebook Page', value: a.externalPageId ?? '—' },
+    ];
+  }
+  if (a.providerKey === 'facebook') {
+    return [
+      {
+        label: 'Page',
+        value: facebookConfig(a)?.pageName ?? a.externalAccountId ?? '—',
+      },
+      { label: 'Page ID', value: a.externalAccountId ?? '—' },
+    ];
+  }
+  if (a.providerKey === 'telegram') {
+    const bot = telegramConfig(a)?.botUsername;
+    return [
+      { label: 'Bot', value: bot ? `@${bot}` : a.displayName },
+      { label: 'Bot ID', value: a.externalAccountId ?? '—' },
+    ];
+  }
+  return [
+    { label: 'Last checked', value: fullTime(a.lastHealthCheckAt) || 'Never' },
+    { label: 'Last healthy', value: fullTime(a.lastHealthyAt) || 'Never' },
   ];
+}
 
 export default function ChannelsPage() {
   const { user } = useAuth();
@@ -134,10 +211,11 @@ export default function ChannelsPage() {
   const [addErrors, setAddErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [confirmDisconnect, setConfirmDisconnect] = useState<ChannelAccount | null>(
+  const [confirmDisconnect, setConfirmDisconnect] =
+    useState<ChannelAccount | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<ChannelAccount | null>(
     null,
   );
-  const [confirmDelete, setConfirmDelete] = useState<ChannelAccount | null>(null);
   const [diagnosticsFor, setDiagnosticsFor] = useState<ChannelAccount | null>(
     null,
   );
@@ -152,6 +230,8 @@ export default function ChannelsPage() {
   } | null>(null);
 
   const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
     try {
       const [p, a, meta] = await Promise.all([
         channelsApi.providers(),
@@ -220,7 +300,7 @@ export default function ChannelsPage() {
         displayName: addName.trim(),
         externalAccountId: addExternalId.trim() || undefined,
       });
-      notify('Fake channel created', 'success');
+      notify('Test channel created', 'success');
       setAddOpen(false);
       setAddExternalId('');
       await load();
@@ -239,8 +319,13 @@ export default function ChannelsPage() {
       const { account: updated } = await channelsApi.setStatus(account.id, {
         isEnabled: !account.isEnabled,
       });
-      setAccounts((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
-      notify(updated.isEnabled ? 'Channel enabled' : 'Channel disabled', 'success');
+      setAccounts((prev) =>
+        prev.map((a) => (a.id === updated.id ? updated : a)),
+      );
+      notify(
+        updated.isEnabled ? 'Channel enabled' : 'Channel disabled',
+        'success',
+      );
     } catch (err) {
       notify(parseApiError(err).message, 'error');
     } finally {
@@ -252,8 +337,13 @@ export default function ChannelsPage() {
     setBusyId(account.id);
     try {
       const { account: updated } = await channelsApi.healthCheck(account.id);
-      setAccounts((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
-      notify(`Health: ${updated.connectionState}`, 'success');
+      setAccounts((prev) =>
+        prev.map((a) => (a.id === updated.id ? updated : a)),
+      );
+      notify(
+        `Health: ${CONNECTION_STATE[updated.connectionState].label}`,
+        'success',
+      );
     } catch (err) {
       notify(parseApiError(err).message, 'error');
     } finally {
@@ -265,7 +355,9 @@ export default function ChannelsPage() {
     setBusyId(account.id);
     try {
       const { account: updated } = await channelsApi.disconnect(account.id);
-      setAccounts((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
+      setAccounts((prev) =>
+        prev.map((a) => (a.id === updated.id ? updated : a)),
+      );
       notify('Channel disconnected', 'success');
     } catch (err) {
       notify(parseApiError(err).message, 'error');
@@ -289,204 +381,248 @@ export default function ChannelsPage() {
     }
   }
 
+  const accountColumns: DataListColumn<ChannelAccount>[] = [
+    {
+      key: 'channel',
+      header: 'Channel',
+      primary: true,
+      cell: (a) => (
+        <div className="min-w-0">
+          <p className="break-words font-medium text-slate-900">
+            {a.displayName}
+          </p>
+          <p className="mt-0.5 text-xs text-slate-500">
+            {providerLabel(a.providerKey)} · {channelLabel(a.channelType)}
+          </p>
+        </div>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      cell: (a) => (
+        <div className="flex flex-wrap justify-end gap-1 md:justify-start">
+          <Badge color={ACCOUNT_STATUS[a.status].color}>
+            {ACCOUNT_STATUS[a.status].label}
+          </Badge>
+          {!a.isEnabled && <Badge color="red">Disabled</Badge>}
+        </div>
+      ),
+    },
+    {
+      key: 'health',
+      header: 'Health',
+      cell: (a) => (
+        <div className="flex flex-col items-end gap-1 md:items-start">
+          <Badge color={CONNECTION_STATE[a.connectionState].color}>
+            {CONNECTION_STATE[a.connectionState].label}
+          </Badge>
+          {a.lastErrorMessage && a.connectionState !== 'HEALTHY' && (
+            <p className="text-right text-xs text-red-600 md:text-left">
+              {a.lastErrorCode ? `${a.lastErrorCode}: ` : ''}
+              {a.lastErrorMessage}
+            </p>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: 'details',
+      header: 'Details',
+      cell: (a) => (
+        <div className="space-y-0.5 text-xs text-slate-500">
+          {accountDetails(a).map((row) => (
+            <p key={row.label} className="break-words">
+              <span className="text-slate-400">{row.label}:</span> {row.value}
+            </p>
+          ))}
+          <p className="break-words">
+            <span className="text-slate-400">Connected:</span>{' '}
+            {fullTime(a.connectedAt) || 'Not yet'}
+          </p>
+        </div>
+      ),
+    },
+    {
+      key: 'capabilities',
+      header: 'Supports',
+      hideOnMobile: true,
+      cell: (a) =>
+        a.capabilities ? (
+          <div className="flex flex-wrap gap-1">
+            {CAPABILITY_LABELS.filter((c) => a.capabilities?.[c.key]).map(
+              (c) => (
+                <span
+                  key={c.key}
+                  className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600"
+                >
+                  {c.label}
+                </span>
+              ),
+            )}
+          </div>
+        ) : (
+          '—'
+        ),
+    },
+  ];
+
   return (
-    <div>
+    <div className="mx-auto max-w-6xl">
       <PageHeader
         title="Channels"
-        description="Connect messaging channels. Incoming and outgoing messages flow through one shared pipeline."
+        description="Connect the places your customers message you. Everything flows into one shared inbox."
         actions={
           !readOnly && fakeProvider ? (
-            <Button onClick={() => setAddOpen(true)}>Add fake channel</Button>
+            <Button variant="secondary" onClick={() => setAddOpen(true)}>
+              Add test channel
+            </Button>
           ) : undefined
         }
       />
 
-      <div className="mb-4">
-        <Alert variant="info">
-          <strong>Web Chat</strong>, <strong>WhatsApp</strong>,{' '}
-          <strong>Instagram</strong>, <strong>Facebook Messenger</strong>, and{' '}
-          <strong>Telegram</strong> are all live and flow through the same
-          pipeline. The Fake / Test channel is a development-only provider that
-          exercises the full framework without any external service.
-        </Alert>
-      </div>
-
-      {oauthBanner && (
-        <div className="mb-4">
+      <div className="space-y-6">
+        {oauthBanner && (
           <Alert
             variant={oauthBanner.kind === 'success' ? 'success' : 'error'}
             message={oauthBanner.message}
           />
-        </div>
-      )}
+        )}
 
-      {readOnly && (
-        <div className="mb-4">
-          <Alert variant="info" message="You have read-only access to channels." />
-        </div>
-      )}
-      {error && (
-        <div className="mb-4">
-          <Alert message={error} />
-        </div>
-      )}
+        {readOnly && (
+          <Alert
+            variant="info"
+            message="You have read-only access to channels. Ask an owner or admin to connect or change one."
+          />
+        )}
+        {error && (
+          <Alert>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <span>{error}</span>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => void load()}
+                className="sm:shrink-0"
+              >
+                Try again
+              </Button>
+            </div>
+          </Alert>
+        )}
 
-      {/* Providers */}
-      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
-        Available providers
-      </h2>
-      {loading ? (
-        <div className="mb-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <Skeleton key={i} className="h-24" />
-          ))}
-        </div>
-      ) : (
-        <div className="mb-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {providers.map((p) => (
-            <Panel key={p.key} className="flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between">
-                  <p className="font-medium text-slate-900">{p.displayName}</p>
-                  {p.available ? (
-                    <Badge color={p.developmentOnly ? 'amber' : 'green'}>
-                      {p.developmentOnly ? 'Dev only' : 'Available'}
-                    </Badge>
-                  ) : (
-                    <Badge color="slate">Coming soon</Badge>
-                  )}
-                </div>
-                <p className="mt-1 text-xs text-slate-500">{p.channelType}</p>
-              </div>
-              <div className="mt-3">
-                {p.key === 'whatsapp' && p.available && !readOnly ? (
-                  <Button size="sm" variant="secondary" onClick={() => setWhatsAppOpen(true)}>
-                    Connect WhatsApp
-                  </Button>
-                ) : p.key === 'instagram' && p.available && !readOnly ? (
-                  <Button size="sm" variant="secondary" onClick={() => setInstagramOpen(true)}>
-                    Connect Instagram
-                  </Button>
-                ) : p.key === 'facebook' && p.available && !readOnly ? (
-                  <Button size="sm" variant="secondary" onClick={() => setFacebookOpen(true)}>
-                    Connect Facebook
-                  </Button>
-                ) : p.key === 'telegram' && p.available && !readOnly ? (
-                  <Button size="sm" variant="secondary" onClick={() => setTelegramOpen(true)}>
-                    Connect Telegram
-                  </Button>
-                ) : p.available && p.developmentOnly && !readOnly ? (
-                  <Button size="sm" variant="secondary" onClick={() => setAddOpen(true)}>
-                    Add channel
-                  </Button>
-                ) : (
-                  <span className="text-xs text-slate-400">
-                    {p.available ? 'Ready' : 'Not available yet'}
-                  </span>
-                )}
-              </div>
-            </Panel>
-          ))}
-        </div>
-      )}
-
-      {/* Connected accounts */}
-      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
-        Your channels
-      </h2>
-      {loading ? (
-        <div className="grid gap-3">
-          {Array.from({ length: 2 }).map((_, i) => (
-            <Skeleton key={i} className="h-28" />
-          ))}
-        </div>
-      ) : accounts.length === 0 ? (
-        <EmptyState
-          title="No channels connected"
-          description="Add the development fake channel to try the framework end-to-end."
-          action={
-            !readOnly && fakeProvider ? (
-              <Button onClick={() => setAddOpen(true)}>Add fake channel</Button>
-            ) : undefined
-          }
-        />
-      ) : (
-        <div className="grid gap-3">
-          {accounts.map((a) => (
-            <Panel key={a.id}>
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="font-medium text-slate-900">{a.displayName}</p>
-                    <Badge color="blue">{a.providerKey}</Badge>
-                    <Badge color={a.status === 'CONNECTED' ? 'green' : 'slate'}>
-                      {a.status}
-                    </Badge>
-                    <Badge color={CONNECTION_COLOR[a.connectionState]}>
-                      {a.connectionState}
-                    </Badge>
-                    {!a.isEnabled && <Badge color="red">Disabled</Badge>}
-                  </div>
-                  <dl className="mt-2 grid grid-cols-1 gap-x-6 gap-y-1 text-xs text-slate-500 sm:grid-cols-2">
-                    <div>Channel: {a.channelType}</div>
-                    <div>Connected: {fullTime(a.connectedAt)}</div>
-                    {a.providerKey === 'whatsapp' ? (
-                      <>
-                        <div>Phone: {whatsAppDisplay(a) ?? a.externalAccountId}</div>
-                        <div>WABA: {a.externalPageId ?? '—'}</div>
-                      </>
-                    ) : a.providerKey === 'instagram' ? (
-                      <>
-                        <div>
-                          Account:{' '}
-                          {instagramConfig(a)?.instagramUsername
-                            ? `@${instagramConfig(a)?.instagramUsername}`
-                            : a.externalAccountId}
-                        </div>
-                        <div>Page: {a.externalPageId ?? '—'}</div>
-                      </>
-                    ) : a.providerKey === 'facebook' ? (
-                      <>
-                        <div>
-                          Page:{' '}
-                          {facebookConfig(a)?.pageName ?? a.externalAccountId}
-                        </div>
-                        <div>Page ID: {a.externalAccountId ?? '—'}</div>
-                      </>
-                    ) : a.providerKey === 'telegram' ? (
-                      <>
-                        <div>Bot: {telegramConfig(a)?.botUsername ? `@${telegramConfig(a)?.botUsername}` : a.displayName}</div>
-                        <div>Bot ID: {a.externalAccountId ?? '—'}</div>
-                      </>
-                    ) : (
-                      <>
-                        <div>Last check: {fullTime(a.lastHealthCheckAt)}</div>
-                        <div>Last healthy: {fullTime(a.lastHealthyAt)}</div>
-                      </>
-                    )}
-                  </dl>
-                  {a.lastErrorMessage && a.connectionState !== 'HEALTHY' && (
-                    <p className="mt-2 text-xs text-red-600">
-                      {a.lastErrorCode ? `${a.lastErrorCode}: ` : ''}
-                      {a.lastErrorMessage}
-                    </p>
-                  )}
-                  {a.capabilities && (
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {CAPABILITY_LABELS.filter((c) => a.capabilities?.[c.key]).map(
-                        (c) => (
-                          <span
-                            key={c.key}
-                            className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600"
-                          >
-                            {c.label}
-                          </span>
-                        ),
+        {/* Providers */}
+        <SectionCard
+          title="Available channels"
+          description="Web chat, WhatsApp, Instagram, Facebook Messenger and Telegram are all live. The fake channel is a development-only provider for testing the pipeline end to end."
+        >
+          {loading ? (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Skeleton key={i} className="h-28 rounded-lg" />
+              ))}
+            </div>
+          ) : providers.length === 0 ? (
+            <EmptyState
+              title="No providers available"
+              description="No messaging providers are enabled for this deployment yet."
+            />
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {providers.map((p) => (
+                <div
+                  key={p.key}
+                  className="flex flex-col justify-between gap-3 rounded-lg border border-slate-200 p-4"
+                >
+                  <div>
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="font-medium text-slate-900">
+                        {p.displayName}
+                      </p>
+                      {p.available ? (
+                        <Badge color={p.developmentOnly ? 'amber' : 'green'}>
+                          {p.developmentOnly ? 'Development only' : 'Available'}
+                        </Badge>
+                      ) : (
+                        <Badge color="slate">Coming soon</Badge>
                       )}
                     </div>
-                  )}
+                    <p className="mt-1 text-xs text-slate-500">
+                      {channelLabel(p.channelType)}
+                    </p>
+                  </div>
+                  <div>
+                    {p.key === 'whatsapp' && p.available && !readOnly ? (
+                      <Button
+                        variant="secondary"
+                        fullWidth
+                        onClick={() => setWhatsAppOpen(true)}
+                      >
+                        Connect WhatsApp
+                      </Button>
+                    ) : p.key === 'instagram' && p.available && !readOnly ? (
+                      <Button
+                        variant="secondary"
+                        fullWidth
+                        onClick={() => setInstagramOpen(true)}
+                      >
+                        Connect Instagram
+                      </Button>
+                    ) : p.key === 'facebook' && p.available && !readOnly ? (
+                      <Button
+                        variant="secondary"
+                        fullWidth
+                        onClick={() => setFacebookOpen(true)}
+                      >
+                        Connect Facebook
+                      </Button>
+                    ) : p.key === 'telegram' && p.available && !readOnly ? (
+                      <Button
+                        variant="secondary"
+                        fullWidth
+                        onClick={() => setTelegramOpen(true)}
+                      >
+                        Connect Telegram
+                      </Button>
+                    ) : p.available && p.developmentOnly && !readOnly ? (
+                      <Button
+                        variant="secondary"
+                        fullWidth
+                        onClick={() => setAddOpen(true)}
+                      >
+                        Add test channel
+                      </Button>
+                    ) : (
+                      <span className="text-xs text-slate-500">
+                        {p.available
+                          ? 'Ready to use'
+                          : 'Not available in this deployment yet'}
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <div className="flex shrink-0 flex-wrap gap-2">
+              ))}
+            </div>
+          )}
+        </SectionCard>
+
+        {/* Connected accounts */}
+        <SectionCard
+          title="Your connected channels"
+          description="Each connection, its health, and the controls to pause or remove it."
+          padded={false}
+        >
+          <div className="p-4 sm:p-6">
+            <DataList
+              bare
+              items={accounts}
+              loading={loading}
+              skeletonRows={2}
+              keyOf={(a) => a.id}
+              columns={accountColumns}
+              caption="Connected channels"
+              actions={(a) => (
+                <>
                   {a.providerKey === 'webchat' && (
                     <Link href={`/dashboard/channels/webchat/${a.id}`}>
                       <Button size="sm" variant="secondary">
@@ -515,7 +651,9 @@ export default function ChannelsPage() {
                       <Button
                         size="sm"
                         variant="secondary"
-                        disabled={busyId === a.id || a.status === 'DISCONNECTED'}
+                        disabled={
+                          busyId === a.id || a.status === 'DISCONNECTED'
+                        }
                         onClick={() => void toggleEnabled(a)}
                       >
                         {a.isEnabled ? 'Disable' : 'Enable'}
@@ -540,42 +678,32 @@ export default function ChannelsPage() {
                       </Button>
                     </>
                   )}
-                </div>
-              </div>
-            </Panel>
-          ))}
-        </div>
-      )}
+                </>
+              )}
+              empty={
+                <EmptyState
+                  title="No channels connected yet"
+                  description="Connect a channel above and its messages start arriving in your inbox. The fake test channel is the fastest way to try it."
+                  action={
+                    !readOnly && fakeProvider ? (
+                      <Button onClick={() => setAddOpen(true)}>
+                        Add test channel
+                      </Button>
+                    ) : undefined
+                  }
+                />
+              }
+            />
+          </div>
+        </SectionCard>
+      </div>
 
-      <Modal open={addOpen} onClose={() => setAddOpen(false)} title="Add fake channel">
-        <form onSubmit={handleAdd} className="space-y-4">
-          <p className="text-sm text-slate-500">
-            The development fake channel uses a server-side secret from the
-            environment. Only safe fields are configurable here — never
-            credentials.
-          </p>
-          <div>
-            <Label htmlFor="ch-name">Display name</Label>
-            <Input
-              id="ch-name"
-              value={addName}
-              disabled={saving}
-              onChange={(e) => setAddName(e.target.value)}
-            />
-            <FieldError message={addErrors.displayName} />
-          </div>
-          <div>
-            <Label htmlFor="ch-ext">External account ID (optional)</Label>
-            <Input
-              id="ch-ext"
-              value={addExternalId}
-              placeholder="fake-acct-1"
-              disabled={saving}
-              onChange={(e) => setAddExternalId(e.target.value)}
-            />
-            <FieldError message={addErrors.externalAccountId} />
-          </div>
-          <div className="flex justify-end gap-2">
+      <Modal
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        title="Add test channel"
+        footer={
+          <>
             <Button
               type="button"
               variant="secondary"
@@ -584,9 +712,42 @@ export default function ChannelsPage() {
             >
               Cancel
             </Button>
-            <Button type="submit" loading={saving}>
+            <Button type="submit" form="fake-channel-form" loading={saving}>
               Create channel
             </Button>
+          </>
+        }
+      >
+        <form id="fake-channel-form" onSubmit={handleAdd} className="space-y-4">
+          <p className="text-sm text-slate-500">
+            The development test channel uses a server-side secret from the
+            environment, so there is nothing sensitive to enter here.
+          </p>
+          <div>
+            <Label htmlFor="ch-name">Display name</Label>
+            <Input
+              id="ch-name"
+              value={addName}
+              disabled={saving}
+              invalid={Boolean(addErrors.displayName)}
+              onChange={(e) => setAddName(e.target.value)}
+            />
+            <FieldError message={addErrors.displayName} />
+          </div>
+          <div>
+            <Label htmlFor="ch-ext">External account ID</Label>
+            <Input
+              id="ch-ext"
+              value={addExternalId}
+              placeholder="fake-acct-1"
+              disabled={saving}
+              invalid={Boolean(addErrors.externalAccountId)}
+              onChange={(e) => setAddExternalId(e.target.value)}
+            />
+            <FieldError message={addErrors.externalAccountId} />
+            <p className="mt-1 text-xs text-slate-500">
+              Optional. Leave blank and one is generated for you.
+            </p>
           </div>
         </form>
       </Modal>
@@ -628,8 +789,8 @@ export default function ChannelsPage() {
 
       <ConfirmDialog
         open={!!confirmDelete}
-        title="Delete channel permanently?"
-        message="The channel account and its stored credentials are permanently removed, freeing it to be reconnected. Conversation and message history are preserved."
+        title="Delete this channel permanently?"
+        message="The channel and its stored credentials are removed for good, freeing it to be reconnected later. Your conversations and message history are kept."
         confirmLabel="Delete permanently"
         loading={busyId === confirmDelete?.id}
         onConfirm={() => confirmDelete && void doDelete(confirmDelete)}
@@ -638,11 +799,13 @@ export default function ChannelsPage() {
 
       <ConfirmDialog
         open={!!confirmDisconnect}
-        title="Disconnect channel?"
-        message="The channel will be disconnected and disabled. Your conversations and message history are preserved."
+        title="Disconnect this channel?"
+        message="The channel stops sending and receiving messages until you reconnect it. Your conversations and message history are kept."
         confirmLabel="Disconnect"
         loading={busyId === confirmDisconnect?.id}
-        onConfirm={() => confirmDisconnect && void doDisconnect(confirmDisconnect)}
+        onConfirm={() =>
+          confirmDisconnect && void doDisconnect(confirmDisconnect)
+        }
         onCancel={() => setConfirmDisconnect(null)}
       />
     </div>

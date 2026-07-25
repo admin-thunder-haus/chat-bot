@@ -92,8 +92,23 @@ export function KnowledgeFormModal({
       open={open}
       onClose={onClose}
       title={entry ? 'Edit entry' : 'Add knowledge entry'}
+      footer={
+        <>
+          <Button
+            variant="secondary"
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+          >
+            Cancel
+          </Button>
+          <Button type="submit" form="knowledge-form" loading={saving}>
+            {entry ? 'Save changes' : 'Add entry'}
+          </Button>
+        </>
+      }
     >
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form id="knowledge-form" onSubmit={handleSubmit} className="space-y-4">
         {error && <Alert message={error} />}
         <div>
           <Label htmlFor="kb-title" required>
@@ -102,6 +117,8 @@ export function KnowledgeFormModal({
           <Input
             id="kb-title"
             value={title}
+            placeholder="Refund policy"
+            invalid={Boolean(fieldErrors.title)}
             onChange={(e) => setTitle(e.target.value)}
             disabled={saving}
           />
@@ -115,10 +132,15 @@ export function KnowledgeFormModal({
             id="kb-content"
             className="min-h-[160px]"
             value={content}
+            invalid={Boolean(fieldErrors.content)}
             onChange={(e) => setContent(e.target.value)}
             disabled={saving}
           />
           <FieldError message={fieldErrors.content} />
+          <p className="mt-1 text-xs text-slate-500">
+            Plain text. The assistant searches this content and quotes the
+            relevant part.
+          </p>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
@@ -126,32 +148,40 @@ export function KnowledgeFormModal({
             <Input
               id="kb-cat"
               value={category}
+              placeholder="Policies"
+              invalid={Boolean(fieldErrors.category)}
               onChange={(e) => setCategory(e.target.value)}
               disabled={saving}
             />
+            <FieldError message={fieldErrors.category} />
           </div>
           <div>
-            <Label htmlFor="kb-tags">Tags (comma separated)</Label>
+            <Label htmlFor="kb-tags">Tags</Label>
             <Input
               id="kb-tags"
               value={tags}
               placeholder="returns, policy"
+              invalid={Boolean(fieldErrors.tags)}
               onChange={(e) => setTags(e.target.value)}
               disabled={saving}
             />
+            <FieldError message={fieldErrors.tags} />
+            <p className="mt-1 text-xs text-slate-500">Separate with commas.</p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <Toggle checked={isActive} onChange={setIsActive} label="Active" />
-          <span className="text-sm text-slate-700">Active</span>
-        </div>
-        <div className="mt-2 flex justify-end gap-2">
-          <Button variant="secondary" type="button" onClick={onClose} disabled={saving}>
-            Cancel
-          </Button>
-          <Button type="submit" loading={saving}>
-            {entry ? 'Save' : 'Create'}
-          </Button>
+        <div className="flex items-start gap-3">
+          <Toggle
+            checked={isActive}
+            onChange={setIsActive}
+            disabled={saving}
+            label="Active"
+          />
+          <span className="text-sm text-slate-700">
+            Active
+            <span className="block text-xs text-slate-500">
+              Inactive entries are hidden from the assistant.
+            </span>
+          </span>
         </div>
       </form>
     </Modal>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { canWrite } from '@/lib/permissions';
 import { companyApi } from '@/lib/resources';
@@ -14,7 +14,7 @@ import {
   Input,
   Label,
   PageHeader,
-  Panel,
+  SectionCard,
   Skeleton,
   Textarea,
 } from '@/components/ui';
@@ -64,24 +64,29 @@ export default function ProfilePage() {
   const [initial, setInitial] = useState<FormState | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
+  const [loadFailed, setLoadFailed] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    let active = true;
-    companyApi
-      .getProfile()
-      .then(({ company }) => {
-        if (!active) return;
-        setForm(toForm(company));
-        setInitial(toForm(company));
-      })
-      .catch((err) => active && setError(parseApiError(err).message));
-    return () => {
-      active = false;
-    };
+  const load = useCallback(async () => {
+    setError('');
+    setLoadFailed(false);
+    try {
+      const { company } = await companyApi.getProfile();
+      setForm(toForm(company));
+      setInitial(toForm(company));
+    } catch (err) {
+      setError(parseApiError(err).message);
+      setLoadFailed(true);
+    }
   }, []);
 
-  const dirty = form && initial && JSON.stringify(form) !== JSON.stringify(initial);
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const dirty = Boolean(
+    form && initial && JSON.stringify(form) !== JSON.stringify(initial),
+  );
 
   function update(key: keyof FormState, value: string) {
     setForm((f) => (f ? { ...f, [key]: value } : f));
@@ -94,7 +99,7 @@ export default function ProfilePage() {
     setFieldErrors({});
 
     if (form.name.trim().length < 2) {
-      setFieldErrors({ name: 'Name must be at least 2 characters' });
+      setFieldErrors({ name: 'Enter at least 2 characters.' });
       return;
     }
 
@@ -113,116 +118,187 @@ export default function ProfilePage() {
     }
   }
 
-  if (!form) {
-    return (
-      <div>
-        <PageHeader title="Company Profile" />
-        <Panel>
-          <div className="grid gap-4 sm:grid-cols-2">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <Skeleton key={i} className="h-16" />
-            ))}
-          </div>
-        </Panel>
-      </div>
-    );
-  }
+  const saveButton = (
+    <Button
+      type="submit"
+      form="profile-form"
+      loading={saving}
+      loadingLabel="Saving…"
+      disabled={!dirty}
+    >
+      Save changes
+    </Button>
+  );
 
   const textField = (
     key: keyof FormState,
     label: string,
-    opts: { required?: boolean; type?: string; placeholder?: string } = {},
-  ) => (
-    <div>
-      <Label htmlFor={key} required={opts.required}>
-        {label}
-      </Label>
-      <Input
-        id={key}
-        type={opts.type ?? 'text'}
-        value={form[key]}
-        placeholder={opts.placeholder}
-        disabled={readOnly || saving}
-        onChange={(e) => update(key, e.target.value)}
-      />
-      <FieldError message={fieldErrors[key]} />
-    </div>
-  );
+    opts: {
+      required?: boolean;
+      type?: string;
+      placeholder?: string;
+      hint?: string;
+    } = {},
+  ) =>
+    form && (
+      <div>
+        <Label htmlFor={key} required={opts.required}>
+          {label}
+        </Label>
+        <Input
+          id={key}
+          type={opts.type ?? 'text'}
+          value={form[key]}
+          placeholder={opts.placeholder}
+          disabled={readOnly || saving}
+          invalid={Boolean(fieldErrors[key])}
+          onChange={(e) => update(key, e.target.value)}
+        />
+        <FieldError message={fieldErrors[key]} />
+        {opts.hint && !fieldErrors[key] && (
+          <p className="mt-1 text-xs text-slate-500">{opts.hint}</p>
+        )}
+      </div>
+    );
 
   return (
-    <div>
+    <div className="mx-auto max-w-3xl">
       <PageHeader
-        title="Company Profile"
-        description="Details about your business the assistant can reference."
+        title="Company profile"
+        description="Details about your business that the assistant quotes to customers."
         actions={
-          !readOnly ? (
-            <Button
-              type="submit"
-              form="profile-form"
-              loading={saving}
-              disabled={!dirty}
-            >
-              Save changes
-            </Button>
+          !readOnly && form ? (
+            // On phones the sticky bar at the end of the form carries Save.
+            <span className="hidden sm:block">{saveButton}</span>
           ) : undefined
         }
       />
 
-      {readOnly && (
-        <div className="mb-4">
-          <Alert variant="info" message="You have read-only access to this page." />
-        </div>
-      )}
-      {error && (
-        <div className="mb-4">
-          <Alert message={error} />
-        </div>
-      )}
-      {dirty && !readOnly && (
-        <div className="mb-4">
-          <Alert variant="warning" message="You have unsaved changes." />
-        </div>
-      )}
+      <div className="space-y-6">
+        {readOnly && (
+          <Alert
+            variant="info"
+            message="You have read-only access to this page. Ask an owner or admin to make changes."
+          />
+        )}
+        {error && (
+          <Alert>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <span>{error}</span>
+              {loadFailed && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => void load()}
+                  className="sm:shrink-0"
+                >
+                  Try again
+                </Button>
+              )}
+            </div>
+          </Alert>
+        )}
+        {dirty && !readOnly && (
+          <Alert
+            variant="warning"
+            message="You have unsaved changes — save them before you leave this page."
+          />
+        )}
 
-      <form id="profile-form" onSubmit={handleSubmit}>
-        <Panel className="space-y-6">
-          <div className="grid gap-4 sm:grid-cols-2">
-            {textField('name', 'Company name', { required: true })}
-            {textField('displayName', 'Display / business name')}
-          </div>
+        {!form ? (
+          loadFailed ? null : (
+            <>
+              <Skeleton className="h-64 rounded-xl" />
+              <Skeleton className="h-56 rounded-xl" />
+              <Skeleton className="h-56 rounded-xl" />
+            </>
+          )
+        ) : (
+          <form id="profile-form" onSubmit={handleSubmit} className="space-y-6">
+            <SectionCard
+              title="Identity"
+              description="How the assistant refers to your business."
+            >
+              <div className="space-y-4">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {textField('name', 'Company name', { required: true })}
+                  {textField('displayName', 'Display name', {
+                    hint: 'Used in customer-facing replies when set.',
+                  })}
+                </div>
+                <div>
+                  <Label htmlFor="description">Description</Label>
+                  <Textarea
+                    id="description"
+                    value={form.description}
+                    disabled={readOnly || saving}
+                    invalid={Boolean(fieldErrors.description)}
+                    placeholder="What your business does, in a sentence or two."
+                    onChange={(e) => update('description', e.target.value)}
+                  />
+                  <FieldError message={fieldErrors.description} />
+                </div>
+                {textField('industry', 'Industry')}
+              </div>
+            </SectionCard>
 
-          <div>
-            <Label htmlFor="description">Description</Label>
-            <Textarea
-              id="description"
-              value={form.description}
-              disabled={readOnly || saving}
-              onChange={(e) => update('description', e.target.value)}
-            />
-            <FieldError message={fieldErrors.description} />
-          </div>
+            <SectionCard
+              title="Contact details"
+              description="The assistant shares these when a customer asks how to reach you."
+            >
+              <div className="grid gap-4 sm:grid-cols-2">
+                {textField('email', 'Contact email', { type: 'email' })}
+                {textField('phone', 'Phone')}
+                {textField('whatsappNumber', 'WhatsApp number')}
+                {textField('websiteUrl', 'Website URL', {
+                  placeholder: 'https://example.com',
+                })}
+              </div>
+            </SectionCard>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            {textField('industry', 'Industry')}
-            {textField('email', 'Contact email', { type: 'email' })}
-            {textField('phone', 'Phone')}
-            {textField('whatsappNumber', 'WhatsApp number')}
-            {textField('websiteUrl', 'Website URL', {
-              placeholder: 'https://example.com',
-            })}
-            {textField('address', 'Address')}
-            {textField('city', 'City')}
-            {textField('country', 'Country')}
-            {textField('timezone', 'Timezone', { placeholder: 'Asia/Amman' })}
-            {textField('defaultLanguage', 'Default language', {
-              placeholder: 'ar / en / auto',
-            })}
-            {textField('responseLanguage', 'Response language', {
-              placeholder: 'ar / en / auto',
-            })}
-          </div>
-        </Panel>
-      </form>
+            <SectionCard
+              title="Location and time"
+              description="Used for directions and for interpreting your business hours."
+            >
+              <div className="grid gap-4 sm:grid-cols-2">
+                {textField('address', 'Address')}
+                {textField('city', 'City')}
+                {textField('country', 'Country')}
+                {textField('timezone', 'Timezone', {
+                  placeholder: 'Asia/Amman',
+                  hint: 'IANA name, e.g. Asia/Amman or Europe/Berlin.',
+                })}
+              </div>
+            </SectionCard>
+
+            <SectionCard
+              title="Language"
+              description="Which language the assistant defaults to when it cannot tell."
+            >
+              <div className="grid gap-4 sm:grid-cols-2">
+                {textField('defaultLanguage', 'Default language', {
+                  placeholder: 'auto',
+                  hint: 'ar, en, or auto to detect per message.',
+                })}
+                {textField('responseLanguage', 'Response language', {
+                  placeholder: 'auto',
+                  hint: 'ar, en, or auto to match the customer.',
+                })}
+              </div>
+            </SectionCard>
+
+            {/* Sticky save so it stays reachable on a phone (§5). */}
+            {!readOnly && (
+              <div className="sticky bottom-4 z-10 flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white/95 p-3 shadow-sm backdrop-blur sm:hidden">
+                <span className="text-xs text-slate-500">
+                  {dirty ? 'Unsaved changes' : 'All changes saved'}
+                </span>
+                {saveButton}
+              </div>
+            )}
+          </form>
+        )}
+      </div>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { Badge, Button, Toggle } from '@/components/ui';
+import { Badge, Button } from '@/components/ui';
 import { channelLabel, customerName } from '@/lib/format';
 import type {
   AIConversationMode,
@@ -15,12 +15,62 @@ import { StatusSelector } from './StatusSelector';
 import { PrioritySelector } from './PrioritySelector';
 import { AssignmentSelector } from './AssignmentSelector';
 import { TagSelector } from './TagSelector';
+import { AutoReplyToggle } from './AutoReplyToggle';
+import { OverflowMenu, OverflowMenuRow } from './OverflowMenu';
 import { AIConversationModeSelector } from '@/components/ai/AIConversationModeSelector';
 import { AIAssistantMenu } from '@/components/ai/AIAssistantMenu';
 
+function BackIcon() {
+  return (
+    <svg
+      width={20}
+      height={20}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M15 18l-6-6 6-6" />
+    </svg>
+  );
+}
+
+function InfoIcon() {
+  return (
+    <svg
+      width={20}
+      height={20}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 11v5" />
+      <path d="M12 8h.01" />
+    </svg>
+  );
+}
+
+const iconButtonClass =
+  'inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900';
+
 /**
- * Compact conversation header: identity + Details/AI Assistant on top, and all
- * status/priority/assignment/AI-mode/tags controls on one tidy wrapping row.
+ * Conversation header.
+ *
+ * Below `lg` this is the mobile thread header: back arrow, customer name +
+ * channel, details, and a `⋯` overflow panel holding the secondary controls.
+ * Status and the AI assistant stay on a second visible row so the two things an
+ * agent touches most are never buried. At `lg+` every control is laid out inline
+ * exactly as before.
  */
 export function CompactConversationHeader({
   conversation,
@@ -72,30 +122,7 @@ export function CompactConversationHeader({
   onReply: () => void;
 }) {
   const assigned = conversation.tagAssignments.map((a) => a.tag);
-
-  // The AI answers this conversation automatically only when BOTH gates are
-  // open: the company opted in AND this conversation is not paused.
-  const autoReplyOn =
-    companyAutoReplyEnabled === true && conversation.aiMode === 'ENABLED';
-  // Turning it ON may need the company-wide flag, which is OWNER/ADMIN only.
-  // Turning it OFF only pauses THIS conversation, which every role may do.
-  const needsCompanyFlag = companyAutoReplyEnabled !== true;
-  const autoReplyDisabled =
-    busy ||
-    companyAutoReplyEnabled === null ||
-    (!autoReplyOn && needsCompanyFlag && !canManageCompanyAI) ||
-    (!autoReplyOn && !writable);
-  const autoReplyHint = autoReplyOn
-    ? 'The AI answers new customer messages in this conversation instantly. Turning this off pauses the AI here only.'
-    : companyAutoReplyEnabled === null
-      ? 'Loading AI settings…'
-      : needsCompanyFlag && !canManageCompanyAI
-        ? 'Auto-reply is off for your company. Ask an owner or admin to enable it.'
-        : needsCompanyFlag
-          ? 'Turn on to let the AI answer instantly. This also enables auto-reply for your company.'
-          : !writable
-            ? 'Only an owner or admin can resume the AI for this conversation.'
-            : 'Turn on to let the AI answer new messages in this conversation instantly.';
+  const name = customerName(conversation.customer);
 
   const handedOff =
     Boolean(conversation.handoffRequestedAt) && conversation.aiMode !== 'ENABLED';
@@ -106,43 +133,129 @@ export function CompactConversationHeader({
         ? "AI couldn't answer"
         : null;
 
+  const aiAssistant = (
+    <AIAssistantMenu
+      generating={aiGenerating}
+      canDirectReply={writable}
+      hasDraft={hasDraft}
+      onDraft={onDraft}
+      onRegenerate={onRegenerate}
+      onReply={onReply}
+    />
+  );
+
   return (
-    <div className="shrink-0 border-b border-slate-200 px-3 py-2">
-      {/* Top row: identity + actions */}
-      <div className="flex items-center gap-2">
+    <div className="shrink-0 border-b border-slate-200">
+      {/* Row 1 — identity + primary actions. Back + name are always visible. */}
+      <div className="flex items-center gap-1 px-2 py-1.5 sm:px-3">
         <button
           type="button"
           onClick={onBack}
           aria-label="Back to conversations"
-          className="rounded-md p-1 text-slate-500 hover:bg-slate-100 md:hidden"
+          className={`${iconButtonClass} lg:hidden`}
         >
-          ←
+          <BackIcon />
         </button>
-        <div className="min-w-0 flex-1">
-          <h2 className="truncate text-sm font-semibold text-slate-900">
-            {customerName(conversation.customer)}
+
+        <div className="min-w-0 flex-1 px-1">
+          <h2 className="truncate text-sm font-semibold text-slate-900" title={name}>
+            {name}
           </h2>
           <p className="truncate text-xs text-slate-400">
             {channelLabel(conversation.channelType)}
             {conversation.subject ? ` · ${conversation.subject}` : ''}
           </p>
         </div>
-        <AIAssistantMenu
-          generating={aiGenerating}
-          canDirectReply={writable}
-          hasDraft={hasDraft}
-          onDraft={onDraft}
-          onRegenerate={onRegenerate}
-          onReply={onReply}
-        />
-        <Button size="sm" variant="secondary" onClick={onOpenDetails}>
-          Details
-        </Button>
+
+        {/* Desktop: the assistant and details read as full buttons. */}
+        <div className="hidden items-center gap-2 lg:flex">
+          {aiAssistant}
+          <Button size="sm" variant="secondary" onClick={onOpenDetails}>
+            Details
+          </Button>
+        </div>
+
+        {/* Phone/tablet: icon for details, everything else in the overflow. */}
+        <button
+          type="button"
+          onClick={onOpenDetails}
+          aria-label="Open conversation details"
+          className={`${iconButtonClass} lg:hidden`}
+        >
+          <InfoIcon />
+        </button>
+        <div className="lg:hidden">
+          <OverflowMenu label="More conversation actions">
+            {(close) => (
+              <>
+                <OverflowMenuRow label="Priority">
+                  <PrioritySelector
+                    value={conversation.priority}
+                    disabled={busy}
+                    className="w-full"
+                    onChange={onPriority}
+                  />
+                </OverflowMenuRow>
+                <OverflowMenuRow label="Assignee">
+                  <AssignmentSelector
+                    value={conversation.assignedUserId}
+                    users={assignableUsers}
+                    disabled={busy}
+                    className="w-full"
+                    onChange={onAssign}
+                  />
+                </OverflowMenuRow>
+                <OverflowMenuRow label="AI mode">
+                  <AIConversationModeSelector
+                    mode={conversation.aiMode}
+                    canResume={writable}
+                    busy={busy}
+                    onChange={onSetMode}
+                  />
+                </OverflowMenuRow>
+                <OverflowMenuRow label="Tags">
+                  <TagSelector
+                    assigned={assigned}
+                    all={allTags}
+                    disabled={busy}
+                    onAttach={onAttachTag}
+                    onDetach={onDetachTag}
+                  />
+                </OverflowMenuRow>
+                {writable && (
+                  <Button
+                    variant="secondary"
+                    fullWidth
+                    disabled={busy}
+                    onClick={() => {
+                      close();
+                      onArchive();
+                    }}
+                  >
+                    {conversation.isArchived ? 'Unarchive' : 'Archive'}
+                  </Button>
+                )}
+              </>
+            )}
+          </OverflowMenu>
+        </div>
       </div>
 
-      {/* Handoff / language row */}
+      {/* Row 2 — phone/tablet only: the two most-used controls stay in reach.
+          The arbitrary variant lifts the shared assistant trigger to a 40px tap
+          target (§5) without editing the shared AI component. */}
+      <div className="flex flex-wrap items-center gap-2 px-2 pb-2 sm:px-3 lg:hidden">
+        <StatusSelector
+          value={conversation.status}
+          disabled={busy}
+          onChange={onStatus}
+        />
+        <div className="[&>div>button]:min-h-10">{aiAssistant}</div>
+      </div>
+
+      {/* Handoff / detected language — wraps instead of squeezing. */}
       {(handedOff || conversation.detectedLanguage) && (
-        <div className="mt-2 flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 px-2 pb-2 sm:px-3">
           {handedOff && (
             <>
               <Badge color="amber">Handed off to human</Badge>
@@ -151,7 +264,6 @@ export function CompactConversationHeader({
               )}
               {writable && (
                 <Button
-                  size="sm"
                   variant="secondary"
                   disabled={busy}
                   onClick={() => onSetMode('ENABLED')}
@@ -171,45 +283,48 @@ export function CompactConversationHeader({
         </div>
       )}
 
-      {/* Controls row */}
-      <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1.5">
-        <StatusSelector value={conversation.status} disabled={busy} onChange={onStatus} />
-        <PrioritySelector value={conversation.priority} disabled={busy} onChange={onPriority} />
+      {/* Desktop control row — unchanged set, laid out inline. */}
+      <div className="hidden flex-wrap items-center gap-x-2 gap-y-1.5 px-3 pb-2 lg:flex">
+        <StatusSelector
+          value={conversation.status}
+          disabled={busy}
+          onChange={onStatus}
+        />
+        <PrioritySelector
+          value={conversation.priority}
+          disabled={busy}
+          onChange={onPriority}
+        />
         <AssignmentSelector
           value={conversation.assignedUserId}
           users={assignableUsers}
           disabled={busy}
           onChange={onAssign}
         />
-        {/* One click = the AI answers this conversation instantly. Reflects both
-            gates (company opt-in + this conversation's AI mode) and uses the
-            existing endpoints: PUT /ai-settings and PATCH .../ai-mode. */}
-        <span
-          title={autoReplyHint}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2 py-1"
-        >
-          <span className="text-xs font-medium text-slate-600">
-            AI auto-reply
-          </span>
-          <Toggle
-            checked={autoReplyOn}
-            disabled={autoReplyDisabled}
-            label="AI auto-reply"
-            onChange={onToggleAutoReply}
-          />
-        </span>
-        <AIConversationModeSelector
-          mode={conversation.aiMode}
-          canResume={writable}
+        <AutoReplyToggle
+          aiMode={conversation.aiMode}
+          companyAutoReplyEnabled={companyAutoReplyEnabled}
+          canManageCompanyAI={canManageCompanyAI}
+          writable={writable}
           busy={busy}
-          onChange={onSetMode}
+          onToggle={onToggleAutoReply}
         />
+        {/* The shared AI-mode selector stretches to its container, so it gets an
+            explicit width here instead of claiming a whole row. */}
+        <div className="w-56">
+          <AIConversationModeSelector
+            mode={conversation.aiMode}
+            canResume={writable}
+            busy={busy}
+            onChange={onSetMode}
+          />
+        </div>
         {writable && (
           <Button size="sm" variant="ghost" disabled={busy} onClick={onArchive}>
             {conversation.isArchived ? 'Unarchive' : 'Archive'}
           </Button>
         )}
-        <div className="w-full sm:w-auto">
+        <div className="w-full xl:w-auto">
           <TagSelector
             assigned={assigned}
             all={allTags}

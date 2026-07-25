@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { Activity, ConversationDetail, Note } from '@/lib/types';
-import { relativeTime } from '@/lib/format';
+import { channelLabel, customerName, relativeTime } from '@/lib/format';
 import { Button } from '@/components/ui';
 import { CustomerDetails } from './CustomerDetails';
 import { InternalNotesPanel } from './InternalNotesPanel';
@@ -10,9 +10,18 @@ import { ActivityTimeline } from './ActivityTimeline';
 
 type Tab = 'details' | 'notes' | 'activity';
 
+const TABS: { key: Tab; label: string }[] = [
+  { key: 'details', label: 'Details' },
+  { key: 'notes', label: 'Notes' },
+  { key: 'activity', label: 'Activity' },
+];
+
 /**
- * Right-side drawer holding Customer details, Internal notes, and the Activity
- * timeline. Hidden by default; opened via the header "Details" button.
+ * Customer details, internal notes and the activity timeline.
+ *
+ * Below `sm` it is a full-screen sheet with its own header and close button (the
+ * mobile navigation model: one pane at a time). At `sm+` it stays the familiar
+ * right-hand drawer. Hidden by default; opened from the header.
  */
 export function DetailsDrawer({
   open,
@@ -64,37 +73,82 @@ export function DetailsDrawer({
     return () => document.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
+  // The sheet covers the screen on a phone — stop the page behind it scrolling.
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, [open]);
+
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-40" role="dialog" aria-modal="true" aria-label="Details">
-      <div className="absolute inset-0 bg-slate-900/30" onClick={onClose} />
-      <aside className="absolute inset-y-0 right-0 flex w-full max-w-md flex-col bg-white shadow-xl">
-        <div className="flex items-center border-b border-slate-200">
-          {(['details', 'notes', 'activity'] as const).map((t) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => setTab(t)}
-              className={`flex-1 px-3 py-3 text-sm font-medium capitalize ${
-                tab === t
-                  ? 'border-b-2 border-slate-900 text-slate-900'
-                  : 'text-slate-500'
-              }`}
-            >
-              {t}
-            </button>
-          ))}
+    <div
+      className="fixed inset-0 z-40"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Conversation details"
+    >
+      <div
+        className="absolute inset-0 bg-slate-900/30"
+        aria-hidden="true"
+        onClick={onClose}
+      />
+      <aside className="absolute inset-0 flex flex-col bg-white shadow-xl sm:inset-y-0 sm:left-auto sm:right-0 sm:w-full sm:max-w-md">
+        {/* Sheet header: who this is about + its own close control. */}
+        <div className="flex shrink-0 items-center gap-2 border-b border-slate-200 px-3 py-2">
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold text-slate-900">
+              {customerName(detail.customer)}
+            </p>
+            <p className="truncate text-xs text-slate-400">
+              {channelLabel(detail.channelType)}
+            </p>
+          </div>
           <button
             type="button"
             aria-label="Close details"
             onClick={onClose}
-            className="px-3 py-3 text-slate-400 hover:text-slate-600"
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900"
           >
-            ✕
+            <span aria-hidden="true">✕</span>
           </button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto">
+
+        <div
+          role="tablist"
+          aria-label="Details sections"
+          className="flex shrink-0 border-b border-slate-200"
+        >
+          {TABS.map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              role="tab"
+              id={`details-tab-${t.key}`}
+              aria-selected={tab === t.key}
+              aria-controls={`details-panel-${t.key}`}
+              onClick={() => setTab(t.key)}
+              className={`min-h-11 flex-1 px-3 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-slate-900 ${
+                tab === t.key
+                  ? 'border-b-2 border-slate-900 text-slate-900'
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        <div
+          role="tabpanel"
+          id={`details-panel-${tab}`}
+          aria-labelledby={`details-tab-${tab}`}
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[env(safe-area-inset-bottom)]"
+        >
           {tab === 'details' && (
             <>
               <CustomerDetails
@@ -104,13 +158,13 @@ export function DetailsDrawer({
                 onSave={onSaveCustomer}
               />
               <div className="border-t border-slate-200 p-4">
-                <div className="flex items-center justify-between gap-2">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <h3 className="text-sm font-semibold text-slate-900">
                     AI summary
                   </h3>
                   <Button
-                    size="sm"
                     variant="secondary"
+                    className="w-full sm:w-auto"
                     loading={summaryLoading}
                     onClick={() => void generateSummary()}
                   >
@@ -119,7 +173,7 @@ export function DetailsDrawer({
                 </div>
                 {detail.aiSummary ? (
                   <>
-                    <p className="mt-2 whitespace-pre-line text-sm text-slate-700">
+                    <p className="mt-2 whitespace-pre-line break-words text-sm text-slate-700">
                       {detail.aiSummary}
                     </p>
                     {detail.aiSummaryGeneratedAt && (
@@ -132,7 +186,7 @@ export function DetailsDrawer({
                     )}
                   </>
                 ) : (
-                  <p className="mt-2 text-sm text-slate-400">
+                  <p className="mt-2 text-sm text-slate-500">
                     No summary yet. Generate one for a quick recap of this
                     conversation.
                   </p>

@@ -1,9 +1,60 @@
 'use client';
 
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { Button, Spinner } from '@/components/ui';
+import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Alert, Button, Spinner } from '@/components/ui';
 import type { Message } from '@/lib/types';
 import { MessageBubble } from './MessageBubble';
+import { MessageSkeletons } from './ThreadPanelStates';
+
+function startOfDay(d: Date): number {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+}
+
+/** "Today" / "Yesterday" / weekday / full date — never a raw ISO string. */
+function dayLabel(iso: string): string {
+  const date = new Date(iso);
+  const days = Math.round((startOfDay(new Date()) - startOfDay(date)) / 86_400_000);
+  if (days <= 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  if (days < 7) return date.toLocaleDateString(undefined, { weekday: 'long' });
+  return date.toLocaleDateString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
+type ThreadRow =
+  | { kind: 'day'; key: string; label: string }
+  | { kind: 'message'; key: string; message: Message };
+
+/** Interleaves a date separator whenever the calendar day changes. */
+function buildRows(messages: Message[]): ThreadRow[] {
+  const rows: ThreadRow[] = [];
+  let currentDay = '';
+  for (const message of messages) {
+    const stamp = message.sentAt ?? message.createdAt;
+    const day = new Date(stamp).toDateString();
+    if (day !== currentDay) {
+      currentDay = day;
+      rows.push({ kind: 'day', key: `day-${day}`, label: dayLabel(stamp) });
+    }
+    rows.push({ kind: 'message', key: message.id, message });
+  }
+  return rows;
+}
+
+function DaySeparator({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-3 py-1">
+      <span aria-hidden="true" className="h-px flex-1 bg-slate-200" />
+      <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400">
+        {label}
+      </span>
+      <span aria-hidden="true" className="h-px flex-1 bg-slate-200" />
+    </div>
+  );
+}
 
 /**
  * Scrollable message thread with correct chat behavior:
@@ -12,6 +63,7 @@ import { MessageBubble } from './MessageBubble';
  * - Auto-scrolls on new messages only if the user is already near the bottom;
  *   otherwise shows a "New messages" button.
  * - A "Load older messages" control stays pinned at the top of the area.
+ * - Date separators mark each new calendar day.
  */
 export function MessageThread({
   conversationId,
@@ -19,7 +71,9 @@ export function MessageThread({
   hasMore,
   loadingOlder,
   loading,
+  error,
   onLoadOlder,
+  onRetry,
   composer,
 }: {
   conversationId: string;
@@ -27,7 +81,10 @@ export function MessageThread({
   hasMore: boolean;
   loadingOlder: boolean;
   loading: boolean;
+  /** Message-load failure; shown inline with a retry (§4.2). */
+  error?: string;
   onLoadOlder: () => void;
+  onRetry: () => void;
   composer: ReactNode;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -38,6 +95,8 @@ export function MessageThread({
   const lastIdRef = useRef<string | null>(null);
   const nearBottomRef = useRef(true);
   const pendingOlderHeight = useRef<number | null>(null);
+
+  const rows = useMemo(() => buildRows(messages), [messages]);
 
   function isNearBottom(): boolean {
     const el = scrollRef.current;
@@ -105,7 +164,7 @@ export function MessageThread({
             <button
               type="button"
               onClick={loadOlder}
-              className="text-xs font-medium text-slate-600 underline-offset-2 hover:underline"
+              className="rounded text-xs font-medium text-slate-600 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900"
             >
               ↑ Load older messages
             </button>
@@ -119,16 +178,37 @@ export function MessageThread({
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="flex-1 space-y-3 overflow-y-auto px-4 py-4"
+        role="log"
+        aria-label="Conversation messages"
+        className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-3 py-4 sm:px-4"
       >
-        {loading && messages.length === 0 ? (
-          <p className="py-10 text-center text-sm text-slate-400">Loading messages…</p>
-        ) : messages.length === 0 ? (
-          <p className="py-10 text-center text-sm text-slate-400">
-            No messages yet. Start the conversation below.
-          </p>
+        {loading && !hasMessages ? (
+          <MessageSkeletons />
+        ) : error && !hasMessages ? (
+          <Alert variant="error">
+            <p>{error}</p>
+            <div className="mt-3">
+              <Button variant="secondary" onClick={onRetry}>
+                Try again
+              </Button>
+            </div>
+          </Alert>
+        ) : !hasMessages ? (
+          <div className="flex h-full flex-col items-center justify-center gap-1 px-4 text-center">
+            <p className="text-sm font-medium text-slate-800">No messages yet</p>
+            <p className="max-w-xs text-sm text-slate-500">
+              Write the first reply below — it is delivered on the customer&apos;s
+              own channel.
+            </p>
+          </div>
         ) : (
-          messages.map((m) => <MessageBubble key={m.id} message={m} />)
+          rows.map((row) =>
+            row.kind === 'day' ? (
+              <DaySeparator key={row.key} label={row.label} />
+            ) : (
+              <MessageBubble key={row.key} message={row.message} />
+            ),
+          )
         )}
       </div>
 
@@ -136,7 +216,7 @@ export function MessageThread({
         <button
           type="button"
           onClick={scrollToBottom}
-          className="absolute bottom-28 left-1/2 -translate-x-1/2 rounded-full bg-slate-900 px-3 py-1.5 text-xs font-medium text-white shadow-md"
+          className="absolute bottom-32 left-1/2 -translate-x-1/2 rounded-full bg-slate-900 px-3 py-2 text-xs font-medium text-white shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2"
         >
           New messages ↓
         </button>

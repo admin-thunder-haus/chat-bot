@@ -10,9 +10,11 @@ import {
   Badge,
   Button,
   ConfirmDialog,
+  DataList,
   EmptyState,
-  Skeleton,
+  SectionCard,
   Toggle,
+  type DataListColumn,
 } from '@/components/ui';
 
 const MAX_FILES = 5;
@@ -23,9 +25,11 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/** READY / PROCESSING / FAILED as words a person can read (§8). */
 function StatusBadge({ doc }: { doc: KnowledgeDocument }) {
   if (doc.status === 'READY') return <Badge color="green">Ready</Badge>;
-  if (doc.status === 'PROCESSING') return <Badge color="amber">Processing</Badge>;
+  if (doc.status === 'PROCESSING')
+    return <Badge color="amber">Processing</Badge>;
   return (
     <span title={doc.failureReason ?? undefined}>
       <Badge color="red">Failed</Badge>
@@ -53,6 +57,7 @@ export function DocumentsPanel({ readOnly }: { readOnly: boolean }) {
   const replaceTargetRef = useRef<KnowledgeDocument | null>(null);
 
   const load = useCallback(async () => {
+    setLoading(true);
     setError('');
     try {
       const res = await documentsApi.list();
@@ -70,9 +75,11 @@ export function DocumentsPanel({ readOnly }: { readOnly: boolean }) {
 
   function validate(files: File[]): string | null {
     if (files.length === 0) return null;
-    if (files.length > MAX_FILES) return `You can upload up to ${MAX_FILES} PDFs at once.`;
+    if (files.length > MAX_FILES)
+      return `You can upload up to ${MAX_FILES} PDFs at once.`;
     for (const f of files) {
-      if (f.size > MAX_SIZE_BYTES) return `"${f.name}" exceeds the 10 MB limit.`;
+      if (f.size > MAX_SIZE_BYTES)
+        return `"${f.name}" exceeds the 10 MB limit.`;
     }
     return null;
   }
@@ -126,7 +133,10 @@ export function DocumentsPanel({ readOnly }: { readOnly: boolean }) {
     try {
       const { document } = await documentsApi.setStatus(doc.id, !doc.isActive);
       setDocs((prev) => prev.map((d) => (d.id === doc.id ? document : d)));
-      notify(document.isActive ? 'Document activated' : 'Document deactivated', 'success');
+      notify(
+        document.isActive ? 'Document activated' : 'Document deactivated',
+        'success',
+      );
     } catch (err) {
       notify(parseApiError(err).message, 'error');
     } finally {
@@ -160,161 +170,208 @@ export function DocumentsPanel({ readOnly }: { readOnly: boolean }) {
     }
   }
 
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <div>
-          <h2 className="text-sm font-semibold text-slate-900">Documents (PDF)</h2>
-          <p className="mt-0.5 text-sm text-slate-500">
-            Uploaded PDFs are split into searchable chunks the assistant can cite.
+  const columns: DataListColumn<KnowledgeDocument>[] = [
+    {
+      key: 'file',
+      header: 'File',
+      primary: true,
+      cell: (doc) => (
+        <div className="min-w-0">
+          <p
+            className="break-words font-medium text-slate-900"
+            title={doc.fileName}
+          >
+            {doc.fileName}
           </p>
+          {doc.status === 'FAILED' && doc.failureReason && (
+            <p className="mt-0.5 text-xs text-red-600">{doc.failureReason}</p>
+          )}
         </div>
-        {!readOnly && (
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      cell: (doc) => <StatusBadge doc={doc} />,
+    },
+    {
+      key: 'size',
+      header: 'Size',
+      className: 'tabular-nums',
+      cell: (doc) => formatSize(doc.sizeBytes),
+    },
+    {
+      key: 'pages',
+      header: 'Pages',
+      className: 'tabular-nums',
+      cell: (doc) => doc.pageCount ?? '—',
+    },
+    {
+      key: 'chunks',
+      header: 'Chunks',
+      className: 'tabular-nums',
+      cell: (doc) => doc.chunkCount,
+    },
+    {
+      key: 'active',
+      header: 'In use',
+      cell: (doc) =>
+        readOnly ? (
+          doc.isActive ? (
+            <Badge color="green">Active</Badge>
+          ) : (
+            <Badge color="slate">Inactive</Badge>
+          )
+        ) : (
+          <span className="inline-flex items-center gap-2">
+            <Toggle
+              checked={doc.isActive}
+              disabled={busyId === doc.id}
+              label={`${doc.isActive ? 'Deactivate' : 'Activate'} ${doc.fileName}`}
+              onChange={() => void toggleActive(doc)}
+            />
+            <span className="text-xs text-slate-500">
+              {doc.isActive ? 'Active' : 'Inactive'}
+            </span>
+          </span>
+        ),
+    },
+  ];
+
+  return (
+    <SectionCard
+      title="PDF documents"
+      description="Uploaded PDFs are split into searchable chunks the assistant can quote and cite."
+      padded={false}
+      actions={
+        !readOnly ? (
           <Button
             loading={uploading}
+            loadingLabel="Uploading…"
             onClick={() => uploadInputRef.current?.click()}
           >
             Upload PDFs
           </Button>
-        )}
-      </div>
-
-      {/* Hidden pickers */}
-      <input
-        ref={uploadInputRef}
-        type="file"
-        accept=".pdf"
-        multiple
-        className="hidden"
-        aria-label="Upload PDF documents"
-        onChange={(e) => {
-          void handleUpload(e.target.files);
-          e.target.value = '';
-        }}
-      />
-      <input
-        ref={replaceInputRef}
-        type="file"
-        accept=".pdf"
-        className="hidden"
-        aria-label="Replace PDF document"
-        onChange={(e) => {
-          void handleReplace(e.target.files);
-          e.target.value = '';
-        }}
-      />
-
-      {error && (
-        <div className="mb-3">
-          <Alert message={error} />
-        </div>
-      )}
-
-      {loading ? (
-        <div className="space-y-2">
-          {Array.from({ length: 2 }).map((_, i) => (
-            <Skeleton key={i} className="h-14" />
-          ))}
-        </div>
-      ) : docs.length === 0 ? (
-        <EmptyState
-          title="No documents yet"
-          description={
-            readOnly
-              ? 'No PDF documents have been uploaded.'
-              : 'Upload up to 5 PDFs (max 10 MB each) to enrich the assistant.'
-          }
-          action={
-            !readOnly ? (
-              <Button onClick={() => uploadInputRef.current?.click()}>
-                Upload PDFs
-              </Button>
-            ) : undefined
-          }
+        ) : undefined
+      }
+    >
+      <div className="space-y-4 p-4 sm:p-6">
+        {/* Hidden pickers */}
+        <input
+          ref={uploadInputRef}
+          type="file"
+          accept=".pdf"
+          multiple
+          className="hidden"
+          aria-label="Upload PDF documents"
+          onChange={(e) => {
+            void handleUpload(e.target.files);
+            e.target.value = '';
+          }}
         />
-      ) : (
-        <ul className="divide-y divide-slate-100">
-          {docs.map((doc) => {
+        <input
+          ref={replaceInputRef}
+          type="file"
+          accept=".pdf"
+          className="hidden"
+          aria-label="Replace PDF document"
+          onChange={(e) => {
+            void handleReplace(e.target.files);
+            e.target.value = '';
+          }}
+        />
+
+        {error && (
+          <Alert>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <span>{error} The document list could not be loaded.</span>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => void load()}
+                className="sm:shrink-0"
+              >
+                Try again
+              </Button>
+            </div>
+          </Alert>
+        )}
+
+        <DataList
+          bare
+          items={docs}
+          loading={loading}
+          skeletonRows={2}
+          keyOf={(doc) => doc.id}
+          columns={columns}
+          caption="Knowledge base PDF documents"
+          actions={(doc) => {
             const busy = busyId === doc.id;
             return (
-              <li key={doc.id} className="flex flex-wrap items-center gap-3 py-3">
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="truncate text-sm font-medium text-slate-900">
-                      {doc.fileName}
-                    </p>
-                    <StatusBadge doc={doc} />
-                  </div>
-                  <p className="mt-0.5 text-xs text-slate-400">
-                    {formatSize(doc.sizeBytes)}
-                    {doc.pageCount !== null && ` · ${doc.pageCount} page${doc.pageCount === 1 ? '' : 's'}`}
-                    {` · ${doc.chunkCount} chunk${doc.chunkCount === 1 ? '' : 's'}`}
-                  </p>
-                  {doc.status === 'FAILED' && doc.failureReason && (
-                    <p className="mt-0.5 text-xs text-red-600">{doc.failureReason}</p>
-                  )}
-                </div>
-                <div className="flex shrink-0 items-center gap-1.5">
-                  {!readOnly && (
-                    <span className="mr-1 flex items-center gap-1.5">
-                      <Toggle
-                        checked={doc.isActive}
-                        disabled={busy}
-                        label={`${doc.isActive ? 'Deactivate' : 'Activate'} ${doc.fileName}`}
-                        onChange={() => void toggleActive(doc)}
-                      />
-                      <span className="text-xs text-slate-500">
-                        {doc.isActive ? 'Active' : 'Inactive'}
-                      </span>
-                    </span>
-                  )}
-                  {!readOnly && (
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      disabled={busy}
-                      onClick={() => {
-                        replaceTargetRef.current = doc;
-                        replaceInputRef.current?.click();
-                      }}
-                    >
-                      Replace
-                    </Button>
-                  )}
+              <>
+                {!readOnly && (
                   <Button
                     size="sm"
                     variant="secondary"
                     disabled={busy}
-                    onClick={() => void download(doc)}
+                    onClick={() => {
+                      replaceTargetRef.current = doc;
+                      replaceInputRef.current?.click();
+                    }}
                   >
-                    Download
+                    Replace
                   </Button>
-                  {!readOnly && (
-                    <Button
-                      size="sm"
-                      variant="danger"
-                      disabled={busy}
-                      onClick={() => setDeleting(doc)}
-                    >
-                      Delete
-                    </Button>
-                  )}
-                </div>
-              </li>
+                )}
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={() => void download(doc)}
+                >
+                  Download
+                </Button>
+                {!readOnly && (
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    disabled={busy}
+                    onClick={() => setDeleting(doc)}
+                  >
+                    Delete
+                  </Button>
+                )}
+              </>
             );
-          })}
-        </ul>
-      )}
+          }}
+          empty={
+            <EmptyState
+              title="No documents yet"
+              description={
+                readOnly
+                  ? 'PDFs your team uploads will be listed here.'
+                  : 'Upload up to 5 PDFs at a time (10 MB each) — price lists, policies, manuals — and the assistant can quote from them.'
+              }
+              action={
+                !readOnly ? (
+                  <Button onClick={() => uploadInputRef.current?.click()}>
+                    Upload PDFs
+                  </Button>
+                ) : undefined
+              }
+            />
+          }
+        />
+      </div>
 
       <ConfirmDialog
         open={deleting !== null}
         title="Delete document"
         message={`Delete "${deleting?.fileName}"? Its extracted chunks will no longer be available to the assistant. This cannot be undone.`}
-        confirmLabel="Delete"
+        confirmLabel="Delete document"
         loading={deleteLoading}
         onConfirm={confirmDelete}
         onCancel={() => setDeleting(null)}
       />
-    </div>
+    </SectionCard>
   );
 }

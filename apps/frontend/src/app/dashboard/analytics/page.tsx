@@ -1,11 +1,19 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { analyticsApi, type AnalyticsRange } from '@/lib/resources';
 import { parseApiError } from '@/lib/form';
 import { channelLabel } from '@/lib/format';
 import type { AIAnalytics } from '@/lib/types';
-import { Alert, Badge, Button, PageHeader, Panel, Skeleton } from '@/components/ui';
+import {
+  Alert,
+  Badge,
+  Button,
+  PageHeader,
+  SectionCard,
+  Skeleton,
+  StatCard,
+} from '@/components/ui';
 
 const RANGES: AnalyticsRange[] = [7, 30, 90];
 
@@ -15,20 +23,12 @@ const REASON_LABELS: Record<string, string> = {
   keyword: 'Keyword match',
 };
 
-function StatCard({ label, value }: { label: string; value: string | number }) {
-  return (
-    <Panel>
-      <p className="text-xs uppercase tracking-wide text-slate-400">{label}</p>
-      <p className="mt-2 text-2xl font-semibold text-slate-900">{value}</p>
-    </Panel>
-  );
-}
-
 function percent(rate: number, total: number): string {
   if (total === 0) return '—';
   return `${Math.round(rate * 100)}%`;
 }
 
+/** `IN_PROGRESS` → `In progress` — never show a raw enum to a user (§8). */
 function prettyLabel(raw: string): string {
   return raw
     .toLowerCase()
@@ -36,21 +36,22 @@ function prettyLabel(raw: string): string {
     .replace(/^./, (c) => c.toUpperCase());
 }
 
-/** Simple named-count list panel with count badges. */
+type CountItem = { key: string; label: string; count: number };
+
+/** Named-count list with count badges — one card per distribution. */
 function CountList({
   title,
   items,
   empty = 'No data yet.',
 }: {
   title: string;
-  items: { key: string; label: string; count: number }[];
+  items: CountItem[];
   empty?: string;
 }) {
   return (
-    <Panel>
-      <p className="mb-3 text-sm font-semibold text-slate-900">{title}</p>
+    <SectionCard title={title}>
       {items.length === 0 ? (
-        <p className="text-sm text-slate-400">{empty}</p>
+        <p className="text-sm text-slate-500">{empty}</p>
       ) : (
         <ul className="space-y-2">
           {items.map((item) => (
@@ -66,54 +67,66 @@ function CountList({
           ))}
         </ul>
       )}
-    </Panel>
+    </SectionCard>
   );
 }
 
-/** Pure-CSS per-day bar chart: flex row of proportional-height bars. */
+/**
+ * Pure-CSS per-day bar chart. The bar track keeps a minimum bar width and
+ * scrolls inside its own container, so a 90-day range never widens the page
+ * on a phone (§5).
+ */
 function VolumeChart({ byDay }: { byDay: { date: string; count: number }[] }) {
   const max = Math.max(...byDay.map((d) => d.count), 1);
-  // Sparse date labels: aim for ~8 across the range.
-  const labelEvery = Math.max(1, Math.ceil(byDay.length / 8));
+  // Sparse date labels: aim for ~6 across the range so they never collide.
+  const labelEvery = Math.max(1, Math.ceil(byDay.length / 6));
   const total = byDay.reduce((sum, d) => sum + d.count, 0);
 
   return (
-    <Panel>
-      <p className="mb-3 text-sm font-semibold text-slate-900">
-        Conversations per day
-      </p>
+    <SectionCard
+      title="Conversations per day"
+      description={total > 0 ? `${total} in this period` : undefined}
+    >
       {total === 0 ? (
-        <p className="text-sm text-slate-400">
+        <p className="text-sm text-slate-500">
           No conversations in this period.
         </p>
       ) : (
-        <>
-          <div className="flex h-32 items-end gap-px">
+        <div className="overflow-x-auto pb-1">
+          <div className="flex h-32 min-w-full items-end gap-px">
             {byDay.map((d) => (
               <div
                 key={d.date}
                 title={`${d.date}: ${d.count}`}
-                className="flex flex-1 flex-col justify-end"
+                className="flex min-w-[5px] flex-1 flex-col justify-end"
               >
                 <div
-                  className={`w-full rounded-t ${d.count > 0 ? 'bg-slate-900' : 'bg-slate-100'}`}
+                  className={`w-full rounded-t ${
+                    d.count > 0 ? 'bg-slate-900' : 'bg-slate-100'
+                  }`}
                   style={{
-                    height: d.count > 0 ? `${Math.max((d.count / max) * 100, 4)}%` : '2px',
+                    height:
+                      d.count > 0
+                        ? `${Math.max((d.count / max) * 100, 4)}%`
+                        : '2px',
                   }}
                 />
               </div>
             ))}
           </div>
-          <div className="mt-1 flex gap-px text-[10px] text-slate-400">
+          <div className="mt-1 flex min-w-full gap-px text-[10px] tabular-nums text-slate-400">
             {byDay.map((d, i) => (
-              <div key={d.date} className="flex-1 overflow-visible text-center">
+              <div
+                key={d.date}
+                className="min-w-[5px] flex-1 whitespace-nowrap text-center"
+              >
                 {i % labelEvery === 0 ? d.date.slice(5) : ''}
               </div>
             ))}
           </div>
-        </>
+        </div>
       )}
-    </Panel>
+    </SectionCard>
   );
 }
 
@@ -123,32 +136,39 @@ export default function AnalyticsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    let active = true;
+  const load = useCallback(async () => {
     setLoading(true);
     setError('');
-    analyticsApi
-      .ai(days)
-      .then((res) => active && setData(res))
-      .catch((err) => active && setError(parseApiError(err).message))
-      .finally(() => active && setLoading(false));
-    return () => {
-      active = false;
-    };
+    try {
+      setData(await analyticsApi.ai(days));
+    } catch (err) {
+      setError(parseApiError(err).message);
+    } finally {
+      setLoading(false);
+    }
   }, [days]);
 
+  useEffect(() => {
+    void load();
+  }, [load]);
+
   return (
-    <div>
+    <div className="mx-auto max-w-6xl">
       <PageHeader
         title="Analytics"
-        description="How conversations and the AI assistant performed."
+        description="How conversations and the AI assistant performed over the selected period."
         actions={
-          <div className="flex gap-1">
+          <div
+            role="group"
+            aria-label="Reporting period"
+            className="flex w-full gap-2 sm:w-auto"
+          >
             {RANGES.map((r) => (
               <Button
                 key={r}
-                size="sm"
                 variant={days === r ? 'primary' : 'secondary'}
+                aria-pressed={days === r}
+                className="flex-1 sm:flex-none"
                 onClick={() => setDays(r)}
               >
                 {r} days
@@ -158,148 +178,178 @@ export default function AnalyticsPage() {
         }
       />
 
-      {error && (
-        <div className="mb-4">
-          <Alert message={error} />
-        </div>
-      )}
+      <div className="space-y-6">
+        {error && (
+          <Alert>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <span>{error} Nothing was loaded for this period.</span>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => void load()}
+                className="sm:shrink-0"
+              >
+                Try again
+              </Button>
+            </div>
+          </Alert>
+        )}
 
-      {loading || !data ? (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <Skeleton key={i} className="h-24" />
-          ))}
-        </div>
-      ) : (
-        <>
-          {/* Stat cards */}
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-            <StatCard label="Conversations" value={data.conversationVolume.total} />
-            <StatCard
-              label="AI success rate"
-              value={percent(data.aiGenerations.successRate, data.aiGenerations.total)}
-            />
-            <StatCard
-              label="Handoff rate"
-              value={percent(data.handoff.rate, data.conversationVolume.total)}
-            />
-            <StatCard
-              label="Auto replies sent"
-              value={data.aiGenerations.autoRepliesSent}
-            />
-            <StatCard label="Resolved" value={data.resolution.resolvedInRange} />
-            <StatCard
-              label="Avg resolution"
-              value={
-                data.resolution.avgResolutionHours === null
-                  ? '—'
-                  : `${data.resolution.avgResolutionHours.toFixed(1)} h`
-              }
-            />
-          </div>
+        {loading ? (
+          <>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Skeleton key={i} className="h-[104px] rounded-xl" />
+              ))}
+            </div>
+            <Skeleton className="h-56 rounded-xl" />
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Skeleton key={i} className="h-40 rounded-xl" />
+              ))}
+            </div>
+          </>
+        ) : !data ? null : (
+          <>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+              <StatCard
+                label="Conversations"
+                value={data.conversationVolume.total}
+              />
+              <StatCard
+                label="AI success rate"
+                value={percent(
+                  data.aiGenerations.successRate,
+                  data.aiGenerations.total,
+                )}
+                hint={`${data.aiGenerations.total} generations`}
+              />
+              <StatCard
+                label="Handoff rate"
+                value={percent(
+                  data.handoff.rate,
+                  data.conversationVolume.total,
+                )}
+                hint="Sent to a human"
+              />
+              <StatCard
+                label="Auto replies sent"
+                value={data.aiGenerations.autoRepliesSent}
+              />
+              <StatCard
+                label="Resolved"
+                value={data.resolution.resolvedInRange}
+              />
+              <StatCard
+                label="Avg resolution"
+                value={
+                  data.resolution.avgResolutionHours === null
+                    ? '—'
+                    : `${data.resolution.avgResolutionHours.toFixed(1)} h`
+                }
+                hint="From first message to resolved"
+              />
+            </div>
 
-          {/* Per-day volume */}
-          <div className="mt-6">
             <VolumeChart byDay={data.conversationVolume.byDay} />
-          </div>
 
-          {/* Distributions */}
-          <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <CountList
-              title="By channel"
-              items={data.conversationVolume.byChannel.map((c) => ({
-                key: c.channelType,
-                label: channelLabel(c.channelType),
-                count: c.count,
-              }))}
-            />
-            <CountList
-              title="By status"
-              items={data.resolution.byStatus.map((s) => ({
-                key: s.status,
-                label: prettyLabel(s.status),
-                count: s.count,
-              }))}
-            />
-            <CountList
-              title="Handoff reasons"
-              items={data.handoff.byReason.map((r) => ({
-                key: r.reason,
-                label: REASON_LABELS[r.reason] ?? prettyLabel(r.reason),
-                count: r.count,
-              }))}
-              empty="No handoffs in this period."
-            />
-            <CountList
-              title="AI generations by type"
-              items={data.aiGenerations.byType.map((t) => ({
-                key: t.type,
-                label: prettyLabel(t.type),
-                count: t.count,
-              }))}
-              empty="No AI activity in this period."
-            />
-          </div>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <CountList
+                title="By channel"
+                items={data.conversationVolume.byChannel.map((c) => ({
+                  key: c.channelType,
+                  label: channelLabel(c.channelType),
+                  count: c.count,
+                }))}
+              />
+              <CountList
+                title="By status"
+                items={data.resolution.byStatus.map((s) => ({
+                  key: s.status,
+                  label: prettyLabel(s.status),
+                  count: s.count,
+                }))}
+              />
+              <CountList
+                title="Handoff reasons"
+                items={data.handoff.byReason.map((r) => ({
+                  key: r.reason,
+                  label: REASON_LABELS[r.reason] ?? prettyLabel(r.reason),
+                  count: r.count,
+                }))}
+                empty="No handoffs in this period."
+              />
+              <CountList
+                title="AI generations by type"
+                items={data.aiGenerations.byType.map((t) => ({
+                  key: t.type,
+                  label: prettyLabel(t.type),
+                  count: t.count,
+                }))}
+                empty="No AI activity in this period."
+              />
+            </div>
 
-          {/* Top content */}
-          <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <CountList
-              title="Top FAQs"
-              items={data.topFaqs.map((f) => ({
-                key: f.id,
-                label: f.question,
-                count: f.count,
-              }))}
-              empty="No FAQs referenced yet."
-            />
-            <CountList
-              title="Top services"
-              items={data.topServices.map((s) => ({
-                key: s.id,
-                label: s.name,
-                count: s.count,
-              }))}
-              empty="No services referenced yet."
-            />
-            <CountList
-              title="Top products"
-              items={data.topProducts.map((p) => ({
-                key: p.id,
-                label: p.name,
-                count: p.count,
-              }))}
-              empty="No products referenced yet."
-            />
-            <CountList
-              title="Top documents"
-              items={data.topDocuments.map((d) => ({
-                key: d.id,
-                label: d.fileName,
-                count: d.count,
-              }))}
-              empty="No documents referenced yet."
-            />
-          </div>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <CountList
+                title="Top FAQs"
+                items={data.topFaqs.map((f) => ({
+                  key: f.id,
+                  label: f.question,
+                  count: f.count,
+                }))}
+                empty="No FAQs referenced yet."
+              />
+              <CountList
+                title="Top services"
+                items={data.topServices.map((s) => ({
+                  key: s.id,
+                  label: s.name,
+                  count: s.count,
+                }))}
+                empty="No services referenced yet."
+              />
+              <CountList
+                title="Top products"
+                items={data.topProducts.map((p) => ({
+                  key: p.id,
+                  label: p.name,
+                  count: p.count,
+                }))}
+                empty="No products referenced yet."
+              />
+              <CountList
+                title="Top documents"
+                items={data.topDocuments.map((d) => ({
+                  key: d.id,
+                  label: d.fileName,
+                  count: d.count,
+                }))}
+                empty="No documents referenced yet."
+              />
+            </div>
 
-          {/* Languages */}
-          <Panel className="mt-6">
-            <p className="mb-3 text-sm font-semibold text-slate-900">
-              Detected customer languages
-            </p>
-            {data.languages.length === 0 ? (
-              <p className="text-sm text-slate-400">No languages detected yet.</p>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {data.languages.map((l) => (
-                  <Badge key={l.code} color="blue">
-                    {l.code.toUpperCase()} · {l.count}
-                  </Badge>
-                ))}
-              </div>
-            )}
-          </Panel>
-        </>
-      )}
+            <SectionCard
+              title="Detected customer languages"
+              description="Languages the assistant detected in inbound messages."
+            >
+              {data.languages.length === 0 ? (
+                <p className="text-sm text-slate-500">
+                  No languages detected yet.
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {data.languages.map((l) => (
+                    <Badge key={l.code} color="blue">
+                      {l.code.toUpperCase()} · {l.count}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+            </SectionCard>
+          </>
+        )}
+      </div>
     </div>
   );
 }

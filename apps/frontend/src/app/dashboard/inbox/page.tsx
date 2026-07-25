@@ -48,6 +48,12 @@ import { MessageComposer } from '@/components/inbox/MessageComposer';
 import { DetailsDrawer } from '@/components/inbox/DetailsDrawer';
 import { SuggestionPanel } from '@/components/inbox/SuggestionPanel';
 import { NewConversationModal } from '@/components/inbox/NewConversationModal';
+import { AutoReplyToggle } from '@/components/inbox/AutoReplyToggle';
+import {
+  NoConversationSelected,
+  ThreadError,
+  ThreadLoading,
+} from '@/components/inbox/ThreadPanelStates';
 import { AIHandoffBanner } from '@/components/ai/AIHandoffBanner';
 import { DEFAULT_FILTERS, type FilterState } from '@/components/inbox/filter-types';
 
@@ -111,14 +117,31 @@ function InboxInner() {
 
   // Active conversation. `?conversationId=` is the in-app URL the inbox keeps in
   // sync; `?conversation=` is the shorter deep link used by notifications.
-  const [activeId, setActiveId] = useState<string | null>(
-    searchParams.get('conversationId') ?? searchParams.get('conversation'),
-  );
+  // Reading it during the first render means a deep link lands straight on the
+  // thread pane — on a phone the list is never shown first.
+  const urlConversationId =
+    searchParams.get('conversationId') ?? searchParams.get('conversation');
+  const [activeId, setActiveId] = useState<string | null>(urlConversationId);
   const activeIdRef = useRef<string | null>(activeId);
   activeIdRef.current = activeId;
 
+  // MOBILE NAVIGATION MODEL
+  // Below `lg` exactly one pane is on screen and `activeId` decides which:
+  // null -> conversation list, set -> message thread. Opening a conversation
+  // PUSHES `?conversationId=`, so the browser/Android back button pops back to
+  // the plain inbox URL; this effect mirrors that pop into `activeId` and the
+  // list reappears. Nothing else about routing changes.
+  const syncedUrlIdRef = useRef<string | null>(urlConversationId);
+  useEffect(() => {
+    if (syncedUrlIdRef.current === urlConversationId) return;
+    syncedUrlIdRef.current = urlConversationId;
+    setActiveId(urlConversationId);
+  }, [urlConversationId]);
+
   const [detail, setDetail] = useState<ConversationDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  // Thread-level load failure, rendered inline with a retry (design system §4).
+  const [threadError, setThreadError] = useState('');
 
   // Messages (cursor pagination).
   const [messages, setMessages] = useState<Message[]>([]);
@@ -218,8 +241,12 @@ function InboxInner() {
       setSuggestLoading(false);
       setMsgCursor(null);
       setMsgHasMore(false);
+      setThreadError('');
       setDetailLoading(true);
       setMsgLoading(true);
+      // Tracks whether the thread already rendered, so a late failure (mark-read)
+      // is a toast instead of throwing away a conversation the agent can read.
+      let rendered = false;
       try {
         const [d, m, n, a] = await Promise.all([
           conversationsApi.get(id),
@@ -234,6 +261,7 @@ function InboxInner() {
         setMsgHasMore(m.hasMore);
         setNotes(n.notes);
         setActivities(a.activities);
+        rendered = true;
         if (d.conversation.unreadCount > 0) {
           await conversationsApi.markRead(id);
           if (activeIdRef.current === id) {
@@ -242,7 +270,10 @@ function InboxInner() {
           }
         }
       } catch (err) {
-        if (activeIdRef.current === id) notify(parseApiError(err).message, 'error');
+        if (activeIdRef.current !== id) return;
+        const message = parseApiError(err).message;
+        if (rendered) notify(message, 'error');
+        else setThreadError(message);
       } finally {
         if (activeIdRef.current === id) {
           setDetailLoading(false);
@@ -351,7 +382,18 @@ function InboxInner() {
 
   function selectConversation(id: string) {
     setActiveId(id);
-    router.replace(`/dashboard/inbox?conversationId=${id}`, { scroll: false });
+    syncedUrlIdRef.current = id;
+    // PUSH (not replace): the list URL stays in history, so browser/Android back
+    // closes the thread and returns to the list on a phone.
+    router.push(`/dashboard/inbox?conversationId=${id}`, { scroll: false });
+  }
+
+  /** Mobile "back to conversations": closes the thread without growing history. */
+  function closeConversation() {
+    setActiveId(null);
+    syncedUrlIdRef.current = null;
+    setDetailsOpen(false);
+    router.replace('/dashboard/inbox', { scroll: false });
   }
 
   async function loadOlder() {
@@ -672,24 +714,45 @@ function InboxInner() {
       ? assignableUsers.filter((u) => u.id === user.id)
       : assignableUsers;
 
+  // Drives the list empty state copy: "no matches" vs "nothing here yet".
+  const filtersActive =
+    debouncedSearch.trim().length > 0 ||
+    filters.status !== '' ||
+    filters.priority !== '' ||
+    filters.channelType !== '' ||
+    filters.tagId !== '' ||
+    filters.assignment !== 'all' ||
+    filters.unreadOnly ||
+    filters.archived;
+
   return (
     <>
-      <div className="h-[calc(100vh-8rem)] overflow-hidden rounded-xl border border-slate-200 bg-white">
+      {/* Edge-to-edge on phones (the shell's page padding is cancelled) so the
+          thread gets every pixel; a framed card from `sm` up. */}
+      <div className="-mx-4 h-[calc(100dvh-8rem)] overflow-hidden border-y border-slate-200 bg-white sm:mx-0 sm:rounded-xl sm:border lg:h-[calc(100vh-8rem)]">
         <div className="flex h-full">
-          {/* LEFT: conversation list (own scroll) */}
+          {/* LEFT PANE: conversation list. Below `lg` it owns the whole screen
+              until a conversation is opened. */}
           <aside
-            className={`${activeId ? 'hidden md:flex' : 'flex'} h-full w-full min-h-0 flex-col md:w-80 md:shrink-0 md:border-r md:border-slate-200`}
+            className={`${activeId ? 'hidden lg:flex' : 'flex'} h-full min-h-0 w-full flex-col lg:w-80 lg:shrink-0 lg:border-r lg:border-slate-200 xl:w-96`}
           >
-            <div className="flex items-center justify-between px-3 py-2">
-              <span className="text-sm font-semibold text-slate-900">Inbox</span>
-              <div className="flex items-center gap-1">
-                <Button size="sm" variant="ghost" onClick={() => void loadList(1, false)}>
+            <div className="flex shrink-0 items-center justify-between gap-2 px-3 py-2">
+              <h2 className="flex min-w-0 items-baseline gap-2">
+                <span className="text-sm font-semibold text-slate-900">Inbox</span>
+                {listPagination && (
+                  <span className="text-xs tabular-nums text-slate-400">
+                    {listPagination.total}
+                    <span className="sr-only"> conversations</span>
+                  </span>
+                )}
+              </h2>
+              <div className="flex shrink-0 items-center gap-1">
+                {/* `md` (not `sm`) so both stay 40px tap targets on a phone. */}
+                <Button variant="ghost" onClick={() => void loadList(1, false)}>
                   Refresh
                 </Button>
                 {writable && (
-                  <Button size="sm" onClick={() => setNewOpen(true)}>
-                    New
-                  </Button>
+                  <Button onClick={() => setNewOpen(true)}>New</Button>
                 )}
               </div>
             </div>
@@ -705,24 +768,27 @@ function InboxInner() {
                 error={listError}
                 pagination={listPagination}
                 activeId={activeId}
+                filtered={filtersActive}
                 onSelect={selectConversation}
                 onLoadMore={() => void loadList(listPage + 1, true)}
+                onRetry={() => void loadList(1, false)}
               />
             </div>
           </aside>
 
-          {/* CENTER: message area (own scroll, composer fixed at bottom) */}
+          {/* RIGHT PANE: message thread. Below `lg` it replaces the list. */}
           <section
-            className={`${activeId ? 'flex' : 'hidden md:flex'} h-full min-h-0 min-w-0 flex-1 flex-col`}
+            className={`${activeId ? 'flex' : 'hidden lg:flex'} h-full min-h-0 min-w-0 flex-1 flex-col`}
           >
             {!activeId ? (
-              <div className="flex flex-1 items-center justify-center p-6 text-sm text-slate-400">
-                Select a conversation to get started.
-              </div>
+              <NoConversationSelected />
             ) : detailLoading && !detail ? (
-              <div className="flex flex-1 items-center justify-center">
-                <Spinner size={24} />
-              </div>
+              <ThreadLoading />
+            ) : threadError && !detail ? (
+              <ThreadError
+                message={threadError}
+                onRetry={() => void loadBundle(activeId)}
+              />
             ) : detail ? (
               <>
                 <CompactConversationHeader
@@ -735,10 +801,7 @@ function InboxInner() {
                   hasDraft={hasDraft}
                   companyAutoReplyEnabled={aiSettings?.autoReplyEnabled ?? null}
                   canManageCompanyAI={writable}
-                  onBack={() => {
-                    setActiveId(null);
-                    router.replace('/dashboard/inbox', { scroll: false });
-                  }}
+                  onBack={closeConversation}
                   onOpenDetails={() => setDetailsOpen(true)}
                   onStatus={onStatus}
                   onPriority={onPriority}
@@ -766,7 +829,9 @@ function InboxInner() {
                   hasMore={msgHasMore}
                   loadingOlder={loadingOlder}
                   loading={msgLoading}
+                  error={threadError}
                   onLoadOlder={() => void loadOlder()}
+                  onRetry={() => void loadBundle(detail.id)}
                   composer={
                     <MessageComposer
                       value={composerText}
@@ -786,14 +851,33 @@ function InboxInner() {
                               onDismiss={() => setSuggestions(null)}
                             />
                           )}
-                          <div className="flex justify-end">
+                          {/* AI toolbar: wraps rather than clipping. The
+                              auto-reply toggle lives here below `lg` (thumb
+                              reach) and in the header at `lg+`, so exactly one
+                              instance is ever visible. */}
+                          <div className="flex flex-wrap items-center justify-end gap-2">
+                            <AutoReplyToggle
+                              aiMode={detail.aiMode}
+                              companyAutoReplyEnabled={
+                                aiSettings?.autoReplyEnabled ?? null
+                              }
+                              canManageCompanyAI={writable}
+                              writable={writable}
+                              busy={headerBusy}
+                              onToggle={onToggleAutoReply}
+                              className="mr-auto lg:hidden"
+                            />
                             <button
                               type="button"
                               disabled={suggestLoading}
                               onClick={() => void generateSuggestions()}
-                              className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700 transition hover:bg-indigo-100 disabled:opacity-60"
+                              className="inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 text-xs font-medium text-indigo-700 transition hover:bg-indigo-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 disabled:opacity-60"
                             >
-                              {suggestLoading ? <Spinner size={11} /> : '✨'}{' '}
+                              {suggestLoading ? (
+                                <Spinner size={11} />
+                              ) : (
+                                <span aria-hidden="true">✨</span>
+                              )}{' '}
                               Suggest
                             </button>
                           </div>

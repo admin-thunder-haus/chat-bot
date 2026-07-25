@@ -17,20 +17,32 @@ import {
   Badge,
   Button,
   ConfirmDialog,
+  DataList,
   PageHeader,
   Panel,
+  SectionCard,
   Skeleton,
+  Tabs,
+  type DataListColumn,
+  type TabItem,
 } from '@/components/ui';
 
+/** Humanised subscription states — never show the raw enum (§8). */
 const STATUS_BADGE: Record<
   SubscriptionStatus,
   { label: string; color: 'slate' | 'green' | 'red' | 'amber' | 'blue' }
 > = {
-  TRIALING: { label: 'Trial', color: 'blue' },
+  TRIALING: { label: 'Trialing', color: 'blue' },
   ACTIVE: { label: 'Active', color: 'green' },
   PAST_DUE: { label: 'Past due', color: 'amber' },
   CANCELED: { label: 'Canceled', color: 'slate' },
   EXPIRED: { label: 'Expired', color: 'red' },
+};
+
+type UsageRow = {
+  key: keyof Subscription['usage'];
+  label: string;
+  stat: UsageStat;
 };
 
 const USAGE_ROWS: { key: keyof Subscription['usage']; label: string }[] = [
@@ -42,36 +54,36 @@ const USAGE_ROWS: { key: keyof Subscription['usage']; label: string }[] = [
   { key: 'services', label: 'Services' },
 ];
 
+const CYCLE_TABS: readonly TabItem<BillingCycle>[] = [
+  { key: 'MONTHLY', label: 'Monthly' },
+  { key: 'YEARLY', label: 'Yearly' },
+];
+
 function priceFor(plan: BillingPlan, cycle: BillingCycle): string {
   const raw = cycle === 'YEARLY' ? plan.yearlyPriceUsd : plan.monthlyPriceUsd;
   const n = Number(raw);
   return Number.isFinite(n) ? `$${n}` : `$${raw}`;
 }
 
-function UsageBar({ label, stat }: { label: string; stat: UsageStat }) {
+function usagePercent(stat: UsageStat): number {
+  if (stat.limit === null) return stat.used > 0 ? 8 : 0;
+  if (stat.limit === 0) return 100;
+  return Math.min(100, (stat.used / stat.limit) * 100);
+}
+
+/** Proportional bar; the numbers next to it always carry the meaning (§3). */
+function UsageBar({ stat }: { stat: UsageStat }) {
   const unlimited = stat.limit === null;
   const over = !unlimited && stat.used >= (stat.limit as number);
-  const percent = unlimited
-    ? stat.used > 0
-      ? 8
-      : 0
-    : Math.min(100, ((stat.limit as number) === 0 ? 100 : (stat.used / (stat.limit as number)) * 100));
+  const percent = usagePercent(stat);
   return (
-    <div>
-      <div className="mb-1 flex items-center justify-between text-sm">
-        <span className="text-slate-600">{label}</span>
-        <span className={over ? 'font-medium text-red-600' : 'text-slate-500'}>
-          {stat.used} / {unlimited ? '∞' : stat.limit}
-        </span>
-      </div>
-      <div className="h-2 overflow-hidden rounded-full bg-slate-100">
-        <div
-          className={`h-full rounded-full ${
-            over ? 'bg-red-500' : percent >= 80 ? 'bg-amber-400' : 'bg-blue-500'
-          }`}
-          style={{ width: `${percent}%` }}
-        />
-      </div>
+    <div className="h-2 w-full min-w-[80px] overflow-hidden rounded-full bg-slate-100">
+      <div
+        className={`h-full rounded-full ${
+          over ? 'bg-red-500' : percent >= 80 ? 'bg-amber-400' : 'bg-blue-500'
+        }`}
+        style={{ width: `${percent}%` }}
+      />
     </div>
   );
 }
@@ -125,7 +137,10 @@ export default function BillingPage() {
       }
       setSubscription(result.subscription);
       setConfirmPlan(null);
-      notify(`Switched to the ${result.subscription.plan.name} plan`, 'success');
+      notify(
+        `Switched to the ${result.subscription.plan.name} plan`,
+        'success',
+      );
     } catch (err) {
       notify(parseApiError(err).message, 'error');
     } finally {
@@ -163,191 +178,262 @@ export default function BillingPage() {
   const current = subscription?.plan;
   const status = subscription ? STATUS_BADGE[subscription.status] : null;
 
+  const usageColumns: DataListColumn<UsageRow>[] = [
+    {
+      key: 'label',
+      header: 'Resource',
+      primary: true,
+      cell: (row) => (
+        <span className="font-medium text-slate-900">{row.label}</span>
+      ),
+    },
+    {
+      key: 'used',
+      header: 'Used',
+      align: 'right',
+      className: 'tabular-nums',
+      cell: (row) => row.stat.used,
+    },
+    {
+      key: 'limit',
+      header: 'Included',
+      align: 'right',
+      className: 'tabular-nums',
+      cell: (row) =>
+        row.stat.limit === null ? (
+          'Unlimited'
+        ) : row.stat.used >= row.stat.limit ? (
+          <span className="font-medium text-red-600">
+            {row.stat.limit} · limit reached
+          </span>
+        ) : (
+          row.stat.limit
+        ),
+    },
+    {
+      key: 'bar',
+      header: 'Usage',
+      className: 'w-40',
+      cell: (row) => <UsageBar stat={row.stat} />,
+    },
+  ];
+
   return (
-    <div>
+    <div className="mx-auto max-w-6xl">
       <PageHeader
         title="Billing"
-        description="Your subscription, usage, and available plans."
+        description="Your subscription, how much of the plan you are using, and the plans you can switch to."
       />
 
-      {error && (
-        <div className="mb-4">
-          <Alert message={error} />
-        </div>
-      )}
+      <div className="space-y-6">
+        {error && (
+          <Alert>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <span>{error} Your billing details could not be loaded.</span>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => void load()}
+                className="sm:shrink-0"
+              >
+                Try again
+              </Button>
+            </div>
+          </Alert>
+        )}
 
-      {loading || !subscription ? (
-        <div className="space-y-3">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-28" />
-          ))}
-        </div>
-      ) : (
-        <>
-          {subscription.status === 'EXPIRED' && (
-            <div className="mb-4">
+        {loading || !subscription ? (
+          <>
+            <Skeleton className="h-40 rounded-xl" />
+            <Skeleton className="h-64 rounded-xl" />
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Skeleton key={i} className="h-64 rounded-xl" />
+              ))}
+            </div>
+          </>
+        ) : (
+          <>
+            {subscription.status === 'EXPIRED' && (
               <Alert
                 variant="warning"
                 message="Your subscription has expired — AI replies are paused and limits are reduced. Choose a plan below to continue."
               />
-            </div>
-          )}
-          {subscription.status === 'PAST_DUE' && (
-            <div className="mb-4">
+            )}
+            {subscription.status === 'PAST_DUE' && (
               <Alert
                 variant="warning"
-                message="Your last payment failed. Please update your payment to keep the subscription active."
+                message="Your last payment failed. Update your payment method to keep the subscription active."
               />
-            </div>
-          )}
+            )}
 
-          {/* Current plan */}
-          <Panel className="mb-6">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <div className="flex items-center gap-2">
-                  <h2 className="text-lg font-semibold text-slate-900">
-                    {subscription.plan.name}
-                  </h2>
-                  {status && <Badge color={status.color}>{status.label}</Badge>}
-                  {subscription.status === 'TRIALING' &&
-                    subscription.daysLeftInTrial !== null && (
-                      <span className="text-sm text-slate-500">
-                        {subscription.daysLeftInTrial} day
-                        {subscription.daysLeftInTrial === 1 ? '' : 's'} left in
-                        trial
-                      </span>
-                    )}
-                </div>
+            {/* Current plan */}
+            <SectionCard
+              title="Current plan"
+              actions={
+                isOwner &&
+                subscription.status !== 'EXPIRED' &&
+                subscription.status !== 'CANCELED' ? (
+                  subscription.cancelAtPeriodEnd ? (
+                    <Button
+                      variant="secondary"
+                      loading={actionLoading}
+                      onClick={doResume}
+                    >
+                      Resume subscription
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="danger"
+                      disabled={actionLoading}
+                      onClick={() => setConfirmCancel(true)}
+                    >
+                      Cancel subscription
+                    </Button>
+                  )
+                ) : undefined
+              }
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-lg font-semibold text-slate-900">
+                  {subscription.plan.name}
+                </h3>
+                {status && <Badge color={status.color}>{status.label}</Badge>}
+                {subscription.status === 'TRIALING' &&
+                  subscription.daysLeftInTrial !== null && (
+                    <span className="text-sm tabular-nums text-slate-500">
+                      {subscription.daysLeftInTrial} day
+                      {subscription.daysLeftInTrial === 1 ? '' : 's'} left in
+                      trial
+                    </span>
+                  )}
+              </div>
+              {subscription.plan.description && (
                 <p className="mt-1 text-sm text-slate-500">
                   {subscription.plan.description}
                 </p>
-                <p className="mt-2 text-sm text-slate-500">
-                  Current period ends{' '}
-                  {new Date(subscription.currentPeriodEnd).toLocaleDateString()}
-                  {subscription.cancelAtPeriodEnd &&
-                    ' — subscription ends then (cancellation scheduled)'}
+              )}
+              <p className="mt-2 text-sm text-slate-500">
+                Current period ends{' '}
+                {new Date(subscription.currentPeriodEnd).toLocaleDateString()}
+                {subscription.cancelAtPeriodEnd &&
+                  ' — cancellation is scheduled, so it will not renew.'}
+              </p>
+            </SectionCard>
+
+            {/* Usage */}
+            <SectionCard
+              title="Usage on your plan"
+              description="What you have used since the period started."
+              padded={false}
+            >
+              <div className="p-4 sm:p-6">
+                <DataList
+                  bare
+                  items={USAGE_ROWS.map((row) => ({
+                    ...row,
+                    stat: subscription.usage[row.key],
+                  }))}
+                  keyOf={(row) => row.key}
+                  columns={usageColumns}
+                  caption="Plan usage"
+                />
+              </div>
+            </SectionCard>
+
+            {/* Plan catalog */}
+            <div className="space-y-4">
+              <div>
+                <h2 className="text-sm font-semibold text-slate-900">
+                  Available plans
+                </h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  Switch billing period to compare prices.
                 </p>
               </div>
-              {isOwner &&
-                subscription.status !== 'EXPIRED' &&
-                subscription.status !== 'CANCELED' &&
-                (subscription.cancelAtPeriodEnd ? (
-                  <Button
-                    variant="secondary"
-                    disabled={actionLoading}
-                    onClick={doResume}
-                  >
-                    Resume subscription
-                  </Button>
-                ) : (
-                  <Button
-                    variant="danger"
-                    disabled={actionLoading}
-                    onClick={() => setConfirmCancel(true)}
-                  >
-                    Cancel subscription
-                  </Button>
-                ))}
-            </div>
-          </Panel>
 
-          {/* Usage */}
-          <Panel className="mb-6">
-            <h3 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-400">
-              Usage on your plan
-            </h3>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {USAGE_ROWS.map((row) => (
-                <UsageBar
-                  key={row.key}
-                  label={row.label}
-                  stat={subscription.usage[row.key]}
-                />
-              ))}
-            </div>
-          </Panel>
+              <Tabs
+                tabs={CYCLE_TABS}
+                value={cycle}
+                onChange={setCycle}
+                size="sm"
+                label="Billing period"
+                idPrefix="billing-cycle"
+              />
 
-          {/* Plan catalog */}
-          <div className="mb-4 flex items-center justify-between">
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-              Plans
-            </h3>
-            <div className="inline-flex rounded-lg border border-slate-200 p-0.5 text-sm">
-              {(['MONTHLY', 'YEARLY'] as BillingCycle[]).map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => setCycle(c)}
-                  className={`rounded-md px-3 py-1 ${
-                    cycle === c
-                      ? 'bg-blue-600 text-white'
-                      : 'text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  {c === 'MONTHLY' ? 'Monthly' : 'Yearly'}
-                </button>
-              ))}
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                {plans.map((plan) => {
+                  const isCurrent = current?.code === plan.code;
+                  const isTrialPlan = plan.code === 'free_trial';
+                  const isUpgrade =
+                    current !== undefined && plan.sortOrder > current.sortOrder;
+                  return (
+                    <Panel
+                      key={plan.code}
+                      className={
+                        isCurrent ? 'border-blue-500 ring-1 ring-blue-500' : ''
+                      }
+                    >
+                      <div className="flex h-full flex-col">
+                        <div className="flex items-center justify-between gap-2">
+                          <h3 className="font-semibold text-slate-900">
+                            {plan.name}
+                          </h3>
+                          {isCurrent && (
+                            <Badge color="blue">Current plan</Badge>
+                          )}
+                        </div>
+                        <p className="mt-1 text-2xl font-semibold tabular-nums text-slate-900">
+                          {priceFor(plan, cycle)}
+                          <span className="text-sm font-normal text-slate-500">
+                            {cycle === 'YEARLY' ? '/year' : '/month'}
+                          </span>
+                        </p>
+                        {plan.description && (
+                          <p className="mt-1 text-xs text-slate-500">
+                            {plan.description}
+                          </p>
+                        )}
+                        <ul className="mt-3 flex-1 space-y-1 text-sm text-slate-600">
+                          {plan.features.map((f) => (
+                            <li key={f} className="flex items-start gap-1.5">
+                              <span
+                                className="text-green-600"
+                                aria-hidden="true"
+                              >
+                                ✓
+                              </span>
+                              {f}
+                            </li>
+                          ))}
+                        </ul>
+                        {isOwner && !isCurrent && !isTrialPlan && (
+                          <Button
+                            className="mt-4"
+                            fullWidth
+                            variant={isUpgrade ? 'primary' : 'secondary'}
+                            disabled={actionLoading}
+                            onClick={() => setConfirmPlan(plan)}
+                          >
+                            {isUpgrade
+                              ? `Upgrade to ${plan.name}`
+                              : `Switch to ${plan.name}`}
+                          </Button>
+                        )}
+                        {isTrialPlan && !isCurrent && (
+                          <p className="mt-4 text-center text-xs text-slate-500">
+                            New accounts start here
+                          </p>
+                        )}
+                      </div>
+                    </Panel>
+                  );
+                })}
+              </div>
             </div>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {plans.map((plan) => {
-              const isCurrent = current?.code === plan.code;
-              const isTrialPlan = plan.code === 'free_trial';
-              const isUpgrade =
-                current !== undefined && plan.sortOrder > current.sortOrder;
-              return (
-                <Panel
-                  key={plan.code}
-                  className={isCurrent ? 'border-blue-500 ring-1 ring-blue-500' : ''}
-                >
-                  <div className="flex h-full flex-col">
-                    <div className="flex items-center justify-between">
-                      <h4 className="font-semibold text-slate-900">{plan.name}</h4>
-                      {isCurrent && <Badge color="blue">Current</Badge>}
-                    </div>
-                    <p className="mt-1 text-2xl font-bold text-slate-900">
-                      {priceFor(plan, cycle)}
-                      <span className="text-sm font-normal text-slate-500">
-                        /{cycle === 'YEARLY' ? 'yr' : 'mo'}
-                      </span>
-                    </p>
-                    {plan.description && (
-                      <p className="mt-1 text-xs text-slate-500">
-                        {plan.description}
-                      </p>
-                    )}
-                    <ul className="mt-3 flex-1 space-y-1 text-sm text-slate-600">
-                      {plan.features.map((f) => (
-                        <li key={f} className="flex items-start gap-1.5">
-                          <span className="text-green-600">✓</span>
-                          {f}
-                        </li>
-                      ))}
-                    </ul>
-                    {isOwner && !isCurrent && !isTrialPlan && (
-                      <Button
-                        className="mt-4"
-                        variant={isUpgrade ? 'primary' : 'secondary'}
-                        disabled={actionLoading}
-                        onClick={() => setConfirmPlan(plan)}
-                      >
-                        {isUpgrade ? 'Upgrade' : 'Downgrade'}
-                      </Button>
-                    )}
-                    {isTrialPlan && !isCurrent && (
-                      <p className="mt-4 text-center text-xs text-slate-400">
-                        New accounts start here
-                      </p>
-                    )}
-                  </div>
-                </Panel>
-              );
-            })}
-          </div>
-        </>
-      )}
+          </>
+        )}
+      </div>
 
       <ConfirmDialog
         open={confirmPlan !== null}
@@ -369,7 +455,7 @@ export default function BillingPage() {
       <ConfirmDialog
         open={confirmCancel}
         title="Cancel subscription"
-        message="Your subscription will remain active until the end of the current period, then stop renewing. You can resume any time before then."
+        message="Your subscription stays active until the end of the current period, then stops renewing. You can resume any time before then."
         confirmLabel="Cancel subscription"
         loading={actionLoading}
         onConfirm={doCancel}

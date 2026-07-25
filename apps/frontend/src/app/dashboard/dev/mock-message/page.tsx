@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { PageHeader, Panel, Alert } from '@/components/ui';
+import { Alert, PageHeader, SectionCard } from '@/components/ui';
 import { MockInboundForm } from '@/components/inbox/MockInboundForm';
 import { useToast } from '@/components/toast';
 import type { MockInboundResult } from '@/lib/resources';
@@ -16,56 +16,62 @@ export default function MockMessagePage() {
 
   if (isProd) {
     return (
-      <div>
-        <PageHeader title="Mock inbound message" />
+      <div className="mx-auto max-w-3xl">
+        <PageHeader
+          title="Mock inbound message"
+          description="A development-only tool for simulating customer messages."
+        />
         <Alert message="This developer tool is not available in production." />
       </div>
     );
   }
 
   return (
-    <div>
+    <div className="mx-auto max-w-3xl">
       <PageHeader
         title="Mock inbound message"
-        description="Simulate a customer message from a channel (development only). This will be replaced by real channel webhooks later."
+        description="Simulate a customer message arriving on a channel, without any external service."
       />
 
-      <div className="mb-4">
+      <div className="space-y-6">
         <Alert
           variant="warning"
-          message="Development tool: real WhatsApp/Instagram/Facebook/Telegram channels are not connected yet."
+          message="Development tool. Messages created here behave like real inbound messages, so AI auto-reply may respond to them."
         />
+
+        <SectionCard
+          title="Message details"
+          description="Pick a channel and write what the customer would say."
+        >
+          <MockInboundForm
+            onSuccess={(result) => {
+              setLast(result);
+              notify(
+                result.idempotent
+                  ? 'Duplicate message ignored (idempotent)'
+                  : 'Mock inbound message created',
+                'success',
+              );
+            }}
+          />
+        </SectionCard>
+
+        {last && (
+          <Alert variant="success">
+            <span>
+              {last.idempotent
+                ? 'This external message had already been processed.'
+                : 'Inbound message created.'}{' '}
+              <Link
+                href={`/dashboard/inbox?conversationId=${last.conversation.id}`}
+                className="font-medium underline"
+              >
+                Open the conversation in the inbox
+              </Link>
+            </span>
+          </Alert>
+        )}
       </div>
-
-      <Panel>
-        <MockInboundForm
-          onSuccess={(result) => {
-            setLast(result);
-            notify(
-              result.idempotent
-                ? 'Duplicate message ignored (idempotent)'
-                : 'Mock inbound message created',
-              'success',
-            );
-          }}
-        />
-      </Panel>
-
-      {last && (
-        <Panel className="mt-4">
-          <p className="text-sm text-slate-700">
-            {last.idempotent
-              ? 'This external message was already processed.'
-              : 'Created an inbound message.'}{' '}
-            <Link
-              href={`/dashboard/inbox?conversationId=${last.conversation.id}`}
-              className="font-medium text-slate-900 underline"
-            >
-              Open the conversation in the Inbox →
-            </Link>
-          </p>
-        </Panel>
-      )}
     </div>
   );
 }

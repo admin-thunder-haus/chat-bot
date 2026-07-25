@@ -1,20 +1,26 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
 import { overviewApi } from '@/lib/resources';
 import { parseApiError } from '@/lib/form';
-import type { OverviewStats } from '@/lib/types';
-import { Alert, Badge, PageHeader, Panel, Skeleton } from '@/components/ui';
+import type { OverviewStats, UserRole } from '@/lib/types';
+import {
+  Alert,
+  Badge,
+  Button,
+  PageHeader,
+  SectionCard,
+  Skeleton,
+  StatCard,
+} from '@/components/ui';
 
-function StatCard({ label, value }: { label: string; value: string | number }) {
-  return (
-    <Panel>
-      <p className="text-xs uppercase tracking-wide text-slate-400">{label}</p>
-      <p className="mt-2 text-2xl font-semibold text-slate-900">{value}</p>
-    </Panel>
-  );
-}
+const ROLE_LABELS: Record<UserRole, string> = {
+  OWNER: 'Owner',
+  ADMIN: 'Admin',
+  AGENT: 'Agent',
+};
 
 export default function OverviewPage() {
   const { user, company } = useAuth();
@@ -22,104 +28,165 @@ export default function OverviewPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    let active = true;
-    overviewApi
-      .get()
-      .then((data) => active && setStats(data))
-      .catch((err) => active && setError(parseApiError(err).message))
-      .finally(() => active && setLoading(false));
-    return () => {
-      active = false;
-    };
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      setStats(await overviewApi.get());
+    } catch (err) {
+      setError(parseApiError(err).message);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
+  useEffect(() => {
+    void load();
+  }, [load]);
+
   return (
-    <div>
+    <div className="mx-auto max-w-6xl">
       <PageHeader
         title="Overview"
-        description="A snapshot of the information your future AI assistant will use."
+        description="A snapshot of the company knowledge your AI assistant answers from."
+        actions={
+          <Link href="/dashboard/ai-playground">
+            <Button variant="secondary">Test the assistant</Button>
+          </Link>
+        }
       />
 
-      {error && <Alert message={error} />}
-
-      {/* Identity */}
-      <div className="mb-6 grid gap-4 sm:grid-cols-3">
-        <StatCard label="Company" value={company?.displayName || company?.name || '—'} />
-        <StatCard label="Current user" value={user?.fullName || '—'} />
-        <Panel>
-          <p className="text-xs uppercase tracking-wide text-slate-400">Role</p>
-          <p className="mt-2">
-            <Badge color="blue">{user?.role}</Badge>
-          </p>
-        </Panel>
-      </div>
-
-      {loading ? (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-24" />
-          ))}
+      <div className="space-y-6">
+        {/* Identity — always known from the session, so it never has to load. */}
+        <div className="grid gap-4 sm:grid-cols-3">
+          <StatCard
+            label="Company"
+            value={company?.displayName || company?.name || '—'}
+          />
+          <StatCard label="Signed in as" value={user?.fullName || '—'} />
+          <StatCard
+            label="Your role"
+            value={
+              user ? (
+                <Badge color="blue">
+                  {ROLE_LABELS[user.role] ?? user.role}
+                </Badge>
+              ) : (
+                '—'
+              )
+            }
+            hint="Roles control what you can change."
+          />
         </div>
-      ) : stats ? (
-        <>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <StatCard label="Services" value={stats.counts.services} />
-            <StatCard label="Active services" value={stats.counts.activeServices} />
-            <StatCard label="FAQs" value={stats.counts.faqs} />
-            <StatCard
-              label="Knowledge base"
-              value={stats.counts.knowledgeBaseEntries}
-            />
-          </div>
 
-          <div className="mt-6 grid gap-4 sm:grid-cols-2">
-            <Panel>
-              <p className="text-xs uppercase tracking-wide text-slate-400">
-                Business hours
-              </p>
-              <p className="mt-2 flex items-center gap-2">
-                {stats.businessHoursComplete ? (
-                  <Badge color="green">All 7 days configured</Badge>
-                ) : (
-                  <Badge color="amber">
-                    {stats.counts.businessHoursConfiguredDays}/7 days configured
-                  </Badge>
-                )}
-              </p>
-            </Panel>
-            <Panel>
-              <p className="text-xs uppercase tracking-wide text-slate-400">
-                AI auto-reply
-              </p>
-              <p className="mt-2">
-                {stats.autoReplyEnabled ? (
-                  <Badge color="green">Enabled (not yet active)</Badge>
-                ) : (
-                  <Badge color="slate">Disabled</Badge>
-                )}
-              </p>
-            </Panel>
-          </div>
-
-          {/* Setup progress */}
-          <Panel className="mt-6">
-            <div className="mb-2 flex items-center justify-between">
-              <p className="text-sm font-medium text-slate-800">Setup progress</p>
-              <span className="text-sm text-slate-500">
-                {stats.setup.progressPercent}% ({stats.setup.completedSteps}/
-                {stats.setup.totalSteps})
-              </span>
+        {error && (
+          <Alert>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <span>{error} Your knowledge summary could not be loaded.</span>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => void load()}
+                className="sm:shrink-0"
+              >
+                Try again
+              </Button>
             </div>
-            <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200">
-              <div
-                className="h-full rounded-full bg-slate-900 transition-all"
-                style={{ width: `${stats.setup.progressPercent}%` }}
+          </Alert>
+        )}
+
+        {loading ? (
+          <>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Skeleton key={i} className="h-[104px] rounded-xl" />
+              ))}
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Skeleton className="h-[104px] rounded-xl" />
+              <Skeleton className="h-[104px] rounded-xl" />
+            </div>
+            <Skeleton className="h-24 rounded-xl" />
+          </>
+        ) : stats ? (
+          <>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <StatCard label="Services" value={stats.counts.services} />
+              <StatCard
+                label="Active services"
+                value={stats.counts.activeServices}
+                hint={`of ${stats.counts.services} total`}
+              />
+              <StatCard label="FAQs" value={stats.counts.faqs} />
+              <StatCard
+                label="Knowledge entries"
+                value={stats.counts.knowledgeBaseEntries}
               />
             </div>
-          </Panel>
-        </>
-      ) : null}
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <StatCard
+                label="Business hours"
+                tone={stats.businessHoursComplete ? 'positive' : 'warning'}
+                value={
+                  stats.businessHoursComplete ? (
+                    <Badge color="green">All 7 days set</Badge>
+                  ) : (
+                    <Badge color="amber">
+                      {stats.counts.businessHoursConfiguredDays} of 7 days set
+                    </Badge>
+                  )
+                }
+                hint={
+                  stats.businessHoursComplete
+                    ? 'The assistant can tell customers when you are open.'
+                    : 'Finish the week so the assistant can answer "are you open?".'
+                }
+              />
+              <StatCard
+                label="AI auto-reply"
+                tone={stats.autoReplyEnabled ? 'positive' : 'neutral'}
+                value={
+                  stats.autoReplyEnabled ? (
+                    <Badge color="green">Enabled</Badge>
+                  ) : (
+                    <Badge color="slate">Disabled</Badge>
+                  )
+                }
+                hint="Change this on the AI settings page."
+              />
+            </div>
+
+            <SectionCard
+              title="Setup progress"
+              description="Complete every step so the assistant has the full picture of your business."
+            >
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm tabular-nums text-slate-500">
+                  {stats.setup.completedSteps} of {stats.setup.totalSteps} steps
+                  done
+                </p>
+                <p className="text-sm font-medium tabular-nums text-slate-900">
+                  {stats.setup.progressPercent}%
+                </p>
+              </div>
+              <div
+                className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-200"
+                role="progressbar"
+                aria-valuenow={stats.setup.progressPercent}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-label="Setup progress"
+              >
+                <div
+                  className="h-full rounded-full bg-slate-900 transition-all"
+                  style={{ width: `${stats.setup.progressPercent}%` }}
+                />
+              </div>
+            </SectionCard>
+          </>
+        ) : null}
+      </div>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { canWrite } from '@/lib/permissions';
 import { servicesApi } from '@/lib/resources';
@@ -12,12 +12,14 @@ import {
   Badge,
   Button,
   ConfirmDialog,
+  DataList,
   EmptyState,
-  Input,
   PageHeader,
-  Panel,
+  PaginationBar,
   Select,
-  Skeleton,
+  Toolbar,
+  ToolbarSearch,
+  type DataListColumn,
 } from '@/components/ui';
 import { ImportExcelModal } from '@/components/ImportExcelModal';
 import { ServiceFormModal } from './ServiceFormModal';
@@ -34,9 +36,10 @@ const IMPORT_COLUMNS = [
   'sortOrder',
 ];
 
+/** Humanised price types — never show the raw enum to a user (§8). */
 const PRICE_TYPE_LABEL: Record<ServicePriceType, string> = {
-  FIXED: 'Fixed',
-  STARTING_FROM: 'From',
+  FIXED: 'Fixed price',
+  STARTING_FROM: 'Starting from',
   VARIABLE: 'Variable',
   CONTACT_US: 'Contact us',
   FREE: 'Free',
@@ -59,7 +62,9 @@ export default function ServicesPage() {
   const [pagination, setPagination] = useState<Pagination | null>(null);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
-  const [activeFilter, setActiveFilter] = useState<'all' | 'true' | 'false'>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'true' | 'false'>(
+    'all',
+  );
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -71,6 +76,7 @@ export default function ServicesPage() {
   const [deleteLoading, setDeleteLoading] = useState(false);
 
   const canReorder = !readOnly && !search && activeFilter === 'all';
+  const filtered = Boolean(search) || activeFilter !== 'all';
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -140,145 +146,167 @@ export default function ServicesPage() {
     }
   }
 
+  function openCreate() {
+    setEditing(null);
+    setModalOpen(true);
+  }
+
+  // Row position by id — keeps the `cell`/`actions` renderers pure (they run
+  // once for the table and once for the mobile cards).
+  const rowIndex = useMemo(
+    () => new Map(items.map((it, i) => [it.id, i])),
+    [items],
+  );
+
+  const columns: DataListColumn<Service>[] = [
+    {
+      key: 'name',
+      header: 'Service',
+      primary: true,
+      cell: (s) => (
+        <div className="flex items-center gap-3">
+          {s.imageUrl && (
+            // eslint-disable-next-line @next/next/no-img-element -- arbitrary customer-hosted URLs cannot go through next/image
+            <img
+              src={s.imageUrl}
+              alt=""
+              className="h-9 w-9 shrink-0 rounded-md object-cover"
+              onError={(e) => {
+                e.currentTarget.style.display = 'none';
+              }}
+            />
+          )}
+          <div className="min-w-0">
+            <div className="font-medium text-slate-900">{s.name}</div>
+            {s.description && (
+              <div className="truncate text-xs text-slate-500 md:max-w-xs">
+                {s.description}
+              </div>
+            )}
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'price',
+      header: 'Price',
+      className: 'tabular-nums',
+      cell: (s) => priceDisplay(s),
+    },
+    {
+      key: 'duration',
+      header: 'Duration',
+      className: 'tabular-nums',
+      cell: (s) => (s.durationMinutes ? `${s.durationMinutes} min` : '—'),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      cell: (s) =>
+        s.isActive ? (
+          <Badge color="green">Active</Badge>
+        ) : (
+          <Badge color="slate">Inactive</Badge>
+        ),
+    },
+  ];
+
+  const hasActions = canReorder || !readOnly;
+
   return (
-    <div>
+    <div className="mx-auto max-w-6xl">
       <PageHeader
         title="Services"
-        description="Products and services your assistant can quote to customers."
+        description="The services your assistant can describe, price and book for customers."
         actions={
           !readOnly ? (
             <>
               <Button variant="secondary" onClick={() => setImportOpen(true)}>
-                Import
+                Import from Excel
               </Button>
-              <Button
-                onClick={() => {
-                  setEditing(null);
-                  setModalOpen(true);
-                }}
-              >
-                Add service
-              </Button>
+              <Button onClick={openCreate}>Add service</Button>
             </>
           ) : undefined
         }
       />
 
-      {error && (
-        <div className="mb-4">
-          <Alert message={error} />
-        </div>
-      )}
-
-      {/* Filters */}
-      <div className="mb-4 flex flex-col gap-2 sm:flex-row">
-        <Input
-          placeholder="Search services…"
-          value={search}
-          onChange={(e) => {
-            setPage(1);
-            setSearch(e.target.value);
-          }}
-          className="sm:max-w-xs"
-        />
-        <Select
-          value={activeFilter}
-          onChange={(e) => {
-            setPage(1);
-            setActiveFilter(e.target.value as 'all' | 'true' | 'false');
-          }}
-          className="sm:max-w-[160px]"
-        >
-          <option value="all">All statuses</option>
-          <option value="true">Active</option>
-          <option value="false">Inactive</option>
-        </Select>
-      </div>
-
-      {loading ? (
-        <div className="space-y-2">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-16" />
-          ))}
-        </div>
-      ) : items.length === 0 ? (
-        <EmptyState
-          title="No services yet"
-          description={
-            readOnly
-              ? 'No services have been added.'
-              : 'Add your first service so the assistant can share pricing.'
-          }
-          action={
-            !readOnly ? (
+      <div className="space-y-6">
+        {error && (
+          <Alert>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <span>{error} The service list could not be loaded.</span>
               <Button
-                onClick={() => {
-                  setEditing(null);
-                  setModalOpen(true);
-                }}
+                size="sm"
+                variant="secondary"
+                onClick={() => void load()}
+                className="sm:shrink-0"
               >
-                Add service
+                Try again
               </Button>
-            ) : undefined
-          }
-        />
-      ) : (
-        <Panel className="overflow-x-auto p-0">
-          <table className="w-full text-sm">
-            <thead className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-400">
-              <tr>
-                <th className="px-4 py-3">Name</th>
-                <th className="px-4 py-3">Price</th>
-                <th className="px-4 py-3">Duration</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((s, index) => (
-                <tr key={s.id} className="border-b border-slate-100 last:border-0">
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-3">
-                      {s.imageUrl && (
-                        // eslint-disable-next-line @next/next/no-img-element -- arbitrary customer-hosted URLs cannot go through next/image
-                        <img
-                          src={s.imageUrl}
-                          alt=""
-                          className="h-9 w-9 shrink-0 rounded-md object-cover"
-                          onError={(e) => {
-                            e.currentTarget.style.display = 'none';
-                          }}
-                        />
-                      )}
-                      <div className="min-w-0">
-                        <div className="font-medium text-slate-900">{s.name}</div>
-                        {s.description && (
-                          <div className="max-w-xs truncate text-xs text-slate-500">
-                            {s.description}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">{priceDisplay(s)}</td>
-                  <td className="px-4 py-3">
-                    {s.durationMinutes ? `${s.durationMinutes} min` : '—'}
-                  </td>
-                  <td className="px-4 py-3">
-                    {s.isActive ? (
-                      <Badge color="green">Active</Badge>
-                    ) : (
-                      <Badge color="slate">Inactive</Badge>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center justify-end gap-1">
+            </div>
+          </Alert>
+        )}
+
+        <div className="space-y-3">
+          <Toolbar
+            search={
+              <ToolbarSearch
+                value={search}
+                label="Search services"
+                placeholder="Search services…"
+                onChange={(value) => {
+                  setPage(1);
+                  setSearch(value);
+                }}
+              />
+            }
+            filters={
+              <>
+                <label htmlFor="service-status" className="sr-only">
+                  Filter by status
+                </label>
+                <Select
+                  id="service-status"
+                  value={activeFilter}
+                  className="sm:max-w-[170px]"
+                  onChange={(e) => {
+                    setPage(1);
+                    setActiveFilter(e.target.value as 'all' | 'true' | 'false');
+                  }}
+                >
+                  <option value="all">All statuses</option>
+                  <option value="true">Active only</option>
+                  <option value="false">Inactive only</option>
+                </Select>
+              </>
+            }
+          />
+          {canReorder && items.length > 1 && (
+            <p className="text-xs text-slate-500">
+              Use the arrows to change the order the assistant lists services
+              in.
+            </p>
+          )}
+        </div>
+
+        <DataList
+          items={items}
+          loading={loading}
+          keyOf={(s) => s.id}
+          columns={columns}
+          caption="Services"
+          actions={
+            hasActions
+              ? (s) => {
+                  const index = rowIndex.get(s.id) ?? 0;
+                  return (
+                    <>
                       {canReorder && (
                         <>
                           <Button
                             size="sm"
                             variant="ghost"
-                            aria-label="Move up"
+                            aria-label={`Move ${s.name} up`}
                             disabled={index === 0}
                             onClick={() => move(index, -1)}
                           >
@@ -287,7 +315,7 @@ export default function ServicesPage() {
                           <Button
                             size="sm"
                             variant="ghost"
-                            aria-label="Move down"
+                            aria-label={`Move ${s.name} down`}
                             disabled={index === items.length - 1}
                             onClick={() => move(index, 1)}
                           >
@@ -323,42 +351,50 @@ export default function ServicesPage() {
                           </Button>
                         </>
                       )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Panel>
-      )}
+                    </>
+                  );
+                }
+              : undefined
+          }
+          empty={
+            filtered ? (
+              <EmptyState
+                title="No matching services"
+                description="No service matches this search and status. Try a different term or clear the filters."
+                action={
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      setSearch('');
+                      setActiveFilter('all');
+                      setPage(1);
+                    }}
+                  >
+                    Clear filters
+                  </Button>
+                }
+              />
+            ) : (
+              <EmptyState
+                title="No services yet"
+                description="Services tell the assistant what you offer and what it costs. Add the first one to get started."
+                action={
+                  !readOnly ? (
+                    <Button onClick={openCreate}>Add service</Button>
+                  ) : undefined
+                }
+              />
+            )
+          }
+        />
 
-      {/* Pagination */}
-      {pagination && pagination.totalPages > 1 && (
-        <div className="mt-4 flex items-center justify-between text-sm text-slate-500">
-          <span>
-            Page {pagination.page} of {pagination.totalPages} ({pagination.total}{' '}
-            total)
-          </span>
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={page <= 1}
-              onClick={() => setPage((p) => p - 1)}
-            >
-              Previous
-            </Button>
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={page >= pagination.totalPages}
-              onClick={() => setPage((p) => p + 1)}
-            >
-              Next
-            </Button>
-          </div>
-        </div>
-      )}
+        <PaginationBar
+          page={pagination?.page ?? page}
+          totalPages={pagination?.totalPages ?? 1}
+          total={pagination?.total}
+          onChange={setPage}
+        />
+      </div>
 
       <ServiceFormModal
         open={modalOpen}
@@ -384,8 +420,8 @@ export default function ServicesPage() {
       <ConfirmDialog
         open={deleting !== null}
         title="Delete service"
-        message={`Delete "${deleting?.name}"? This cannot be undone.`}
-        confirmLabel="Delete"
+        message={`Delete "${deleting?.name}"? The assistant will stop offering it. This cannot be undone.`}
+        confirmLabel="Delete service"
         loading={deleteLoading}
         onConfirm={confirmDelete}
         onCancel={() => setDeleting(null)}

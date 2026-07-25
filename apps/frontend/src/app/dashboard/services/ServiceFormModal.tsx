@@ -126,8 +126,23 @@ export function ServiceFormModal({
       open={open}
       onClose={onClose}
       title={service ? 'Edit service' : 'Add service'}
+      footer={
+        <>
+          <Button
+            variant="secondary"
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+          >
+            Cancel
+          </Button>
+          <Button type="submit" form="service-form" loading={saving}>
+            {service ? 'Save changes' : 'Add service'}
+          </Button>
+        </>
+      }
     >
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form id="service-form" onSubmit={handleSubmit} className="space-y-4">
         {error && <Alert message={error} />}
 
         <div>
@@ -137,6 +152,7 @@ export function ServiceFormModal({
           <Input
             id="svc-name"
             value={name}
+            invalid={Boolean(fieldErrors.name)}
             onChange={(e) => setName(e.target.value)}
             disabled={saving}
           />
@@ -148,6 +164,7 @@ export function ServiceFormModal({
           <Textarea
             id="svc-desc"
             value={description}
+            invalid={Boolean(fieldErrors.description)}
             onChange={(e) => setDescription(e.target.value)}
             disabled={saving}
           />
@@ -182,6 +199,7 @@ export function ServiceFormModal({
                 min="0"
                 step="0.01"
                 value={price}
+                invalid={Boolean(fieldErrors.price)}
                 onChange={(e) => setPrice(e.target.value)}
                 disabled={saving}
               />
@@ -197,6 +215,7 @@ export function ServiceFormModal({
               id="svc-currency"
               value={currency}
               maxLength={3}
+              invalid={Boolean(fieldErrors.currency)}
               onChange={(e) => setCurrency(e.target.value)}
               disabled={saving || !showPrice}
             />
@@ -208,7 +227,9 @@ export function ServiceFormModal({
               id="svc-duration"
               type="number"
               min="1"
+              placeholder="Not timed"
               value={duration}
+              invalid={Boolean(fieldErrors.durationMinutes)}
               onChange={(e) => setDuration(e.target.value)}
               disabled={saving}
             />
@@ -225,18 +246,19 @@ export function ServiceFormModal({
           <FieldError message={fieldErrors.imageUrl} />
         </div>
 
-        <div className="flex items-center gap-3">
-          <Toggle checked={isActive} onChange={setIsActive} label="Active" />
-          <span className="text-sm text-slate-700">Active</span>
-        </div>
-
-        <div className="mt-2 flex justify-end gap-2">
-          <Button variant="secondary" type="button" onClick={onClose} disabled={saving}>
-            Cancel
-          </Button>
-          <Button type="submit" loading={saving}>
-            {service ? 'Save' : 'Create'}
-          </Button>
+        <div className="flex items-start gap-3">
+          <Toggle
+            checked={isActive}
+            onChange={setIsActive}
+            disabled={saving}
+            label="Active"
+          />
+          <span className="text-sm text-slate-700">
+            Active
+            <span className="block text-xs text-slate-500">
+              Inactive services are hidden from the assistant.
+            </span>
+          </span>
         </div>
       </form>
     </Modal>

@@ -113,8 +113,23 @@ export function ProductFormModal({
       open={open}
       onClose={onClose}
       title={product ? 'Edit product' : 'Add product'}
+      footer={
+        <>
+          <Button
+            variant="secondary"
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+          >
+            Cancel
+          </Button>
+          <Button type="submit" form="product-form" loading={saving}>
+            {product ? 'Save changes' : 'Add product'}
+          </Button>
+        </>
+      }
     >
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form id="product-form" onSubmit={handleSubmit} className="space-y-4">
         {error && <Alert message={error} />}
 
         <div>
@@ -124,6 +139,7 @@ export function ProductFormModal({
           <Input
             id="prd-name"
             value={name}
+            invalid={Boolean(fieldErrors.name)}
             onChange={(e) => setName(e.target.value)}
             disabled={saving}
           />
@@ -137,6 +153,7 @@ export function ProductFormModal({
               id="prd-sku"
               value={sku}
               maxLength={64}
+              invalid={Boolean(fieldErrors.sku)}
               onChange={(e) => setSku(e.target.value)}
               disabled={saving}
             />
@@ -148,6 +165,7 @@ export function ProductFormModal({
               id="prd-category"
               value={category}
               maxLength={60}
+              invalid={Boolean(fieldErrors.category)}
               onChange={(e) => setCategory(e.target.value)}
               disabled={saving}
             />
@@ -160,6 +178,7 @@ export function ProductFormModal({
           <Textarea
             id="prd-desc"
             value={description}
+            invalid={Boolean(fieldErrors.description)}
             onChange={(e) => setDescription(e.target.value)}
             disabled={saving}
           />
@@ -176,6 +195,7 @@ export function ProductFormModal({
               step="0.01"
               placeholder="On request"
               value={price}
+              invalid={Boolean(fieldErrors.price)}
               onChange={(e) => setPrice(e.target.value)}
               disabled={saving}
             />
@@ -187,6 +207,7 @@ export function ProductFormModal({
               id="prd-currency"
               value={currency}
               maxLength={3}
+              invalid={Boolean(fieldErrors.currency)}
               onChange={(e) => setCurrency(e.target.value)}
               disabled={saving}
             />
@@ -201,6 +222,7 @@ export function ProductFormModal({
               step="1"
               placeholder="Untracked"
               value={stockQuantity}
+              invalid={Boolean(fieldErrors.stockQuantity)}
               onChange={(e) => setStockQuantity(e.target.value)}
               disabled={saving}
             />
@@ -217,18 +239,19 @@ export function ProductFormModal({
           <FieldError message={fieldErrors.imageUrl} />
         </div>
 
-        <div className="flex items-center gap-3">
-          <Toggle checked={isActive} onChange={setIsActive} label="Active" />
-          <span className="text-sm text-slate-700">Active</span>
-        </div>
-
-        <div className="mt-2 flex justify-end gap-2">
-          <Button variant="secondary" type="button" onClick={onClose} disabled={saving}>
-            Cancel
-          </Button>
-          <Button type="submit" loading={saving}>
-            {product ? 'Save' : 'Create'}
-          </Button>
+        <div className="flex items-start gap-3">
+          <Toggle
+            checked={isActive}
+            onChange={setIsActive}
+            disabled={saving}
+            label="Active"
+          />
+          <span className="text-sm text-slate-700">
+            Active
+            <span className="block text-xs text-slate-500">
+              Inactive products are hidden from the assistant.
+            </span>
+          </span>
         </div>
       </form>
     </Modal>

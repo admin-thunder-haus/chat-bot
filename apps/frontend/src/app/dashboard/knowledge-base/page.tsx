@@ -12,11 +12,14 @@ import {
   Badge,
   Button,
   ConfirmDialog,
+  DataList,
   EmptyState,
   Input,
   PageHeader,
-  Panel,
-  Skeleton,
+  PaginationBar,
+  Toolbar,
+  ToolbarSearch,
+  type DataListColumn,
 } from '@/components/ui';
 import { KnowledgeFormModal } from './KnowledgeFormModal';
 import { DocumentsPanel } from './DocumentsPanel';
@@ -41,6 +44,8 @@ export default function KnowledgeBasePage() {
   const [editing, setEditing] = useState<KnowledgeEntry | null>(null);
   const [deleting, setDeleting] = useState<KnowledgeEntry | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+
+  const filtered = Boolean(search) || Boolean(category);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -91,158 +96,207 @@ export default function KnowledgeBasePage() {
     }
   }
 
+  function openCreate() {
+    setEditing(null);
+    setModalOpen(true);
+  }
+
+  const columns: DataListColumn<KnowledgeEntry>[] = [
+    {
+      key: 'title',
+      header: 'Entry',
+      primary: true,
+      cell: (e) => (
+        <div className="min-w-0">
+          <div className="font-medium text-slate-900">{e.title}</div>
+          <p className="mt-0.5 line-clamp-2 text-xs text-slate-500">
+            {e.content}
+          </p>
+        </div>
+      ),
+    },
+    {
+      key: 'category',
+      header: 'Category',
+      cell: (e) =>
+        e.category ? <Badge color="blue">{e.category}</Badge> : '—',
+    },
+    {
+      key: 'tags',
+      header: 'Tags',
+      cell: (e) =>
+        e.tags.length === 0 ? (
+          '—'
+        ) : (
+          <div className="flex flex-wrap justify-end gap-1 md:justify-start">
+            {e.tags.map((t) => (
+              <Badge key={t}>{t}</Badge>
+            ))}
+          </div>
+        ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      cell: (e) =>
+        e.isActive ? (
+          <Badge color="green">Active</Badge>
+        ) : (
+          <Badge color="slate">Inactive</Badge>
+        ),
+    },
+  ];
+
   return (
-    <div>
+    <div className="mx-auto max-w-6xl">
       <PageHeader
-        title="Knowledge Base"
-        description="Reference articles the assistant can draw answers from."
+        title="Knowledge base"
+        description="Reference articles and PDFs the assistant draws answers from when nothing else matches."
         actions={
           !readOnly ? (
-            <Button
-              onClick={() => {
-                setEditing(null);
-                setModalOpen(true);
-              }}
-            >
-              Add entry
-            </Button>
+            <Button onClick={openCreate}>Add entry</Button>
           ) : undefined
         }
       />
 
-      {error && (
-        <div className="mb-4">
-          <Alert message={error} />
-        </div>
-      )}
-
-      <div className="mb-6">
+      <div className="space-y-6">
         <DocumentsPanel readOnly={readOnly} />
-      </div>
 
-      <div className="mb-4 flex flex-col gap-2 sm:flex-row">
-        <Input
-          placeholder="Search title & content…"
-          value={search}
-          onChange={(e) => {
-            setPage(1);
-            setSearch(e.target.value);
-          }}
-          className="sm:max-w-xs"
-        />
-        <Input
-          placeholder="Filter by category…"
-          value={category}
-          onChange={(e) => {
-            setPage(1);
-            setCategory(e.target.value);
-          }}
-          className="sm:max-w-xs"
-        />
-      </div>
+        <div className="space-y-4">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-900">
+              Written entries
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Free-text articles you write and maintain here.
+            </p>
+          </div>
 
-      {loading ? (
-        <div className="space-y-2">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-24" />
-          ))}
-        </div>
-      ) : items.length === 0 ? (
-        <EmptyState
-          title="No entries yet"
-          description={
-            readOnly ? 'No knowledge entries have been added.' : 'Add your first entry.'
-          }
-          action={
-            !readOnly ? (
-              <Button
-                onClick={() => {
-                  setEditing(null);
-                  setModalOpen(true);
+          {error && (
+            <Alert>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <span>{error} The entry list could not be loaded.</span>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => void load()}
+                  className="sm:shrink-0"
+                >
+                  Try again
+                </Button>
+              </div>
+            </Alert>
+          )}
+
+          <Toolbar
+            search={
+              <ToolbarSearch
+                value={search}
+                label="Search entries"
+                placeholder="Search title and content…"
+                onChange={(value) => {
+                  setPage(1);
+                  setSearch(value);
                 }}
-              >
-                Add entry
-              </Button>
-            ) : undefined
-          }
-        />
-      ) : (
-        <div className="space-y-3">
-          {items.map((e) => (
-            <Panel key={e.id}>
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="font-medium text-slate-900">{e.title}</p>
-                    {e.isActive ? (
-                      <Badge color="green">Active</Badge>
-                    ) : (
-                      <Badge color="slate">Inactive</Badge>
-                    )}
-                    {e.category && <Badge color="blue">{e.category}</Badge>}
-                  </div>
-                  <p className="mt-1 line-clamp-2 text-sm text-slate-500">
-                    {e.content}
-                  </p>
-                  {e.tags.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {e.tags.map((t) => (
-                        <Badge key={t}>{t}</Badge>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                {!readOnly && (
-                  <div className="flex shrink-0 items-center gap-1">
-                    <Button size="sm" variant="secondary" onClick={() => toggleStatus(e)}>
-                      {e.isActive ? 'Deactivate' : 'Activate'}
-                    </Button>
+              />
+            }
+            filters={
+              <>
+                <label htmlFor="kb-category-filter" className="sr-only">
+                  Filter by category
+                </label>
+                <Input
+                  id="kb-category-filter"
+                  value={category}
+                  placeholder="Filter by category…"
+                  className="sm:max-w-[14rem]"
+                  onChange={(e) => {
+                    setPage(1);
+                    setCategory(e.target.value);
+                  }}
+                />
+              </>
+            }
+          />
+
+          <DataList
+            items={items}
+            loading={loading}
+            keyOf={(e) => e.id}
+            columns={columns}
+            caption="Knowledge base entries"
+            actions={
+              !readOnly
+                ? (e) => (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => toggleStatus(e)}
+                      >
+                        {e.isActive ? 'Deactivate' : 'Activate'}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => {
+                          setEditing(e);
+                          setModalOpen(true);
+                        }}
+                      >
+                        Edit
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        onClick={() => setDeleting(e)}
+                      >
+                        Delete
+                      </Button>
+                    </>
+                  )
+                : undefined
+            }
+            empty={
+              filtered ? (
+                <EmptyState
+                  title="No matching entries"
+                  description="No entry matches this search and category. Try a different term or clear the filters."
+                  action={
                     <Button
-                      size="sm"
                       variant="secondary"
                       onClick={() => {
-                        setEditing(e);
-                        setModalOpen(true);
+                        setSearch('');
+                        setCategory('');
+                        setPage(1);
                       }}
                     >
-                      Edit
+                      Clear filters
                     </Button>
-                    <Button size="sm" variant="danger" onClick={() => setDeleting(e)}>
-                      Delete
-                    </Button>
-                  </div>
-                )}
-              </div>
-            </Panel>
-          ))}
-        </div>
-      )}
+                  }
+                />
+              ) : (
+                <EmptyState
+                  title="No entries yet"
+                  description="Entries are your own reference articles — policies, how-tos, anything the assistant should know. Add the first one to get started."
+                  action={
+                    !readOnly ? (
+                      <Button onClick={openCreate}>Add entry</Button>
+                    ) : undefined
+                  }
+                />
+              )
+            }
+          />
 
-      {pagination && pagination.totalPages > 1 && (
-        <div className="mt-4 flex items-center justify-between text-sm text-slate-500">
-          <span>
-            Page {pagination.page} of {pagination.totalPages} ({pagination.total} total)
-          </span>
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={page <= 1}
-              onClick={() => setPage((p) => p - 1)}
-            >
-              Previous
-            </Button>
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={page >= pagination.totalPages}
-              onClick={() => setPage((p) => p + 1)}
-            >
-              Next
-            </Button>
-          </div>
+          <PaginationBar
+            page={pagination?.page ?? page}
+            totalPages={pagination?.totalPages ?? 1}
+            total={pagination?.total}
+            onChange={setPage}
+          />
         </div>
-      )}
+      </div>
 
       <KnowledgeFormModal
         open={modalOpen}
@@ -258,8 +312,8 @@ export default function KnowledgeBasePage() {
       <ConfirmDialog
         open={deleting !== null}
         title="Delete entry"
-        message={`Delete "${deleting?.title}"? This cannot be undone.`}
-        confirmLabel="Delete"
+        message={`Delete "${deleting?.title}"? The assistant will stop using it. This cannot be undone.`}
+        confirmLabel="Delete entry"
         loading={deleteLoading}
         onConfirm={confirmDelete}
         onCancel={() => setDeleting(null)}

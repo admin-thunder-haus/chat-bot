@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { canWrite } from '@/lib/permissions';
 import { faqsApi } from '@/lib/resources';
@@ -12,11 +12,14 @@ import {
   Badge,
   Button,
   ConfirmDialog,
+  DataList,
   EmptyState,
   Input,
   PageHeader,
-  Panel,
-  Skeleton,
+  PaginationBar,
+  Toolbar,
+  ToolbarSearch,
+  type DataListColumn,
 } from '@/components/ui';
 import { FaqFormModal } from './FaqFormModal';
 
@@ -42,6 +45,7 @@ export default function FaqsPage() {
   const [deleteLoading, setDeleteLoading] = useState(false);
 
   const canReorder = !readOnly && !search && !category;
+  const filtered = Boolean(search) || Boolean(category);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -100,7 +104,10 @@ export default function FaqsPage() {
     setItems(next);
     try {
       await faqsApi.reorder(
-        next.map((it, idx) => ({ id: it.id, sortOrder: (page - 1) * LIMIT + idx })),
+        next.map((it, idx) => ({
+          id: it.id,
+          sortOrder: (page - 1) * LIMIT + idx,
+        })),
       );
     } catch (err) {
       notify(parseApiError(err).message, 'error');
@@ -108,171 +115,224 @@ export default function FaqsPage() {
     }
   }
 
+  function openCreate() {
+    setEditing(null);
+    setModalOpen(true);
+  }
+
+  // Row position by id — keeps the `cell`/`actions` renderers pure (they run
+  // once for the table and once for the mobile cards).
+  const rowIndex = useMemo(
+    () => new Map(items.map((it, i) => [it.id, i])),
+    [items],
+  );
+
+  const columns: DataListColumn<Faq>[] = [
+    {
+      key: 'question',
+      header: 'Question',
+      primary: true,
+      cell: (f) => (
+        <div className="min-w-0">
+          <div className="font-medium text-slate-900">{f.question}</div>
+          <p className="mt-0.5 line-clamp-2 text-xs text-slate-500">
+            {f.answer}
+          </p>
+        </div>
+      ),
+    },
+    {
+      key: 'category',
+      header: 'Category',
+      cell: (f) =>
+        f.category ? <Badge color="blue">{f.category}</Badge> : '—',
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      cell: (f) =>
+        f.isActive ? (
+          <Badge color="green">Active</Badge>
+        ) : (
+          <Badge color="slate">Inactive</Badge>
+        ),
+    },
+  ];
+
+  const hasActions = canReorder || !readOnly;
+
   return (
-    <div>
+    <div className="mx-auto max-w-6xl">
       <PageHeader
         title="FAQs"
-        description="Common questions and answers your assistant can reuse."
+        description="Question-and-answer pairs the assistant reuses word-for-word when a customer asks."
         actions={
-          !readOnly ? (
-            <Button
-              onClick={() => {
-                setEditing(null);
-                setModalOpen(true);
-              }}
-            >
-              Add FAQ
-            </Button>
-          ) : undefined
+          !readOnly ? <Button onClick={openCreate}>Add FAQ</Button> : undefined
         }
       />
 
-      {error && (
-        <div className="mb-4">
-          <Alert message={error} />
-        </div>
-      )}
+      <div className="space-y-6">
+        {error && (
+          <Alert>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <span>{error} The FAQ list could not be loaded.</span>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => void load()}
+                className="sm:shrink-0"
+              >
+                Try again
+              </Button>
+            </div>
+          </Alert>
+        )}
 
-      <div className="mb-4 flex flex-col gap-2 sm:flex-row">
-        <Input
-          placeholder="Search questions…"
-          value={search}
-          onChange={(e) => {
-            setPage(1);
-            setSearch(e.target.value);
-          }}
-          className="sm:max-w-xs"
+        <div className="space-y-3">
+          <Toolbar
+            search={
+              <ToolbarSearch
+                value={search}
+                label="Search questions"
+                placeholder="Search questions…"
+                onChange={(value) => {
+                  setPage(1);
+                  setSearch(value);
+                }}
+              />
+            }
+            filters={
+              <>
+                <label htmlFor="faq-category" className="sr-only">
+                  Filter by category
+                </label>
+                <Input
+                  id="faq-category"
+                  value={category}
+                  placeholder="Filter by category…"
+                  className="sm:max-w-[14rem]"
+                  onChange={(e) => {
+                    setPage(1);
+                    setCategory(e.target.value);
+                  }}
+                />
+              </>
+            }
+          />
+          {canReorder && items.length > 1 && (
+            <p className="text-xs text-slate-500">
+              Use the arrows to change the order the assistant considers FAQs
+              in.
+            </p>
+          )}
+        </div>
+
+        <DataList
+          items={items}
+          loading={loading}
+          keyOf={(f) => f.id}
+          columns={columns}
+          caption="FAQs"
+          actions={
+            hasActions
+              ? (f) => {
+                  const index = rowIndex.get(f.id) ?? 0;
+                  return (
+                    <>
+                      {canReorder && (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            aria-label="Move this FAQ up"
+                            disabled={index === 0}
+                            onClick={() => move(index, -1)}
+                          >
+                            ↑
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            aria-label="Move this FAQ down"
+                            disabled={index === items.length - 1}
+                            onClick={() => move(index, 1)}
+                          >
+                            ↓
+                          </Button>
+                        </>
+                      )}
+                      {!readOnly && (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => toggleStatus(f)}
+                          >
+                            {f.isActive ? 'Deactivate' : 'Activate'}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => {
+                              setEditing(f);
+                              setModalOpen(true);
+                            }}
+                          >
+                            Edit
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="danger"
+                            onClick={() => setDeleting(f)}
+                          >
+                            Delete
+                          </Button>
+                        </>
+                      )}
+                    </>
+                  );
+                }
+              : undefined
+          }
+          empty={
+            filtered ? (
+              <EmptyState
+                title="No matching FAQs"
+                description="No FAQ matches this search and category. Try a different term or clear the filters."
+                action={
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      setSearch('');
+                      setCategory('');
+                      setPage(1);
+                    }}
+                  >
+                    Clear filters
+                  </Button>
+                }
+              />
+            ) : (
+              <EmptyState
+                title="No FAQs yet"
+                description="FAQs give the assistant your exact wording for the questions customers ask most. Add the first one to get started."
+                action={
+                  !readOnly ? (
+                    <Button onClick={openCreate}>Add FAQ</Button>
+                  ) : undefined
+                }
+              />
+            )
+          }
         />
-        <Input
-          placeholder="Filter by category…"
-          value={category}
-          onChange={(e) => {
-            setPage(1);
-            setCategory(e.target.value);
-          }}
-          className="sm:max-w-xs"
+
+        <PaginationBar
+          page={pagination?.page ?? page}
+          totalPages={pagination?.totalPages ?? 1}
+          total={pagination?.total}
+          onChange={setPage}
         />
       </div>
-
-      {loading ? (
-        <div className="space-y-2">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-20" />
-          ))}
-        </div>
-      ) : items.length === 0 ? (
-        <EmptyState
-          title="No FAQs yet"
-          description={
-            readOnly ? 'No FAQs have been added.' : 'Add your first FAQ.'
-          }
-          action={
-            !readOnly ? (
-              <Button
-                onClick={() => {
-                  setEditing(null);
-                  setModalOpen(true);
-                }}
-              >
-                Add FAQ
-              </Button>
-            ) : undefined
-          }
-        />
-      ) : (
-        <div className="space-y-3">
-          {items.map((f, index) => (
-            <Panel key={f.id}>
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="font-medium text-slate-900">{f.question}</p>
-                    {f.isActive ? (
-                      <Badge color="green">Active</Badge>
-                    ) : (
-                      <Badge color="slate">Inactive</Badge>
-                    )}
-                    {f.category && <Badge color="blue">{f.category}</Badge>}
-                  </div>
-                  <p className="mt-1 line-clamp-2 text-sm text-slate-500">
-                    {f.answer}
-                  </p>
-                </div>
-                <div className="flex shrink-0 items-center gap-1">
-                  {canReorder && (
-                    <>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        aria-label="Move up"
-                        disabled={index === 0}
-                        onClick={() => move(index, -1)}
-                      >
-                        ↑
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        aria-label="Move down"
-                        disabled={index === items.length - 1}
-                        onClick={() => move(index, 1)}
-                      >
-                        ↓
-                      </Button>
-                    </>
-                  )}
-                  {!readOnly && (
-                    <>
-                      <Button size="sm" variant="secondary" onClick={() => toggleStatus(f)}>
-                        {f.isActive ? 'Deactivate' : 'Activate'}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => {
-                          setEditing(f);
-                          setModalOpen(true);
-                        }}
-                      >
-                        Edit
-                      </Button>
-                      <Button size="sm" variant="danger" onClick={() => setDeleting(f)}>
-                        Delete
-                      </Button>
-                    </>
-                  )}
-                </div>
-              </div>
-            </Panel>
-          ))}
-        </div>
-      )}
-
-      {pagination && pagination.totalPages > 1 && (
-        <div className="mt-4 flex items-center justify-between text-sm text-slate-500">
-          <span>
-            Page {pagination.page} of {pagination.totalPages} ({pagination.total} total)
-          </span>
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={page <= 1}
-              onClick={() => setPage((p) => p - 1)}
-            >
-              Previous
-            </Button>
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={page >= pagination.totalPages}
-              onClick={() => setPage((p) => p + 1)}
-            >
-              Next
-            </Button>
-          </div>
-        </div>
-      )}
 
       <FaqFormModal
         open={modalOpen}
@@ -288,8 +348,8 @@ export default function FaqsPage() {
       <ConfirmDialog
         open={deleting !== null}
         title="Delete FAQ"
-        message="Delete this FAQ? This cannot be undone."
-        confirmLabel="Delete"
+        message={`Delete "${deleting?.question}"? The assistant will stop using this answer. This cannot be undone.`}
+        confirmLabel="Delete FAQ"
         loading={deleteLoading}
         onConfirm={confirmDelete}
         onCancel={() => setDeleting(null)}

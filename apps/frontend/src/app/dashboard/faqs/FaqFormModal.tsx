@@ -78,8 +78,27 @@ export function FaqFormModal({
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={faq ? 'Edit FAQ' : 'Add FAQ'}>
-      <form onSubmit={handleSubmit} className="space-y-4">
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={faq ? 'Edit FAQ' : 'Add FAQ'}
+      footer={
+        <>
+          <Button
+            variant="secondary"
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+          >
+            Cancel
+          </Button>
+          <Button type="submit" form="faq-form" loading={saving}>
+            {faq ? 'Save changes' : 'Add FAQ'}
+          </Button>
+        </>
+      }
+    >
+      <form id="faq-form" onSubmit={handleSubmit} className="space-y-4">
         {error && <Alert message={error} />}
         <div>
           <Label htmlFor="faq-q" required>
@@ -88,6 +107,8 @@ export function FaqFormModal({
           <Input
             id="faq-q"
             value={question}
+            placeholder="Do you offer refunds?"
+            invalid={Boolean(fieldErrors.question)}
             onChange={(e) => setQuestion(e.target.value)}
             disabled={saving}
           />
@@ -100,32 +121,41 @@ export function FaqFormModal({
           <Textarea
             id="faq-a"
             value={answer}
+            invalid={Boolean(fieldErrors.answer)}
             onChange={(e) => setAnswer(e.target.value)}
             disabled={saving}
           />
           <FieldError message={fieldErrors.answer} />
+          <p className="mt-1 text-xs text-slate-500">
+            The assistant reuses this wording, so write it as you would say it
+            to a customer.
+          </p>
         </div>
         <div>
           <Label htmlFor="faq-cat">Category</Label>
           <Input
             id="faq-cat"
             value={category}
+            placeholder="Returns"
+            invalid={Boolean(fieldErrors.category)}
             onChange={(e) => setCategory(e.target.value)}
             disabled={saving}
           />
           <FieldError message={fieldErrors.category} />
         </div>
-        <div className="flex items-center gap-3">
-          <Toggle checked={isActive} onChange={setIsActive} label="Active" />
-          <span className="text-sm text-slate-700">Active</span>
-        </div>
-        <div className="mt-2 flex justify-end gap-2">
-          <Button variant="secondary" type="button" onClick={onClose} disabled={saving}>
-            Cancel
-          </Button>
-          <Button type="submit" loading={saving}>
-            {faq ? 'Save' : 'Create'}
-          </Button>
+        <div className="flex items-start gap-3">
+          <Toggle
+            checked={isActive}
+            onChange={setIsActive}
+            disabled={saving}
+            label="Active"
+          />
+          <span className="text-sm text-slate-700">
+            Active
+            <span className="block text-xs text-slate-500">
+              Inactive FAQs are hidden from the assistant.
+            </span>
+          </span>
         </div>
       </form>
     </Modal>

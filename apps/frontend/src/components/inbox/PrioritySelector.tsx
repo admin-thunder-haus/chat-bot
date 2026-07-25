@@ -8,10 +8,16 @@ const OPTIONS: ConversationPriority[] = ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
 export function PrioritySelector({
   value,
   disabled,
+  className = '!w-auto',
   onChange,
 }: {
   value: ConversationPriority;
   disabled?: boolean;
+  /**
+   * Pass `w-full` when the selector lives in the mobile overflow panel.
+   * The default needs `!` because the shared `Select` hardcodes `w-full`.
+   */
+  className?: string;
   onChange: (priority: ConversationPriority) => void;
 }) {
   return (
@@ -20,7 +26,7 @@ export function PrioritySelector({
       value={value}
       disabled={disabled}
       onChange={(e) => onChange(e.target.value as ConversationPriority)}
-      className="w-auto"
+      className={className}
     >
       {OPTIONS.map((p) => (
         <option key={p} value={p}>

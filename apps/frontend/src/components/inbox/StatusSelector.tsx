@@ -8,10 +8,17 @@ const OPTIONS: ConversationStatus[] = ['OPEN', 'PENDING', 'RESOLVED', 'CLOSED'];
 export function StatusSelector({
   value,
   disabled,
+  className = '!w-auto',
   onChange,
 }: {
   value: ConversationStatus;
   disabled?: boolean;
+  /**
+   * Pass `w-full` when the selector lives in the mobile overflow panel.
+   * The default needs `!` because the shared `Select` hardcodes `w-full`, which
+   * Tailwind emits after `w-auto` and would otherwise win.
+   */
+  className?: string;
   onChange: (status: ConversationStatus) => void;
 }) {
   return (
@@ -20,7 +27,7 @@ export function StatusSelector({
       value={value}
       disabled={disabled}
       onChange={(e) => onChange(e.target.value as ConversationStatus)}
-      className="w-auto"
+      className={className}
     >
       {OPTIONS.map((s) => (
         <option key={s} value={s}>

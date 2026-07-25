@@ -5,14 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { ApiClientError } from '@/lib/api';
-import {
-  Alert,
-  Button,
-  Card,
-  FieldError,
-  Input,
-  Label,
-} from '@/components/ui';
+import { Alert, Button, Card, FieldError, Input, Label } from '@/components/ui';
 
 /** Mirrors the backend password policy for immediate client-side feedback. */
 function validatePassword(pw: string): string | null {
@@ -69,9 +62,7 @@ export default function RegisterPage() {
     try {
       const result = await register(form);
       if (result.requiresEmailVerification) {
-        router.replace(
-          `/verify-email?email=${encodeURIComponent(form.email)}`,
-        );
+        router.replace(`/verify-email?email=${encodeURIComponent(form.email)}`);
       } else {
         router.replace('/dashboard');
       }
@@ -92,21 +83,30 @@ export default function RegisterPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center px-4 py-10">
+    <main className="flex min-h-dvh items-center justify-center bg-slate-50 px-4 py-10">
       <Card>
-        <h1 className="mb-1 text-2xl font-semibold">Create your workspace</h1>
-        <p className="mb-6 text-sm text-slate-500">
-          You&apos;ll be set up as the company owner.
+        <p className="text-[11px] font-medium uppercase tracking-wider text-slate-400">
+          AI customer support
+        </p>
+        <h1 className="mt-2 text-xl font-semibold text-slate-900 sm:text-2xl">
+          Create your workspace
+        </h1>
+        <p className="mb-6 mt-1 text-sm text-slate-500">
+          One workspace per company. You&apos;ll be set up as the owner and can
+          invite your team afterwards.
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-4" noValidate>
           {error && <Alert message={error} />}
 
           <div>
-            <Label htmlFor="companyName">Company name</Label>
+            <Label htmlFor="companyName" required>
+              Company name
+            </Label>
             <Input
               id="companyName"
               value={form.companyName}
+              invalid={Boolean(fieldErrors.companyName)}
               onChange={(e) => update('companyName', e.target.value)}
               required
             />
@@ -114,10 +114,13 @@ export default function RegisterPage() {
           </div>
 
           <div>
-            <Label htmlFor="fullName">Full name</Label>
+            <Label htmlFor="fullName" required>
+              Full name
+            </Label>
             <Input
               id="fullName"
               value={form.fullName}
+              invalid={Boolean(fieldErrors.fullName)}
               onChange={(e) => update('fullName', e.target.value)}
               autoComplete="name"
               required
@@ -126,40 +129,53 @@ export default function RegisterPage() {
           </div>
 
           <div>
-            <Label htmlFor="email">Email</Label>
+            <Label htmlFor="email" required>
+              Email
+            </Label>
             <Input
               id="email"
               type="email"
               value={form.email}
+              invalid={Boolean(fieldErrors.email)}
               onChange={(e) => update('email', e.target.value)}
               autoComplete="email"
               required
             />
             <FieldError message={fieldErrors.email} />
+            <p className="mt-1 text-xs text-slate-500">
+              We send a 6-digit code here to activate the account.
+            </p>
           </div>
 
           <div>
-            <Label htmlFor="password">Password</Label>
+            <Label htmlFor="password" required>
+              Password
+            </Label>
             <Input
               id="password"
               type="password"
               value={form.password}
+              invalid={Boolean(fieldErrors.password)}
               onChange={(e) => update('password', e.target.value)}
               autoComplete="new-password"
               required
             />
             <FieldError message={fieldErrors.password} />
-            <p className="mt-1 text-xs text-slate-400">
-              At least 8 characters, with upper, lower, and a number.
+            <p className="mt-1 text-xs text-slate-500">
+              At least 8 characters, with an uppercase letter, a lowercase
+              letter, and a number.
             </p>
           </div>
 
           <div>
-            <Label htmlFor="confirmPassword">Confirm password</Label>
+            <Label htmlFor="confirmPassword" required>
+              Confirm password
+            </Label>
             <Input
               id="confirmPassword"
               type="password"
               value={form.confirmPassword}
+              invalid={Boolean(fieldErrors.confirmPassword)}
               onChange={(e) => update('confirmPassword', e.target.value)}
               autoComplete="new-password"
               required
@@ -167,7 +183,12 @@ export default function RegisterPage() {
             <FieldError message={fieldErrors.confirmPassword} />
           </div>
 
-          <Button type="submit" loading={loading} fullWidth>
+          <Button
+            type="submit"
+            loading={loading}
+            loadingLabel="Creating workspace…"
+            fullWidth
+          >
             Create workspace
           </Button>
         </form>

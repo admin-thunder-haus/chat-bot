@@ -13,20 +13,26 @@ import { Alert, Button } from '@/components/ui';
  * manual credential form is tucked behind an "Advanced / manual setup"
  * toggle. When OAuth is NOT configured, the manual form stays front and
  * center with a muted note.
+ *
+ * The disclosure is *controlled* by the owning dialog so its pinned modal
+ * footer can show the matching actions (§5).
  */
 export function MetaOauthConnect({
   provider,
   providerLabel,
   oauthAvailable,
+  manualOpen,
+  onManualOpenChange,
   children,
 }: {
   provider: MetaOauthProvider;
   providerLabel: string;
   oauthAvailable: boolean;
+  manualOpen: boolean;
+  onManualOpenChange: (open: boolean) => void;
   /** The existing manual connect form. */
   children: React.ReactNode;
 }) {
-  const [manualOpen, setManualOpen] = useState(false);
   const [redirecting, setRedirecting] = useState(false);
   const [error, setError] = useState('');
 
@@ -47,9 +53,10 @@ export function MetaOauthConnect({
   if (!oauthAvailable) {
     return (
       <div className="space-y-4">
-        <p className="text-xs text-slate-400">
-          One-click connect is available once Meta OAuth is configured for this
-          deployment (see docs/META-OAUTH.md).
+        <p className="text-xs text-slate-500">
+          One-click connect becomes available once Meta OAuth is configured for
+          this deployment (see docs/META-OAUTH.md). Until then, use the manual
+          setup below.
         </p>
         {children}
       </div>
@@ -69,8 +76,9 @@ export function MetaOauthConnect({
         </p>
         <Button
           type="button"
-          className="mt-3"
+          className="mt-3 w-full sm:w-auto"
           loading={redirecting}
+          loadingLabel="Opening Meta…"
           onClick={() => void connectWithMeta()}
         >
           Connect with Meta
@@ -84,10 +92,13 @@ export function MetaOauthConnect({
 
       <button
         type="button"
-        className="text-xs font-medium text-slate-500 underline underline-offset-2 hover:text-slate-700"
-        onClick={() => setManualOpen((v) => !v)}
+        aria-expanded={manualOpen}
+        className="min-h-10 text-xs font-medium text-slate-500 underline underline-offset-2 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2"
+        onClick={() => onManualOpenChange(!manualOpen)}
       >
-        {manualOpen ? 'Hide advanced / manual setup' : 'Advanced / manual setup'}
+        {manualOpen
+          ? 'Hide advanced / manual setup'
+          : 'Advanced / manual setup'}
       </button>
 
       {manualOpen && children}

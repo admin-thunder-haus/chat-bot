@@ -17,15 +17,18 @@ import {
   Badge,
   Button,
   ConfirmDialog,
+  CopyButton,
+  DataList,
   EmptyState,
   FieldError,
   Input,
   Label,
   Modal,
   PageHeader,
-  Panel,
+  SectionCard,
   Skeleton,
   Toggle,
+  type DataListColumn,
 } from '@/components/ui';
 
 const EVENT_OPTIONS: { value: DomainEventType; label: string }[] = [
@@ -38,27 +41,25 @@ const EVENT_OPTIONS: { value: DomainEventType; label: string }[] = [
   { value: 'action.executed', label: 'Action executed' },
 ];
 
-function CopyField({ value, label }: { value: string; label: string }) {
-  const { notify } = useToast();
+const EVENT_LABELS: Record<string, string> = Object.fromEntries(
+  EVENT_OPTIONS.map((o) => [o.value, o.label]),
+);
+
+/** A secret shown exactly once: readable, wrapped, and one click to copy. */
+function SecretField({ value, label }: { value: string; label: string }) {
   return (
     <div>
       <p className="mb-1 text-sm font-medium text-slate-700">{label}</p>
-      <div className="flex gap-2">
-        <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800">
-          {value}
-        </code>
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={() => {
-            void navigator.clipboard
-              .writeText(value)
-              .then(() => notify('Copied to clipboard', 'success'))
-              .catch(() => notify('Could not copy — select it manually', 'error'));
-          }}
-        >
-          Copy
-        </Button>
+      <code className="block break-all rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800">
+        {value}
+      </code>
+      <div className="mt-2">
+        <CopyButton
+          value={value}
+          size="md"
+          label={`Copy ${label.toLowerCase()}`}
+          ariaLabel={`Copy ${label.toLowerCase()} to clipboard`}
+        />
       </div>
     </div>
   );
@@ -67,14 +68,15 @@ function CopyField({ value, label }: { value: string; label: string }) {
 /** Colored dots for the most recent deliveries (newest first). */
 function DeliveryDots({ deliveries }: { deliveries: WebhookDelivery[] }) {
   if (deliveries.length === 0) {
-    return <span className="text-xs text-slate-400">No deliveries yet</span>;
+    return <span className="text-xs text-slate-500">No deliveries yet</span>;
   }
+  const failed = deliveries.filter((d) => d.status !== 'delivered').length;
   return (
-    <span className="inline-flex items-center gap-1">
+    <span className="inline-flex flex-wrap items-center gap-1">
       {deliveries.slice(0, 10).map((d) => (
         <span
           key={d.id}
-          title={`${d.eventType} — ${d.status}${
+          title={`${EVENT_LABELS[d.eventType] ?? d.eventType} — ${d.status}${
             d.responseStatus ? ` (HTTP ${d.responseStatus})` : ''
           } · ${relativeTime(d.createdAt)} ago`}
           className={`inline-block h-2.5 w-2.5 rounded-full ${
@@ -82,6 +84,12 @@ function DeliveryDots({ deliveries }: { deliveries: WebhookDelivery[] }) {
           }`}
         />
       ))}
+      {/* Never colour-only: say what the dots mean (§3). */}
+      <span className="ml-1 text-xs text-slate-500">
+        {failed === 0
+          ? `last ${Math.min(deliveries.length, 10)} delivered`
+          : `${failed} of the last ${Math.min(deliveries.length, 10)} failed`}
+      </span>
     </span>
   );
 }
@@ -111,6 +119,7 @@ export default function IntegrationsPage() {
   const [hookUrl, setHookUrl] = useState('');
   const [hookUrlError, setHookUrlError] = useState('');
   const [hookEvents, setHookEvents] = useState<DomainEventType[]>([]);
+  const [hookEventsError, setHookEventsError] = useState('');
   const [createdSecret, setCreatedSecret] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<OutboundWebhook | null>(
     null,
@@ -193,6 +202,7 @@ export default function IntegrationsPage() {
       invalid = true;
     }
     if (hookEvents.length === 0) {
+      setHookEventsError('Select at least one event');
       notify('Select at least one event', 'error');
       invalid = true;
     }
@@ -252,93 +262,200 @@ export default function IntegrationsPage() {
     setHookUrl('');
     setHookUrlError('');
     setHookEvents([]);
+    setHookEventsError('');
     setCreatedSecret(null);
   }
 
+  const keyColumns: DataListColumn<ApiKey>[] = [
+    {
+      key: 'name',
+      header: 'Name',
+      primary: true,
+      cell: (key) => (
+        <span className="break-words font-medium text-slate-900">
+          {key.name}
+        </span>
+      ),
+    },
+    {
+      key: 'prefix',
+      header: 'Key',
+      cell: (key) => (
+        <code
+          className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-700"
+          title="Only the prefix is stored — the full key was shown once at creation."
+        >
+          {key.keyPrefix}…
+        </code>
+      ),
+    },
+    {
+      key: 'created',
+      header: 'Created',
+      cell: (key) => new Date(key.createdAt).toLocaleDateString(),
+    },
+    {
+      key: 'lastUsed',
+      header: 'Last used',
+      cell: (key) =>
+        key.lastUsedAt ? `${relativeTime(key.lastUsedAt)} ago` : 'Never',
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      cell: (key) =>
+        key.revokedAt ? (
+          <Badge color="red">Revoked</Badge>
+        ) : (
+          <Badge color="green">Active</Badge>
+        ),
+    },
+  ];
+
+  const hookColumns: DataListColumn<OutboundWebhook>[] = [
+    {
+      key: 'url',
+      header: 'Endpoint',
+      primary: true,
+      cell: (hook) => (
+        <div className="min-w-0">
+          <p className="break-all font-medium text-slate-900" title={hook.url}>
+            {hook.url}
+          </p>
+          <div className="mt-1">
+            <CopyButton
+              value={hook.url}
+              label="Copy URL"
+              ariaLabel={`Copy the webhook URL ${hook.url}`}
+            />
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'events',
+      header: 'Events',
+      cell: (hook) => (
+        <div className="flex flex-wrap justify-end gap-1 md:justify-start">
+          {hook.events.map((e) => (
+            <Badge key={e} color="blue">
+              {EVENT_LABELS[e] ?? e}
+            </Badge>
+          ))}
+        </div>
+      ),
+    },
+    {
+      key: 'deliveries',
+      header: 'Recent deliveries',
+      cell: (hook) => (
+        <div className="flex flex-col items-end gap-1 md:items-start">
+          <DeliveryDots deliveries={deliveries[hook.id] ?? []} />
+          {hook.failureCount > 0 && (
+            <span className="text-xs text-amber-700">
+              {hook.failureCount} consecutive failure
+              {hook.failureCount === 1 ? '' : 's'}
+            </span>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: 'active',
+      header: 'Enabled',
+      cell: (hook) => (
+        <span className="inline-flex items-center gap-2">
+          <Toggle
+            checked={hook.isActive}
+            onChange={(next) => void toggleHook(hook, next)}
+            label={`${hook.isActive ? 'Disable' : 'Enable'} the webhook for ${hook.url}`}
+          />
+          <span className="text-xs text-slate-500">
+            {hook.isActive ? 'Enabled' : 'Paused'}
+          </span>
+        </span>
+      ),
+    },
+  ];
+
   if (!canManage) {
     return (
-      <div>
+      <div className="mx-auto max-w-6xl">
         <PageHeader
           title="Integrations"
-          description="API keys and outbound webhooks."
+          description="API keys and outbound webhooks for your workspace."
         />
         <Alert
           variant="info"
-          message="Only owners and admins can manage integrations."
+          message="Only owners and admins can manage integrations. Ask an owner if you need an API key."
         />
       </div>
     );
   }
 
   return (
-    <div>
+    <div className="mx-auto max-w-6xl">
       <PageHeader
         title="Integrations"
         description="Programmatic access to your workspace: API keys for the public API and signed webhooks for real-time events."
+        actions={
+          <>
+            <Button variant="secondary" onClick={() => setHookDialogOpen(true)}>
+              Add webhook
+            </Button>
+            <Button onClick={() => setKeyDialogOpen(true)}>
+              Create API key
+            </Button>
+          </>
+        }
       />
 
-      {error && (
-        <div className="mb-4">
-          <Alert message={error} />
-        </div>
-      )}
-
-      {loading ? (
-        <div className="space-y-3">
-          {Array.from({ length: 2 }).map((_, i) => (
-            <Skeleton key={i} className="h-40" />
-          ))}
-        </div>
-      ) : (
-        <div className="space-y-6">
-          {/* --- API keys --- */}
-          <Panel>
-            <div className="mb-4 flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-900">
-                  API keys
-                </h2>
-                <p className="text-sm text-slate-500">
-                  Authenticate against the public API at{' '}
-                  <code className="text-xs">/api/public/v1</code>.
-                </p>
-              </div>
-              <Button onClick={() => setKeyDialogOpen(true)}>
-                Create key
+      <div className="space-y-6">
+        {error && (
+          <Alert>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <span>{error} Your keys and webhooks could not be loaded.</span>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => void load()}
+                className="sm:shrink-0"
+              >
+                Try again
               </Button>
             </div>
+          </Alert>
+        )}
 
-            {apiKeys.length === 0 ? (
-              <EmptyState
-                title="No API keys yet"
-                description="Create a key to read conversations and customers from your own systems."
-              />
-            ) : (
-              <ul className="divide-y divide-slate-100">
-                {apiKeys.map((key) => (
-                  <li
-                    key={key.id}
-                    className="flex flex-wrap items-center justify-between gap-3 py-3"
-                  >
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="truncate text-sm font-medium text-slate-900">
-                          {key.name}
-                        </p>
-                        {key.revokedAt ? (
-                          <Badge color="red">Revoked</Badge>
-                        ) : (
-                          <Badge color="green">Active</Badge>
-                        )}
-                      </div>
-                      <p className="mt-0.5 text-xs text-slate-500">
-                        <code>{key.keyPrefix}…</code> · created{' '}
-                        {new Date(key.createdAt).toLocaleDateString()}
-                        {key.lastUsedAt &&
-                          ` · last used ${relativeTime(key.lastUsedAt)} ago`}
-                      </p>
-                    </div>
-                    {!key.revokedAt && (
+        {loading ? (
+          <>
+            <Skeleton className="h-56 rounded-xl" />
+            <Skeleton className="h-56 rounded-xl" />
+          </>
+        ) : (
+          <>
+            <SectionCard
+              title="API keys"
+              description="Authenticate against the public API at /api/public/v1. A key is shown once, at creation."
+              padded={false}
+              actions={
+                <Button
+                  variant="secondary"
+                  onClick={() => setKeyDialogOpen(true)}
+                >
+                  Create API key
+                </Button>
+              }
+            >
+              <div className="p-4 sm:p-6">
+                <DataList
+                  bare
+                  items={apiKeys}
+                  keyOf={(key) => key.id}
+                  columns={keyColumns}
+                  caption="API keys"
+                  actions={(key) =>
+                    key.revokedAt ? null : (
                       <Button
                         variant="danger"
                         size="sm"
@@ -346,104 +463,108 @@ export default function IntegrationsPage() {
                       >
                         Revoke
                       </Button>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Panel>
-
-          {/* --- Webhooks --- */}
-          <Panel>
-            <div className="mb-4 flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-900">
-                  Webhooks
-                </h2>
-                <p className="text-sm text-slate-500">
-                  Signed HTTP callbacks for events in your workspace.
-                </p>
-              </div>
-              <Button onClick={() => setHookDialogOpen(true)}>
-                Add webhook
-              </Button>
-            </div>
-
-            {webhooks.length === 0 ? (
-              <EmptyState
-                title="No webhooks yet"
-                description="Add an endpoint to receive signed events like new conversations and handoffs."
-              />
-            ) : (
-              <ul className="divide-y divide-slate-100">
-                {webhooks.map((hook) => (
-                  <li key={hook.id} className="py-3">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-slate-900">
-                          {hook.url}
-                        </p>
-                        <div className="mt-1 flex flex-wrap items-center gap-1">
-                          {hook.events.map((e) => (
-                            <Badge key={e} color="blue">
-                              {e}
-                            </Badge>
-                          ))}
-                        </div>
-                        <div className="mt-2 flex items-center gap-2">
-                          <DeliveryDots
-                            deliveries={deliveries[hook.id] ?? []}
-                          />
-                          {hook.failureCount > 0 && (
-                            <span className="text-xs text-amber-600">
-                              {hook.failureCount} consecutive failure
-                              {hook.failureCount === 1 ? '' : 's'}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <Toggle
-                          checked={hook.isActive}
-                          onChange={(next) => void toggleHook(hook, next)}
-                          label={`Webhook ${hook.isActive ? 'active' : 'inactive'}`}
-                        />
-                        <Button
-                          variant="danger"
-                          size="sm"
-                          onClick={() => setDeleteTarget(hook)}
-                        >
-                          Delete
+                    )
+                  }
+                  empty={
+                    <EmptyState
+                      title="No API keys yet"
+                      description="An API key lets your own systems read conversations and customers from this workspace."
+                      action={
+                        <Button onClick={() => setKeyDialogOpen(true)}>
+                          Create API key
                         </Button>
-                      </div>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Panel>
-        </div>
-      )}
+                      }
+                    />
+                  }
+                />
+              </div>
+            </SectionCard>
+
+            <SectionCard
+              title="Webhooks"
+              description="Signed HTTP callbacks so your systems hear about events as they happen."
+              padded={false}
+              actions={
+                <Button
+                  variant="secondary"
+                  onClick={() => setHookDialogOpen(true)}
+                >
+                  Add webhook
+                </Button>
+              }
+            >
+              <div className="p-4 sm:p-6">
+                <DataList
+                  bare
+                  items={webhooks}
+                  keyOf={(hook) => hook.id}
+                  columns={hookColumns}
+                  caption="Outbound webhooks"
+                  actions={(hook) => (
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      onClick={() => setDeleteTarget(hook)}
+                    >
+                      Delete
+                    </Button>
+                  )}
+                  empty={
+                    <EmptyState
+                      title="No webhooks yet"
+                      description="Add an endpoint to receive signed events such as new conversations and handoff requests."
+                      action={
+                        <Button onClick={() => setHookDialogOpen(true)}>
+                          Add webhook
+                        </Button>
+                      }
+                    />
+                  }
+                />
+              </div>
+            </SectionCard>
+          </>
+        )}
+      </div>
 
       {/* --- Create API key dialog --- */}
       <Modal
         open={keyDialogOpen}
         onClose={closeKeyDialog}
         title={createdKey ? 'API key created' : 'Create API key'}
+        footer={
+          createdKey ? (
+            <Button onClick={closeKeyDialog}>Done</Button>
+          ) : (
+            <>
+              <Button
+                variant="secondary"
+                onClick={closeKeyDialog}
+                disabled={actionLoading}
+              >
+                Cancel
+              </Button>
+              <Button loading={actionLoading} onClick={() => void createKey()}>
+                Create key
+              </Button>
+            </>
+          )
+        }
       >
         {createdKey ? (
           <div className="space-y-4">
             <Alert
               variant="warning"
-              message="Copy the key now — it will never be shown again."
+              message="Copy this key now and store it somewhere safe — it is never shown again."
             />
-            <CopyField label="API key" value={createdKey} />
-            <div className="flex justify-end">
-              <Button onClick={closeKeyDialog}>Done</Button>
-            </div>
+            <SecretField label="API key" value={createdKey} />
           </div>
         ) : (
           <div className="space-y-4">
+            <p className="text-sm text-slate-500">
+              Name the key after the system that will use it, so you know what
+              to revoke later.
+            </p>
             <div>
               <Label htmlFor="api-key-name" required>
                 Name
@@ -451,22 +572,15 @@ export default function IntegrationsPage() {
               <Input
                 id="api-key-name"
                 value={keyName}
-                placeholder="e.g. CRM sync"
+                placeholder="CRM sync"
                 maxLength={80}
+                invalid={Boolean(keyNameError)}
                 onChange={(e) => {
                   setKeyName(e.target.value);
                   setKeyNameError('');
                 }}
               />
               <FieldError message={keyNameError} />
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button variant="secondary" onClick={closeKeyDialog}>
-                Cancel
-              </Button>
-              <Button loading={actionLoading} onClick={() => void createKey()}>
-                Create key
-              </Button>
             </div>
           </div>
         )}
@@ -477,17 +591,32 @@ export default function IntegrationsPage() {
         open={hookDialogOpen}
         onClose={closeHookDialog}
         title={createdSecret ? 'Webhook created' : 'Add webhook'}
+        footer={
+          createdSecret ? (
+            <Button onClick={closeHookDialog}>Done</Button>
+          ) : (
+            <>
+              <Button
+                variant="secondary"
+                onClick={closeHookDialog}
+                disabled={actionLoading}
+              >
+                Cancel
+              </Button>
+              <Button loading={actionLoading} onClick={() => void createHook()}>
+                Add webhook
+              </Button>
+            </>
+          )
+        }
       >
         {createdSecret ? (
           <div className="space-y-4">
             <Alert
               variant="warning"
-              message="Copy the signing secret now — it will never be shown again. Use it to verify the X-Webhook-Signature header."
+              message="Copy this signing secret now — it is never shown again. Use it to verify the X-Webhook-Signature header on every delivery."
             />
-            <CopyField label="Signing secret" value={createdSecret} />
-            <div className="flex justify-end">
-              <Button onClick={closeHookDialog}>Done</Button>
-            </div>
+            <SecretField label="Signing secret" value={createdSecret} />
           </div>
         ) : (
           <div className="space-y-4">
@@ -499,6 +628,7 @@ export default function IntegrationsPage() {
                 id="webhook-url"
                 value={hookUrl}
                 placeholder="https://example.com/hooks/support"
+                invalid={Boolean(hookUrlError)}
                 onChange={(e) => {
                   setHookUrl(e.target.value);
                   setHookUrlError('');
@@ -506,40 +636,35 @@ export default function IntegrationsPage() {
               />
               <FieldError message={hookUrlError} />
             </div>
-            <div>
-              <p className="mb-1 text-sm font-medium text-slate-700">
+            <fieldset>
+              <legend className="mb-1 block text-sm font-medium text-slate-700">
                 Events<span className="ml-0.5 text-red-500">*</span>
-              </p>
-              <div className="grid gap-1.5 sm:grid-cols-2">
+              </legend>
+              <div className="grid gap-1 sm:grid-cols-2">
                 {EVENT_OPTIONS.map((option) => (
                   <label
                     key={option.value}
-                    className="flex items-center gap-2 text-sm text-slate-700"
+                    className="flex min-h-10 items-center gap-2 text-sm text-slate-700"
                   >
                     <input
                       type="checkbox"
+                      className="h-4 w-4 rounded border-slate-300 text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2"
                       checked={hookEvents.includes(option.value)}
-                      onChange={(e) =>
+                      onChange={(e) => {
+                        setHookEventsError('');
                         setHookEvents((prev) =>
                           e.target.checked
                             ? [...prev, option.value]
                             : prev.filter((v) => v !== option.value),
-                        )
-                      }
+                        );
+                      }}
                     />
                     {option.label}
                   </label>
                 ))}
               </div>
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button variant="secondary" onClick={closeHookDialog}>
-                Cancel
-              </Button>
-              <Button loading={actionLoading} onClick={() => void createHook()}>
-                Add webhook
-              </Button>
-            </div>
+              <FieldError message={hookEventsError} />
+            </fieldset>
           </div>
         )}
       </Modal>
@@ -549,7 +674,7 @@ export default function IntegrationsPage() {
         title="Revoke API key"
         message={
           revokeTarget
-            ? `Revoke "${revokeTarget.name}"? Integrations using it will stop working immediately. This cannot be undone.`
+            ? `Revoke "${revokeTarget.name}"? Anything using it stops working immediately. This cannot be undone.`
             : ''
         }
         confirmLabel="Revoke key"
@@ -563,7 +688,7 @@ export default function IntegrationsPage() {
         title="Delete webhook"
         message={
           deleteTarget
-            ? `Delete the webhook for ${deleteTarget.url}? Its delivery history will be removed as well.`
+            ? `Delete the webhook for ${deleteTarget.url}? Its delivery history is removed as well.`
             : ''
         }
         confirmLabel="Delete webhook"

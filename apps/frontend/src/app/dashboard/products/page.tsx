@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { canWrite } from '@/lib/permissions';
 import { productsApi } from '@/lib/resources';
@@ -12,12 +12,14 @@ import {
   Badge,
   Button,
   ConfirmDialog,
+  DataList,
   EmptyState,
-  Input,
   PageHeader,
-  Panel,
+  PaginationBar,
   Select,
-  Skeleton,
+  Toolbar,
+  ToolbarSearch,
+  type DataListColumn,
 } from '@/components/ui';
 import { ImportExcelModal } from '@/components/ImportExcelModal';
 import { ProductFormModal } from './ProductFormModal';
@@ -51,7 +53,9 @@ export default function ProductsPage() {
   const [pagination, setPagination] = useState<Pagination | null>(null);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
-  const [activeFilter, setActiveFilter] = useState<'all' | 'true' | 'false'>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'true' | 'false'>(
+    'all',
+  );
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -63,6 +67,7 @@ export default function ProductsPage() {
   const [deleteLoading, setDeleteLoading] = useState(false);
 
   const canReorder = !readOnly && !search && activeFilter === 'all';
+  const filtered = Boolean(search) || activeFilter !== 'all';
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -132,147 +137,169 @@ export default function ProductsPage() {
     }
   }
 
+  function openCreate() {
+    setEditing(null);
+    setModalOpen(true);
+  }
+
+  // Row position by id — keeps the `cell`/`actions` renderers pure (they run
+  // once for the table and once for the mobile cards).
+  const rowIndex = useMemo(
+    () => new Map(items.map((it, i) => [it.id, i])),
+    [items],
+  );
+
+  const columns: DataListColumn<Product>[] = [
+    {
+      key: 'name',
+      header: 'Product',
+      primary: true,
+      cell: (p) => (
+        <div className="flex items-center gap-3">
+          {p.imageUrl && (
+            // eslint-disable-next-line @next/next/no-img-element -- arbitrary customer-hosted URLs cannot go through next/image
+            <img
+              src={p.imageUrl}
+              alt=""
+              className="h-9 w-9 shrink-0 rounded-md object-cover"
+              onError={(e) => {
+                e.currentTarget.style.display = 'none';
+              }}
+            />
+          )}
+          <div className="min-w-0">
+            <div className="font-medium text-slate-900">{p.name}</div>
+            {p.description && (
+              <div className="truncate text-xs text-slate-500 md:max-w-xs">
+                {p.description}
+              </div>
+            )}
+          </div>
+        </div>
+      ),
+    },
+    { key: 'sku', header: 'SKU', cell: (p) => p.sku ?? '—' },
+    { key: 'category', header: 'Category', cell: (p) => p.category ?? '—' },
+    {
+      key: 'price',
+      header: 'Price',
+      className: 'tabular-nums',
+      cell: (p) => priceDisplay(p),
+    },
+    {
+      key: 'stock',
+      header: 'Stock',
+      className: 'tabular-nums',
+      cell: (p) => p.stockQuantity ?? '—',
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      cell: (p) =>
+        p.isActive ? (
+          <Badge color="green">Active</Badge>
+        ) : (
+          <Badge color="slate">Inactive</Badge>
+        ),
+    },
+  ];
+
+  const hasActions = canReorder || !readOnly;
+
   return (
-    <div>
+    <div className="mx-auto max-w-6xl">
       <PageHeader
         title="Products"
-        description="Physical products your assistant can quote to customers."
+        description="Physical products your assistant can quote and recommend to customers."
         actions={
           !readOnly ? (
             <>
               <Button variant="secondary" onClick={() => setImportOpen(true)}>
-                Import
+                Import from Excel
               </Button>
-              <Button
-                onClick={() => {
-                  setEditing(null);
-                  setModalOpen(true);
-                }}
-              >
-                Add product
-              </Button>
+              <Button onClick={openCreate}>Add product</Button>
             </>
           ) : undefined
         }
       />
 
-      {error && (
-        <div className="mb-4">
-          <Alert message={error} />
-        </div>
-      )}
-
-      {/* Filters */}
-      <div className="mb-4 flex flex-col gap-2 sm:flex-row">
-        <Input
-          placeholder="Search products…"
-          value={search}
-          onChange={(e) => {
-            setPage(1);
-            setSearch(e.target.value);
-          }}
-          className="sm:max-w-xs"
-        />
-        <Select
-          value={activeFilter}
-          onChange={(e) => {
-            setPage(1);
-            setActiveFilter(e.target.value as 'all' | 'true' | 'false');
-          }}
-          className="sm:max-w-[160px]"
-        >
-          <option value="all">All statuses</option>
-          <option value="true">Active</option>
-          <option value="false">Inactive</option>
-        </Select>
-      </div>
-
-      {loading ? (
-        <div className="space-y-2">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-16" />
-          ))}
-        </div>
-      ) : items.length === 0 ? (
-        <EmptyState
-          title="No products yet"
-          description={
-            readOnly
-              ? 'No products have been added.'
-              : 'Add your first product so the assistant can share pricing.'
-          }
-          action={
-            !readOnly ? (
+      <div className="space-y-6">
+        {error && (
+          <Alert>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <span>{error} The product list could not be loaded.</span>
               <Button
-                onClick={() => {
-                  setEditing(null);
-                  setModalOpen(true);
-                }}
+                size="sm"
+                variant="secondary"
+                onClick={() => void load()}
+                className="sm:shrink-0"
               >
-                Add product
+                Try again
               </Button>
-            ) : undefined
-          }
-        />
-      ) : (
-        <Panel className="overflow-x-auto p-0">
-          <table className="w-full text-sm">
-            <thead className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-400">
-              <tr>
-                <th className="px-4 py-3">Name</th>
-                <th className="px-4 py-3">SKU</th>
-                <th className="px-4 py-3">Category</th>
-                <th className="px-4 py-3">Price</th>
-                <th className="px-4 py-3">Stock</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((p, index) => (
-                <tr key={p.id} className="border-b border-slate-100 last:border-0">
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-3">
-                      {p.imageUrl && (
-                        // eslint-disable-next-line @next/next/no-img-element -- arbitrary customer-hosted URLs cannot go through next/image
-                        <img
-                          src={p.imageUrl}
-                          alt=""
-                          className="h-9 w-9 shrink-0 rounded-md object-cover"
-                          onError={(e) => {
-                            e.currentTarget.style.display = 'none';
-                          }}
-                        />
-                      )}
-                      <div className="min-w-0">
-                        <div className="font-medium text-slate-900">{p.name}</div>
-                        {p.description && (
-                          <div className="max-w-xs truncate text-xs text-slate-500">
-                            {p.description}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">{p.sku ?? '—'}</td>
-                  <td className="px-4 py-3">{p.category ?? '—'}</td>
-                  <td className="px-4 py-3">{priceDisplay(p)}</td>
-                  <td className="px-4 py-3">{p.stockQuantity ?? '—'}</td>
-                  <td className="px-4 py-3">
-                    {p.isActive ? (
-                      <Badge color="green">Active</Badge>
-                    ) : (
-                      <Badge color="slate">Inactive</Badge>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center justify-end gap-1">
+            </div>
+          </Alert>
+        )}
+
+        <div className="space-y-3">
+          <Toolbar
+            search={
+              <ToolbarSearch
+                value={search}
+                label="Search products"
+                placeholder="Search products…"
+                onChange={(value) => {
+                  setPage(1);
+                  setSearch(value);
+                }}
+              />
+            }
+            filters={
+              <>
+                <label htmlFor="product-status" className="sr-only">
+                  Filter by status
+                </label>
+                <Select
+                  id="product-status"
+                  value={activeFilter}
+                  className="sm:max-w-[170px]"
+                  onChange={(e) => {
+                    setPage(1);
+                    setActiveFilter(e.target.value as 'all' | 'true' | 'false');
+                  }}
+                >
+                  <option value="all">All statuses</option>
+                  <option value="true">Active only</option>
+                  <option value="false">Inactive only</option>
+                </Select>
+              </>
+            }
+          />
+          {canReorder && items.length > 1 && (
+            <p className="text-xs text-slate-500">
+              Use the arrows to change the order the assistant lists products
+              in.
+            </p>
+          )}
+        </div>
+
+        <DataList
+          items={items}
+          loading={loading}
+          keyOf={(p) => p.id}
+          columns={columns}
+          caption="Products"
+          actions={
+            hasActions
+              ? (p) => {
+                  const index = rowIndex.get(p.id) ?? 0;
+                  return (
+                    <>
                       {canReorder && (
                         <>
                           <Button
                             size="sm"
                             variant="ghost"
-                            aria-label="Move up"
+                            aria-label={`Move ${p.name} up`}
                             disabled={index === 0}
                             onClick={() => move(index, -1)}
                           >
@@ -281,7 +308,7 @@ export default function ProductsPage() {
                           <Button
                             size="sm"
                             variant="ghost"
-                            aria-label="Move down"
+                            aria-label={`Move ${p.name} down`}
                             disabled={index === items.length - 1}
                             onClick={() => move(index, 1)}
                           >
@@ -317,42 +344,50 @@ export default function ProductsPage() {
                           </Button>
                         </>
                       )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Panel>
-      )}
+                    </>
+                  );
+                }
+              : undefined
+          }
+          empty={
+            filtered ? (
+              <EmptyState
+                title="No matching products"
+                description="No product matches this search and status. Try a different term or clear the filters."
+                action={
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      setSearch('');
+                      setActiveFilter('all');
+                      setPage(1);
+                    }}
+                  >
+                    Clear filters
+                  </Button>
+                }
+              />
+            ) : (
+              <EmptyState
+                title="No products yet"
+                description="Products are the catalogue your assistant quotes prices and stock from. Add the first one to get started."
+                action={
+                  !readOnly ? (
+                    <Button onClick={openCreate}>Add product</Button>
+                  ) : undefined
+                }
+              />
+            )
+          }
+        />
 
-      {/* Pagination */}
-      {pagination && pagination.totalPages > 1 && (
-        <div className="mt-4 flex items-center justify-between text-sm text-slate-500">
-          <span>
-            Page {pagination.page} of {pagination.totalPages} ({pagination.total}{' '}
-            total)
-          </span>
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={page <= 1}
-              onClick={() => setPage((p) => p - 1)}
-            >
-              Previous
-            </Button>
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={page >= pagination.totalPages}
-              onClick={() => setPage((p) => p + 1)}
-            >
-              Next
-            </Button>
-          </div>
-        </div>
-      )}
+        <PaginationBar
+          page={pagination?.page ?? page}
+          totalPages={pagination?.totalPages ?? 1}
+          total={pagination?.total}
+          onChange={setPage}
+        />
+      </div>
 
       <ProductFormModal
         open={modalOpen}
@@ -378,8 +413,8 @@ export default function ProductsPage() {
       <ConfirmDialog
         open={deleting !== null}
         title="Delete product"
-        message={`Delete "${deleting?.name}"? This cannot be undone.`}
-        confirmLabel="Delete"
+        message={`Delete "${deleting?.name}"? The assistant will stop quoting it. This cannot be undone.`}
+        confirmLabel="Delete product"
         loading={deleteLoading}
         onConfirm={confirmDelete}
         onCancel={() => setDeleting(null)}

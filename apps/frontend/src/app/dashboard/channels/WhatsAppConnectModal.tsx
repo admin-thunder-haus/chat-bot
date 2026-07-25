@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { channelsApi } from '@/lib/resources';
 import { parseApiError } from '@/lib/form';
 import { useToast } from '@/components/toast';
@@ -46,6 +46,14 @@ export function WhatsAppConnectModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [manualOpen, setManualOpen] = useState(false);
+
+  // Reopening the dialog always starts on the recommended one-click path.
+  useEffect(() => {
+    if (!open) setManualOpen(false);
+  }, [open]);
+
+  const showManual = !oauthAvailable || manualOpen;
 
   function set<K extends keyof typeof form>(key: K, value: string) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -80,77 +88,166 @@ export function WhatsAppConnectModal({
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="Connect WhatsApp Business">
-      <MetaOauthConnect provider="whatsapp" providerLabel="WhatsApp Business number" oauthAvailable={oauthAvailable}>
-      <form onSubmit={submit} className="space-y-4">
-        <Alert variant="info">
-          Enter your Meta Cloud API details. Secrets are encrypted at rest and
-          never shown again. Configure your Meta app webhook to point at this
-          channel&apos;s URL and use the same verify token.
-        </Alert>
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Connect WhatsApp Business"
+      footer={
+        showManual ? (
+          <>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={onClose}
+              disabled={saving}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" form="whatsapp-connect-form" loading={saving}>
+              Connect WhatsApp
+            </Button>
+          </>
+        ) : (
+          <Button type="button" variant="secondary" onClick={onClose}>
+            Close
+          </Button>
+        )
+      }
+    >
+      <MetaOauthConnect
+        provider="whatsapp"
+        providerLabel="WhatsApp Business number"
+        oauthAvailable={oauthAvailable}
+        manualOpen={manualOpen}
+        onManualOpenChange={setManualOpen}
+      >
+        <form
+          id="whatsapp-connect-form"
+          onSubmit={submit}
+          className="space-y-4"
+        >
+          <Alert variant="info">
+            Enter your Meta Cloud API details. Secrets are encrypted at rest and
+            never shown again. Point your Meta app webhook at this
+            channel&apos;s URL and use the same verify token.
+          </Alert>
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div>
-            <Label htmlFor="wa-name">Display name</Label>
-            <Input id="wa-name" value={form.displayName} disabled={saving} onChange={(e) => set('displayName', e.target.value)} />
-            <FieldError message={fieldErrors.displayName} />
-          </div>
-          <div>
-            <Label htmlFor="wa-display">Display phone number</Label>
-            <Input id="wa-display" placeholder="+1 555 010 0000" value={form.displayPhoneNumber} disabled={saving} onChange={(e) => set('displayPhoneNumber', e.target.value)} />
-          </div>
-          <div>
-            <Label htmlFor="wa-pnid" required>Phone Number ID</Label>
-            <Input id="wa-pnid" value={form.phoneNumberId} disabled={saving} onChange={(e) => set('phoneNumberId', e.target.value)} />
-            <FieldError message={fieldErrors.phoneNumberId} />
-          </div>
-          <div>
-            <Label htmlFor="wa-waba" required>Business Account (WABA) ID</Label>
-            <Input id="wa-waba" value={form.wabaId} disabled={saving} onChange={(e) => set('wabaId', e.target.value)} />
-            <FieldError message={fieldErrors.wabaId} />
-          </div>
-          <div className="sm:col-span-2">
-            <Label htmlFor="wa-biz">Business name</Label>
-            <Input id="wa-biz" value={form.businessName} disabled={saving} onChange={(e) => set('businessName', e.target.value)} />
-          </div>
-        </div>
-
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
-          <p className="mb-2 text-xs font-semibold text-amber-800">
-            Secrets (stored encrypted, never displayed again)
-          </p>
-          <div className="space-y-3">
+          <div className="grid gap-4 sm:grid-cols-2">
             <div>
-              <Label htmlFor="wa-token" required>Access token</Label>
-              <Input id="wa-token" type="password" autoComplete="off" value={form.accessToken} disabled={saving} onChange={(e) => set('accessToken', e.target.value)} />
-              <FieldError message={fieldErrors.accessToken} />
+              <Label htmlFor="wa-name">Display name</Label>
+              <Input
+                id="wa-name"
+                value={form.displayName}
+                disabled={saving}
+                invalid={Boolean(fieldErrors.displayName)}
+                onChange={(e) => set('displayName', e.target.value)}
+              />
+              <FieldError message={fieldErrors.displayName} />
             </div>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="wa-display">Display phone number</Label>
+              <Input
+                id="wa-display"
+                placeholder="+1 555 010 0000"
+                value={form.displayPhoneNumber}
+                disabled={saving}
+                onChange={(e) => set('displayPhoneNumber', e.target.value)}
+              />
+            </div>
+            <div>
+              <Label htmlFor="wa-pnid" required>
+                Phone number ID
+              </Label>
+              <Input
+                id="wa-pnid"
+                value={form.phoneNumberId}
+                disabled={saving}
+                invalid={Boolean(fieldErrors.phoneNumberId)}
+                onChange={(e) => set('phoneNumberId', e.target.value)}
+              />
+              <FieldError message={fieldErrors.phoneNumberId} />
+            </div>
+            <div>
+              <Label htmlFor="wa-waba" required>
+                Business account (WABA) ID
+              </Label>
+              <Input
+                id="wa-waba"
+                value={form.wabaId}
+                disabled={saving}
+                invalid={Boolean(fieldErrors.wabaId)}
+                onChange={(e) => set('wabaId', e.target.value)}
+              />
+              <FieldError message={fieldErrors.wabaId} />
+            </div>
+            <div className="sm:col-span-2">
+              <Label htmlFor="wa-biz">Business name</Label>
+              <Input
+                id="wa-biz"
+                value={form.businessName}
+                disabled={saving}
+                onChange={(e) => set('businessName', e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+            <p className="mb-2 text-xs font-semibold text-amber-800">
+              Secrets — stored encrypted, never displayed again
+            </p>
+            <div className="space-y-3">
               <div>
-                <Label htmlFor="wa-secret" required>App secret</Label>
-                <Input id="wa-secret" type="password" autoComplete="off" value={form.appSecret} disabled={saving} onChange={(e) => set('appSecret', e.target.value)} />
-                <FieldError message={fieldErrors.appSecret} />
+                <Label htmlFor="wa-token" required>
+                  Access token
+                </Label>
+                <Input
+                  id="wa-token"
+                  type="password"
+                  autoComplete="off"
+                  value={form.accessToken}
+                  disabled={saving}
+                  invalid={Boolean(fieldErrors.accessToken)}
+                  onChange={(e) => set('accessToken', e.target.value)}
+                />
+                <FieldError message={fieldErrors.accessToken} />
               </div>
-              <div>
-                <Label htmlFor="wa-verify" required>Verify token</Label>
-                <Input id="wa-verify" type="password" autoComplete="off" value={form.verifyToken} disabled={saving} onChange={(e) => set('verifyToken', e.target.value)} />
-                <FieldError message={fieldErrors.verifyToken} />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <Label htmlFor="wa-secret" required>
+                    App secret
+                  </Label>
+                  <Input
+                    id="wa-secret"
+                    type="password"
+                    autoComplete="off"
+                    value={form.appSecret}
+                    disabled={saving}
+                    invalid={Boolean(fieldErrors.appSecret)}
+                    onChange={(e) => set('appSecret', e.target.value)}
+                  />
+                  <FieldError message={fieldErrors.appSecret} />
+                </div>
+                <div>
+                  <Label htmlFor="wa-verify" required>
+                    Verify token
+                  </Label>
+                  <Input
+                    id="wa-verify"
+                    type="password"
+                    autoComplete="off"
+                    value={form.verifyToken}
+                    disabled={saving}
+                    invalid={Boolean(fieldErrors.verifyToken)}
+                    onChange={(e) => set('verifyToken', e.target.value)}
+                  />
+                  <FieldError message={fieldErrors.verifyToken} />
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
-        {error && <Alert message={error} />}
-
-        <div className="flex justify-end gap-2">
-          <Button type="button" variant="secondary" onClick={onClose} disabled={saving}>
-            Cancel
-          </Button>
-          <Button type="submit" loading={saving}>
-            Connect WhatsApp
-          </Button>
-        </div>
-      </form>
+          {error && <Alert message={error} />}
+        </form>
       </MetaOauthConnect>
     </Modal>
   );

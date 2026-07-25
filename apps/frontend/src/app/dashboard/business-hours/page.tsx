@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { canWrite } from '@/lib/permissions';
 import { businessHoursApi } from '@/lib/resources';
@@ -12,7 +12,7 @@ import {
   Button,
   Input,
   PageHeader,
-  Panel,
+  SectionCard,
   Skeleton,
   Toggle,
 } from '@/components/ui';
@@ -34,18 +34,24 @@ export default function BusinessHoursPage() {
 
   const [hours, setHours] = useState<WeeklyDay[] | null>(null);
   const [error, setError] = useState('');
+  const [loadFailed, setLoadFailed] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    let active = true;
-    businessHoursApi
-      .get()
-      .then(({ hours }) => active && setHours(hours))
-      .catch((err) => active && setError(parseApiError(err).message));
-    return () => {
-      active = false;
-    };
+  const load = useCallback(async () => {
+    setError('');
+    setLoadFailed(false);
+    try {
+      const { hours: loaded } = await businessHoursApi.get();
+      setHours(loaded);
+    } catch (err) {
+      setError(parseApiError(err).message);
+      setLoadFailed(true);
+    }
   }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   function updateDay(index: number, patch: Partial<WeeklyDay>) {
     setHours((prev) =>
@@ -57,10 +63,10 @@ export default function BusinessHoursPage() {
     for (const d of list) {
       if (d.isClosed) continue;
       if (!d.openTime || !d.closeTime) {
-        return `${DAY_LABEL[d.dayOfWeek]}: opening and closing times are required.`;
+        return `${DAY_LABEL[d.dayOfWeek]}: enter both an opening and a closing time, or mark the day closed.`;
       }
       if (d.closeTime <= d.openTime) {
-        return `${DAY_LABEL[d.dayOfWeek]}: closing time must be after opening time.`;
+        return `${DAY_LABEL[d.dayOfWeek]}: the closing time must be after the opening time.`;
       }
     }
     return null;
@@ -69,6 +75,7 @@ export default function BusinessHoursPage() {
   async function handleSave() {
     if (!hours) return;
     setError('');
+    setLoadFailed(false);
     const validationError = validate(hours);
     if (validationError) {
       setError(validationError);
@@ -92,85 +99,146 @@ export default function BusinessHoursPage() {
     }
   }
 
+  const saveButton = (
+    <Button
+      onClick={handleSave}
+      loading={saving}
+      loadingLabel="Saving…"
+      disabled={!hours}
+    >
+      Save schedule
+    </Button>
+  );
+
   return (
-    <div>
+    <div className="mx-auto max-w-3xl">
       <PageHeader
-        title="Business Hours"
-        description="Set your weekly opening hours (Monday to Sunday)."
+        title="Business hours"
+        description="Your weekly opening times, so the assistant can tell customers when you are open."
         actions={
           !readOnly ? (
-            <Button onClick={handleSave} loading={saving} disabled={!hours}>
-              Save schedule
-            </Button>
+            // On phones the sticky bar below the schedule carries Save.
+            <span className="hidden sm:block">{saveButton}</span>
           ) : undefined
         }
       />
 
-      {readOnly && (
-        <div className="mb-4">
-          <Alert variant="info" message="You have read-only access to this page." />
-        </div>
-      )}
-      {error && (
-        <div className="mb-4">
-          <Alert message={error} />
-        </div>
-      )}
-
-      {!hours ? (
-        <div className="space-y-2">
-          {Array.from({ length: 7 }).map((_, i) => (
-            <Skeleton key={i} className="h-14" />
-          ))}
-        </div>
-      ) : (
-        <Panel className="divide-y divide-slate-100 p-0">
-          {hours.map((day, index) => (
-            <div
-              key={day.dayOfWeek}
-              className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center"
-            >
-              <div className="w-32 font-medium text-slate-800">
-                {DAY_LABEL[day.dayOfWeek]}
-              </div>
-
-              <div className="flex items-center gap-2">
-                <Toggle
-                  checked={!day.isClosed}
-                  disabled={readOnly || saving}
-                  onChange={(open) => updateDay(index, { isClosed: !open })}
-                  label={`${DAY_LABEL[day.dayOfWeek]} open`}
-                />
-                <span className="text-sm text-slate-500">
-                  {day.isClosed ? 'Closed' : 'Open'}
-                </span>
-              </div>
-
-              {!day.isClosed && (
-                <div className="flex items-center gap-2 sm:ml-auto">
-                  <Input
-                    type="time"
-                    value={day.openTime ?? ''}
-                    disabled={readOnly || saving}
-                    onChange={(e) => updateDay(index, { openTime: e.target.value })}
-                    className="w-32"
-                    aria-label={`${DAY_LABEL[day.dayOfWeek]} opening time`}
-                  />
-                  <span className="text-slate-400">–</span>
-                  <Input
-                    type="time"
-                    value={day.closeTime ?? ''}
-                    disabled={readOnly || saving}
-                    onChange={(e) => updateDay(index, { closeTime: e.target.value })}
-                    className="w-32"
-                    aria-label={`${DAY_LABEL[day.dayOfWeek]} closing time`}
-                  />
-                </div>
+      <div className="space-y-6">
+        {readOnly && (
+          <Alert
+            variant="info"
+            message="You have read-only access to this page. Ask an owner or admin to make changes."
+          />
+        )}
+        {error && (
+          <Alert>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <span>{error}</span>
+              {loadFailed && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => void load()}
+                  className="sm:shrink-0"
+                >
+                  Try again
+                </Button>
               )}
             </div>
-          ))}
-        </Panel>
-      )}
+          </Alert>
+        )}
+
+        {!hours ? (
+          loadFailed ? null : (
+            <div className="space-y-3">
+              {Array.from({ length: 7 }).map((_, i) => (
+                <Skeleton key={i} className="h-16 rounded-xl" />
+              ))}
+            </div>
+          )
+        ) : (
+          <>
+            <SectionCard
+              title="Weekly schedule"
+              description="Turn a day off to mark it closed. Times use your company timezone."
+              padded={false}
+            >
+              <ul className="divide-y divide-slate-100">
+                {hours.map((day, index) => {
+                  const label = DAY_LABEL[day.dayOfWeek] ?? day.dayOfWeek;
+                  return (
+                    <li
+                      key={day.dayOfWeek}
+                      className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:gap-4 sm:px-6"
+                    >
+                      <div className="flex items-center gap-3 sm:w-44 sm:shrink-0">
+                        <Toggle
+                          checked={!day.isClosed}
+                          disabled={readOnly || saving}
+                          onChange={(open) =>
+                            updateDay(index, { isClosed: !open })
+                          }
+                          label={`${label}: open`}
+                        />
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-slate-800">
+                            {label}
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            {day.isClosed ? 'Closed' : 'Open'}
+                          </p>
+                        </div>
+                      </div>
+
+                      {day.isClosed ? (
+                        <p className="text-sm text-slate-500 sm:ml-auto">
+                          Closed all day
+                        </p>
+                      ) : (
+                        <div className="flex min-w-0 items-center gap-2 sm:ml-auto">
+                          <Input
+                            type="time"
+                            value={day.openTime ?? ''}
+                            disabled={readOnly || saving}
+                            onChange={(e) =>
+                              updateDay(index, { openTime: e.target.value })
+                            }
+                            className="min-w-0 flex-1 sm:w-32 sm:flex-none"
+                            aria-label={`${label}: opening time`}
+                          />
+                          <span className="text-slate-400" aria-hidden="true">
+                            –
+                          </span>
+                          <Input
+                            type="time"
+                            value={day.closeTime ?? ''}
+                            disabled={readOnly || saving}
+                            onChange={(e) =>
+                              updateDay(index, { closeTime: e.target.value })
+                            }
+                            className="min-w-0 flex-1 sm:w-32 sm:flex-none"
+                            aria-label={`${label}: closing time`}
+                          />
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </SectionCard>
+
+            {/* Sticky save so it stays reachable on a phone (§5). */}
+            {!readOnly && (
+              <div className="sticky bottom-4 z-10 flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white/95 p-3 shadow-sm backdrop-blur sm:hidden">
+                <span className="text-xs text-slate-500">
+                  Changes apply after saving
+                </span>
+                {saveButton}
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }

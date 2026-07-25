@@ -48,7 +48,10 @@ export function TelegramConnectModal({
       if (account.connectionState === 'HEALTHY' && webhookRegistered) {
         notify('Telegram connected and webhook active', 'success');
       } else if (account.connectionState === 'HEALTHY') {
-        notify('Bot verified, but the webhook could not be set — try again', 'error');
+        notify(
+          'Bot verified, but the webhook could not be set — try again',
+          'error',
+        );
       } else {
         notify('Telegram bot token is invalid — check @BotFather', 'error');
       }
@@ -64,26 +67,56 @@ export function TelegramConnectModal({
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="Connect Telegram">
-      <form onSubmit={submit} className="space-y-4">
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Connect Telegram"
+      footer={
+        <>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={onClose}
+            disabled={saving}
+          >
+            Cancel
+          </Button>
+          <Button type="submit" form="telegram-connect-form" loading={saving}>
+            Connect Telegram
+          </Button>
+        </>
+      }
+    >
+      <form id="telegram-connect-form" onSubmit={submit} className="space-y-4">
         <Alert variant="info">
           Telegram uses its official bot flow: create a bot with{' '}
-          <strong>@BotFather</strong> and paste its token below — that&apos;s the
-          whole setup. We verify the token and register the webhook
+          <strong>@BotFather</strong> and paste its token below — that&apos;s
+          the whole setup. We verify the token and register the webhook
           automatically; the token is encrypted at rest and never shown again.
         </Alert>
 
         <div>
           <Label htmlFor="tg-name">Display name</Label>
-          <Input id="tg-name" value={displayName} disabled={saving} onChange={(e) => setDisplayName(e.target.value)} />
+          <Input
+            id="tg-name"
+            value={displayName}
+            disabled={saving}
+            invalid={Boolean(fieldErrors.displayName)}
+            onChange={(e) => setDisplayName(e.target.value)}
+          />
           <FieldError message={fieldErrors.displayName} />
+          <p className="mt-1 text-xs text-slate-500">
+            Only your team sees this — it labels the channel in the inbox.
+          </p>
         </div>
 
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
           <p className="mb-2 text-xs font-semibold text-amber-800">
-            Bot token (stored encrypted, never displayed again)
+            Stored encrypted, never displayed again
           </p>
-          <Label htmlFor="tg-token" required>Bot token</Label>
+          <Label htmlFor="tg-token" required>
+            Bot token
+          </Label>
           <Input
             id="tg-token"
             type="password"
@@ -91,21 +124,13 @@ export function TelegramConnectModal({
             placeholder="123456789:AA…"
             value={botToken}
             disabled={saving}
+            invalid={Boolean(fieldErrors.botToken)}
             onChange={(e) => setBotToken(e.target.value)}
           />
           <FieldError message={fieldErrors.botToken} />
         </div>
 
         {error && <Alert message={error} />}
-
-        <div className="flex justify-end gap-2">
-          <Button type="button" variant="secondary" onClick={onClose} disabled={saving}>
-            Cancel
-          </Button>
-          <Button type="submit" loading={saving}>
-            Connect Telegram
-          </Button>
-        </div>
       </form>
     </Modal>
   );

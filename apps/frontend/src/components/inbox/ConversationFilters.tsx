@@ -1,8 +1,34 @@
 'use client';
 
+import { useState } from 'react';
 import { Input, Select } from '@/components/ui';
 import type { Tag } from '@/lib/types';
 import type { FilterState } from './filter-types';
+
+const CLEARED: Omit<FilterState, 'search'> = {
+  status: '',
+  priority: '',
+  channelType: '',
+  assignment: 'all',
+  tagId: '',
+  unreadOnly: false,
+  archived: false,
+};
+
+function countActive(value: FilterState): number {
+  return (
+    (value.status ? 1 : 0) +
+    (value.priority ? 1 : 0) +
+    (value.channelType ? 1 : 0) +
+    (value.tagId ? 1 : 0) +
+    (value.assignment !== 'all' ? 1 : 0) +
+    (value.unreadOnly ? 1 : 0) +
+    (value.archived ? 1 : 0)
+  );
+}
+
+/** Full-width control per §5; `Select` already supplies the 40px tap target. */
+const selectClass = 'w-full';
 
 export function ConversationFilters({
   value,
@@ -13,19 +39,50 @@ export function ConversationFilters({
   tags: Tag[];
   onChange: (patch: Partial<FilterState>) => void;
 }) {
+  // Search is ALWAYS visible. The dropdown filters collapse below `lg` only, so
+  // a phone is not handed six controls before it reaches the first conversation.
+  const [open, setOpen] = useState(false);
+  const activeCount = countActive(value);
+
   return (
     <div className="space-y-2 border-b border-slate-200 p-3">
-      <Input
-        placeholder="Search conversations…"
-        value={value.search}
-        onChange={(e) => onChange({ search: e.target.value })}
-        aria-label="Search conversations"
-      />
-      <div className="grid grid-cols-2 gap-2">
+      <div className="flex items-center gap-2">
+        <Input
+          type="search"
+          placeholder="Search conversations…"
+          value={value.search}
+          onChange={(e) => onChange({ search: e.target.value })}
+          aria-label="Search conversations"
+          className="min-w-0 flex-1"
+        />
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          className="inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 lg:hidden"
+        >
+          Filters
+          {activeCount > 0 && (
+            <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-slate-900 px-1 text-[11px] tabular-nums text-white">
+              {activeCount}
+            </span>
+          )}
+          <span aria-hidden="true" className="text-xs text-slate-400">
+            {open ? '▴' : '▾'}
+          </span>
+        </button>
+      </div>
+
+      <div
+        className={`${open ? 'grid' : 'hidden lg:grid'} grid-cols-1 gap-2 lg:grid-cols-2`}
+      >
         <Select
           aria-label="Filter by status"
           value={value.status}
-          onChange={(e) => onChange({ status: e.target.value as FilterState['status'] })}
+          className={selectClass}
+          onChange={(e) =>
+            onChange({ status: e.target.value as FilterState['status'] })
+          }
         >
           <option value="">All statuses</option>
           <option value="OPEN">Open</option>
@@ -36,6 +93,7 @@ export function ConversationFilters({
         <Select
           aria-label="Filter by priority"
           value={value.priority}
+          className={selectClass}
           onChange={(e) =>
             onChange({ priority: e.target.value as FilterState['priority'] })
           }
@@ -49,6 +107,7 @@ export function ConversationFilters({
         <Select
           aria-label="Filter by assignment"
           value={value.assignment}
+          className={selectClass}
           onChange={(e) =>
             onChange({ assignment: e.target.value as FilterState['assignment'] })
           }
@@ -60,6 +119,7 @@ export function ConversationFilters({
         <Select
           aria-label="Filter by channel"
           value={value.channelType}
+          className={selectClass}
           onChange={(e) =>
             onChange({ channelType: e.target.value as FilterState['channelType'] })
           }
@@ -76,6 +136,7 @@ export function ConversationFilters({
         <Select
           aria-label="Filter by tag"
           value={value.tagId}
+          className={selectClass}
           onChange={(e) => onChange({ tagId: e.target.value })}
         >
           <option value="">All tags</option>
@@ -85,24 +146,39 @@ export function ConversationFilters({
             </option>
           ))}
         </Select>
-        <div className="flex items-center gap-3 text-xs text-slate-600">
-          <label className="flex items-center gap-1">
+
+        <div className="flex flex-wrap items-center gap-x-4 text-sm text-slate-600">
+          <label className="inline-flex min-h-10 items-center gap-2">
             <input
               type="checkbox"
+              className="h-4 w-4 rounded border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900"
               checked={value.unreadOnly}
               onChange={(e) => onChange({ unreadOnly: e.target.checked })}
             />
             Unread
           </label>
-          <label className="flex items-center gap-1">
+          <label className="inline-flex min-h-10 items-center gap-2">
             <input
               type="checkbox"
+              className="h-4 w-4 rounded border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900"
               checked={value.archived}
               onChange={(e) => onChange({ archived: e.target.checked })}
             />
             Archived
           </label>
         </div>
+
+        {activeCount > 0 && (
+          <div className="lg:col-span-2">
+            <button
+              type="button"
+              onClick={() => onChange(CLEARED)}
+              className="inline-flex min-h-10 items-center rounded-lg px-1 text-sm font-medium text-slate-600 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900"
+            >
+              Clear filters
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

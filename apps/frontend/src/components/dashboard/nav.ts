@@ -1,30 +1,104 @@
+import type { NavIconName } from './nav-icons';
+
 export interface NavItem {
   label: string;
   href: string;
-  icon: string;
+  icon: NavIconName;
 }
 
-/** Sidebar navigation for the dashboard. */
-export const NAV_ITEMS: NavItem[] = [
-  { label: 'Overview', href: '/dashboard', icon: '▤' },
-  { label: 'Inbox', href: '/dashboard/inbox', icon: '📥' },
-  { label: 'Analytics', href: '/dashboard/analytics', icon: '📊' },
-  { label: 'Operations', href: '/dashboard/operations', icon: '📋' },
-  { label: 'Channels', href: '/dashboard/channels', icon: '🔌' },
-  { label: 'Company Profile', href: '/dashboard/profile', icon: '🏢' },
-  { label: 'Services', href: '/dashboard/services', icon: '🧾' },
-  { label: 'Products', href: '/dashboard/products', icon: '📦' },
-  { label: 'Business Hours', href: '/dashboard/business-hours', icon: '🕒' },
-  { label: 'FAQs', href: '/dashboard/faqs', icon: '❓' },
-  { label: 'Knowledge Base', href: '/dashboard/knowledge-base', icon: '📚' },
-  { label: 'AI Settings', href: '/dashboard/ai-settings', icon: '🤖' },
-  { label: 'AI Playground', href: '/dashboard/ai-playground', icon: '✨' },
-  { label: 'Integrations', href: '/dashboard/integrations', icon: '🔌' },
-  { label: 'Billing', href: '/dashboard/billing', icon: '💳' },
+export interface NavSection {
+  /** Uppercase group header shown above the rows. */
+  title: string;
+  items: NavItem[];
+}
+
+/** Sidebar navigation for the dashboard, grouped by job-to-be-done. */
+export const NAV_SECTIONS: NavSection[] = [
+  {
+    title: 'Workspace',
+    items: [
+      { label: 'Overview', href: '/dashboard', icon: 'overview' },
+      { label: 'Inbox', href: '/dashboard/inbox', icon: 'inbox' },
+      { label: 'Analytics', href: '/dashboard/analytics', icon: 'analytics' },
+      { label: 'Operations', href: '/dashboard/operations', icon: 'operations' },
+    ],
+  },
+  {
+    title: 'Catalog',
+    items: [
+      { label: 'Services', href: '/dashboard/services', icon: 'services' },
+      { label: 'Products', href: '/dashboard/products', icon: 'products' },
+      {
+        label: 'Business Hours',
+        href: '/dashboard/business-hours',
+        icon: 'businessHours',
+      },
+    ],
+  },
+  {
+    title: 'Knowledge',
+    items: [
+      { label: 'FAQs', href: '/dashboard/faqs', icon: 'faqs' },
+      {
+        label: 'Knowledge Base',
+        href: '/dashboard/knowledge-base',
+        icon: 'knowledgeBase',
+      },
+    ],
+  },
+  {
+    title: 'AI',
+    items: [
+      { label: 'AI Settings', href: '/dashboard/ai-settings', icon: 'aiSettings' },
+      {
+        label: 'AI Playground',
+        href: '/dashboard/ai-playground',
+        icon: 'aiPlayground',
+      },
+    ],
+  },
+  {
+    title: 'Setup',
+    items: [
+      { label: 'Channels', href: '/dashboard/channels', icon: 'channels' },
+      {
+        label: 'Integrations',
+        href: '/dashboard/integrations',
+        icon: 'integrations',
+      },
+      { label: 'Company Profile', href: '/dashboard/profile', icon: 'company' },
+      { label: 'Billing', href: '/dashboard/billing', icon: 'billing' },
+    ],
+  },
 ];
 
 /** Development-only navigation (hidden in production builds). */
-export const DEV_NAV_ITEMS: NavItem[] =
+export const DEV_NAV_SECTIONS: NavSection[] =
   process.env.NODE_ENV === 'production'
     ? []
-    : [{ label: 'Mock Message', href: '/dashboard/dev/mock-message', icon: '🧪' }];
+    : [
+        {
+          title: 'Dev',
+          items: [
+            {
+              label: 'Mock Message',
+              href: '/dashboard/dev/mock-message',
+              icon: 'beaker',
+            },
+          ],
+        },
+      ];
+
+/** Flattened views (kept for callers that only need the raw item list). */
+export const NAV_ITEMS: NavItem[] = NAV_SECTIONS.flatMap((s) => s.items);
+export const DEV_NAV_ITEMS: NavItem[] = DEV_NAV_SECTIONS.flatMap((s) => s.items);
+
+/**
+ * Active-state matching. `/dashboard` is exact-only (otherwise Overview would
+ * light up everywhere); every other entry also matches its nested routes, so
+ * `/dashboard/channels/webchat/xyz` still highlights Channels.
+ */
+export function isNavItemActive(href: string, pathname: string): boolean {
+  if (href === '/dashboard') return pathname === '/dashboard';
+  return pathname === href || pathname.startsWith(`${href}/`);
+}

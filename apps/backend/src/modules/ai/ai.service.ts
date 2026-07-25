@@ -36,11 +36,13 @@ import {
   detectInjection,
   parseActionRequest,
   stripSpeakerPrefix,
+  ACTION_REQUEST_SENTINEL,
   HANDOFF_SENTINEL,
   PROMPT_VERSION,
 } from './ai-prompt.service';
 import { formatOutgoingText } from '../../utils/message-format';
 import { actionRegistry, actionsService } from '../actions';
+import type { ActionExecutionOutcome } from '../actions';
 import { detectLanguage } from '../../utils/language-detect';
 import { emitDomainEvent } from '../events/domain-events.service';
 import { aiRepository } from './ai.repository';
@@ -484,17 +486,46 @@ async function persistAiReply(
 }
 
 /**
+ * Instruction for the single follow-up generation that turns an action outcome
+ * into the customer-facing reply. The handler strings are English internals;
+ * this makes the reply mirror the customer's language (the language itself is
+ * detected inside runGeneration from the customer's own message) while pinning
+ * the model to the deterministic facts so nothing is invented.
+ */
+function buildOutcomeAdjustment(outcome: ActionExecutionOutcome): string | null {
+  const facts = outcome.facts?.trim();
+  if (!facts) return null;
+
+  if (outcome.status === 'completed') {
+    // Read-only lookups keep their original wording: the summary is an answer
+    // to a question, not a confirmation of something that happened.
+    if (outcome.readOnly) {
+      return `Availability lookup result: ${facts}. Answer the customer using this.`;
+    }
+    return `The action was completed. Confirm it to the customer in THEIR language, briefly and warmly, using exactly these facts and inventing nothing: ${facts}. Do not mention internal systems, ids, or that you are an AI.`;
+  }
+  if (outcome.status === 'failed') {
+    return `The action could NOT be completed. Apologize briefly in the customer's language and explain why using exactly this reason, inventing nothing: ${facts}. Do not promise anything else, and do not mention internal systems, ids, or that you are an AI.`;
+  }
+  return `The action cannot run yet because information is missing. Ask the customer, in THEIR language, briefly and warmly, for exactly these missing details and nothing more: ${facts}. Do not mention internal systems, field names, ids, or that you are an AI.`;
+}
+
+/**
  * Execute the action a generation requested and send the customer the
  * outcome. Shared by the auto-reply and agent-triggered paths; at most ONE
- * action ever runs per inbound message (the read-only follow-up generation
- * runs with actions disabled).
+ * action ever runs per inbound message (the follow-up generation runs with
+ * actions disabled, so it can never trigger another one).
  *
- * - completed write action  -> confirmation reply = handler summary
- * - completed read-only     -> SECOND generation turns the lookup result into
- *                              a natural reply (falls back to the raw summary
- *                              if the follow-up generation fails)
- * - rejected (invalid input)-> clarifying question built from the zod issues
- * - failed (handler error)  -> "Sorry, I couldn't complete that: <reason>"
+ * Every outcome (confirmation, apology, clarifying question, lookup answer) is
+ * re-expressed by ONE follow-up generation so the customer reads it in their
+ * own language. The English `outcome.replyText` is the fallback and is sent
+ * verbatim whenever that generation throws (quota/provider/AI disabled) or
+ * returns nothing usable — a completed action never loses its confirmation.
+ *
+ * - completed write action  -> localized confirmation of the handler summary
+ * - completed read-only     -> localized natural answer from the lookup result
+ * - rejected (invalid input)-> localized clarifying question (zod issue list)
+ * - failed (handler error)  -> localized apology with the failure reason
  */
 async function performRequestedAction(params: {
   companyId: string;
@@ -526,28 +557,47 @@ async function performRequestedAction(params: {
   let replyText = outcome.replyText;
   let replyGenerationId: string | null = result.generationId;
 
-  if (outcome.readOnly && outcome.status === 'completed' && outcome.summary) {
+  const adjustment = buildOutcomeAdjustment(outcome);
+  if (adjustment) {
     try {
       const followUp = await runGeneration({
         companyId,
         conversationId,
         generationType: result.generationType,
         requestedByUserId: senderUserId,
+        // Same question as the first pass, so detectLanguage inside
+        // runGeneration mirrors the customer's language.
         question,
         sourceMessageId,
         includeHistory: true,
-        adjustment: `Availability lookup result: ${outcome.summary}. Answer the customer using this.`,
-        // Deliberately NOT allowActions: max one action per inbound message.
+        adjustment,
+        // Deliberately disabled: max ONE action per inbound message, and the
+        // handoff sentinel must never replace a confirmation.
+        allowActions: false,
+        allowHandoffSignal: false,
       });
-      replyText = followUp.text;
-      replyGenerationId = followUp.generationId;
+      const text = followUp.text.trim();
+      // Empty text, or a model that echoed the action protocol, must never
+      // reach the customer — keep the deterministic English text instead.
+      if (text.length > 0 && !text.includes(ACTION_REQUEST_SENTINEL)) {
+        replyText = followUp.text;
+        replyGenerationId = followUp.generationId;
+      } else {
+        logger.warn('ai.action.followUpUnusable', {
+          companyId,
+          conversationId,
+          actionKey: outcome.actionKey,
+          status: outcome.status,
+        });
+      }
     } catch (err) {
-      // The lookup already succeeded — degrade to the plain summary rather
-      // than losing the answer to a provider hiccup.
+      // The action outcome is already final — degrade to the plain English
+      // text rather than losing the confirmation to a provider hiccup.
       logger.warn('ai.action.followUpFailed', {
         companyId,
         conversationId,
         actionKey: outcome.actionKey,
+        status: outcome.status,
         message: err instanceof Error ? err.message : String(err),
       });
     }

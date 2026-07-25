@@ -22,10 +22,20 @@ export interface ActionRequestPayload {
 export interface ActionExecutionOutcome {
   status: 'completed' | 'failed' | 'rejected';
   actionKey: string;
-  /** Ready-to-send customer text (confirmation / apology / clarification). */
+  /**
+   * Ready-to-send customer text (confirmation / apology / clarification) in
+   * English. The AI layer normally re-expresses it in the customer's language
+   * via one follow-up generation and only sends this verbatim as a fallback.
+   */
   replyText: string;
   /** Handler summary (completed executions only). */
   summary: string | null;
+  /**
+   * Deterministic facts behind `replyText` (handler summary / failure reason /
+   * missing-field list). The AI layer feeds these to the follow-up generation
+   * as the ONLY allowed factual basis, so nothing is invented.
+   */
+  facts: string | null;
   /** True for read-only lookups whose summary should feed a follow-up generation. */
   readOnly: boolean;
   executionId: string | null;
@@ -52,10 +62,16 @@ export const actionsService = {
   /**
    * Validate + execute one AI-requested action for a conversation. NEVER
    * throws for action-level problems: invalid input is recorded as 'rejected'
-   * (with a clarifying customer message built from the zod issues — no second
-   * AI call), a handler error as 'failed' (with an apology), and success as
-   * 'completed' (audit row + `action.executed` domain event + a SYSTEM_ALERT
-   * notification for write actions).
+   * (with a clarifying customer message built from the zod issues), a handler
+   * error as 'failed' (with an apology), and success as 'completed' (audit row
+   * + `action.executed` domain event + a SYSTEM_ALERT notification for write
+   * actions).
+   *
+   * All customer-facing strings here are ENGLISH on purpose: they are the
+   * deterministic factual basis (`facts`) the AI layer re-expresses in the
+   * customer's language, and the fallback it sends verbatim when that
+   * follow-up generation is unavailable. The audit row, domain event and
+   * notification are internal and stay English.
    */
   async executeForConversation(params: {
     companyId: string;
@@ -84,6 +100,7 @@ export const actionsService = {
         replyText:
           "I'm sorry, I can't do that for you directly. Is there anything else I can help you with?",
         summary: null,
+        facts: 'The customer asked for something the assistant cannot do.',
         readOnly: false,
         executionId: execution.id,
       };
@@ -105,6 +122,7 @@ export const actionsService = {
         actionKey: handler.key,
         replyText: `I'd be happy to help with that, but I still need a few details first: ${details.join('; ')}. Could you share ${details.length > 1 ? 'them' : 'that'} with me?`,
         summary: null,
+        facts: `Missing or invalid details: ${details.join('; ')}`,
         readOnly: handler.readOnly ?? false,
         executionId: execution.id,
       };
@@ -181,6 +199,7 @@ export const actionsService = {
         actionKey: handler.key,
         replyText: result.summary,
         summary: result.summary,
+        facts: result.summary,
         readOnly: handler.readOnly ?? false,
         executionId: execution.id,
       };
@@ -206,6 +225,7 @@ export const actionsService = {
         actionKey: handler.key,
         replyText: `Sorry, I couldn't complete that: ${message}`,
         summary: null,
+        facts: message,
         readOnly: handler.readOnly ?? false,
         executionId: execution.id,
       };

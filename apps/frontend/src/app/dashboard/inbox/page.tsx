@@ -1,6 +1,13 @@
 'use client';
 
-import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { canWrite } from '@/lib/permissions';
@@ -47,6 +54,35 @@ import { DEFAULT_FILTERS, type FilterState } from '@/components/inbox/filter-typ
 const LIST_LIMIT = 20;
 const MSG_LIMIT = 30;
 
+/**
+ * A deep-linked conversation (`?conversation=<id>` from the notifications bell)
+ * may live on a list page that is not loaded, so it is fetched on its own and
+ * pinned to the top of the list as a synthetic row.
+ */
+function toListItem(c: ConversationDetail): ConversationListItem {
+  return {
+    id: c.id,
+    companyId: c.companyId,
+    customerId: c.customerId,
+    channelType: c.channelType,
+    status: c.status,
+    priority: c.priority,
+    assignedUserId: c.assignedUserId,
+    subject: c.subject,
+    lastMessageAt: c.lastMessageAt,
+    lastInboundMessageAt: c.lastInboundMessageAt,
+    lastOutboundMessageAt: c.lastOutboundMessageAt,
+    unreadCount: c.unreadCount,
+    isArchived: c.isArchived,
+    createdAt: c.createdAt,
+    updatedAt: c.updatedAt,
+    customer: c.customer,
+    assignedUser: c.assignedUser,
+    tagAssignments: c.tagAssignments,
+    messages: [],
+  };
+}
+
 function InboxInner() {
   const { user } = useAuth();
   const { notify } = useToast();
@@ -70,9 +106,13 @@ function InboxInner() {
   const [listError, setListError] = useState('');
   const listReq = useRef(0);
 
-  // Active conversation.
+  // A conversation opened by deep link but absent from the loaded list page.
+  const [pinnedItem, setPinnedItem] = useState<ConversationListItem | null>(null);
+
+  // Active conversation. `?conversationId=` is the in-app URL the inbox keeps in
+  // sync; `?conversation=` is the shorter deep link used by notifications.
   const [activeId, setActiveId] = useState<string | null>(
-    searchParams.get('conversationId'),
+    searchParams.get('conversationId') ?? searchParams.get('conversation'),
   );
   const activeIdRef = useRef<string | null>(activeId);
   activeIdRef.current = activeId;
@@ -158,6 +198,9 @@ function InboxInner() {
   const patchListItem = useCallback(
     (id: string, patch: Partial<ConversationListItem>) => {
       setItems((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
+      setPinnedItem((prev) =>
+        prev && prev.id === id ? { ...prev, ...patch } : prev,
+      );
     },
     [],
   );
@@ -214,6 +257,52 @@ function InboxInner() {
     if (activeId) void loadBundle(activeId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId]);
+
+  // Deep link from the notifications bell: `?conversation=<id>`. Open that
+  // conversation, fetch it on its own when it is not on the loaded list page,
+  // and rewrite the URL to the inbox's own `?conversationId=` param so a
+  // refresh keeps it open without re-running this effect.
+  const deepLinkId = searchParams.get('conversation');
+  const deepLinkRef = useRef<string | null>(null);
+  useEffect(() => {
+    // Param gone (the user picked another conversation): forget what was
+    // handled so the same notification can be clicked again later.
+    if (!deepLinkId) {
+      deepLinkRef.current = null;
+      return;
+    }
+    if (deepLinkRef.current === deepLinkId) return;
+    deepLinkRef.current = deepLinkId;
+    setActiveId(deepLinkId);
+
+    const params = new URLSearchParams(window.location.search);
+    params.delete('conversation');
+    params.set('conversationId', deepLinkId);
+    window.history.replaceState(
+      null,
+      '',
+      `${window.location.pathname}?${params.toString()}`,
+    );
+
+    void (async () => {
+      try {
+        const { conversation } = await conversationsApi.get(deepLinkId);
+        if (activeIdRef.current !== deepLinkId) return; // stale — user switched
+        setPinnedItem(toListItem(conversation));
+      } catch {
+        // Deleted or not visible — loadBundle already reports the failure.
+      }
+    })();
+  }, [deepLinkId]);
+
+  // The pinned deep-link row is only shown while the real list lacks it.
+  const visibleItems = useMemo(
+    () =>
+      pinnedItem && !items.some((c) => c.id === pinnedItem.id)
+        ? [pinnedItem, ...items]
+        : items,
+    [items, pinnedItem],
+  );
 
   // --- Live polling: keep the open thread + list fresh without a manual refresh.
   // Merges only NEW messages into the open thread (no flicker, no scroll reset)
@@ -611,7 +700,7 @@ function InboxInner() {
             />
             <div className="min-h-0 flex-1">
               <ConversationList
-                items={items}
+                items={visibleItems}
                 loading={listLoading}
                 error={listError}
                 pagination={listPagination}

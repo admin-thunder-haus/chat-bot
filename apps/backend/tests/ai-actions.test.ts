@@ -9,6 +9,7 @@ import type {
   AIProviderInput,
 } from '../src/modules/ai/providers/ai-provider.interface';
 import { setOutboundWebhookTransportForTesting } from '../src/modules/public-api/outbound-webhooks.service';
+import { AIError } from '../src/modules/ai/ai.errors';
 
 /**
  * AI Actions framework: the ACTION_REQUEST protocol end-to-end (mock-inbound
@@ -139,9 +140,11 @@ describe('book_appointment end-to-end', () => {
     expect(res.status).toBe(201);
     expect(res.body.data.autoReply.generated).toBe(true);
 
-    // The prompt advertised the action protocol.
-    expect(fake.lastInput()!.systemPrompt).toContain('ACTION_REQUEST');
-    expect(fake.lastInput()!.systemPrompt).toContain('book_appointment');
+    // The FIRST prompt advertised the action protocol (the confirmation
+    // follow-up runs with actions disabled, so it never advertises them).
+    expect(fake.calls[0].systemPrompt).toContain('ACTION_REQUEST');
+    expect(fake.calls[0].systemPrompt).toContain('book_appointment');
+    expect(fake.calls[1].systemPrompt).not.toContain('ACTIONS YOU CAN PERFORM');
 
     // Appointment row (PENDING, via AI, service resolved case-insensitively).
     const appointment = await prisma.appointment.findFirst({
@@ -220,6 +223,8 @@ describe('create_order', () => {
     });
     expect(execution!.status).toBe('completed');
 
+    // This provider replays the ACTION_REQUEST line for the follow-up call too,
+    // so the unusable-text guard keeps the deterministic English summary.
     const outbound = await prisma.message.findFirst({
       where: {
         conversationId: res.body.data.conversation.id,
@@ -228,6 +233,112 @@ describe('create_order', () => {
     });
     expect(outbound!.content).toContain('Order created');
     expect(outbound!.content).toContain('25.50');
+    expect(outbound!.content).not.toContain('ACTION_REQUEST');
+  });
+
+  it('confirms through one follow-up generation so the reply mirrors the customer language', async () => {
+    const arabicConfirmation =
+      'تم إنشاء طلبك: 2× Coffee Beans و 1× Ceramic Mug بإجمالي 25.50 دينار. سيؤكده فريقنا قريباً.';
+    const queued = makeQueueProvider([
+      'ACTION_REQUEST {"action":"create_order","input":{"items":[{"productName":"coffee","quantity":2},{"productName":"mug","quantity":1}]}}',
+      arabicConfirmation,
+    ]);
+    setAIProviderForTesting(queued.provider);
+
+    const res = await mockInbound(
+      'o3',
+      'بدي اطلب 2 Coffee Beans و 1 Ceramic Mug من فضلك، اعمل الأوردر',
+    );
+    expect(res.body.data.autoReply.generated).toBe(true);
+
+    // Exactly two provider calls: the action request, then ONE confirmation
+    // generation (the cap of one action per inbound message is unchanged).
+    expect(queued.calls).toHaveLength(2);
+    const followUpPrompt = queued.calls[1].systemPrompt;
+    // The follow-up is pinned to the handler summary facts...
+    expect(followUpPrompt).toContain('The action was completed');
+    expect(followUpPrompt).toContain('Order created: 2× Coffee Beans');
+    expect(followUpPrompt).toContain('25.50');
+    // ...told to answer in the customer's language...
+    expect(followUpPrompt).toContain('THEIR language');
+    // ...and must not be able to request another action.
+    expect(followUpPrompt).not.toContain('ACTIONS YOU CAN PERFORM');
+
+    // The customer receives the localized confirmation, not the raw summary.
+    const outbound = await prisma.message.findFirst({
+      where: {
+        conversationId: res.body.data.conversation.id,
+        senderType: 'AI',
+      },
+    });
+    expect(outbound!.content).toBe(arabicConfirmation);
+    expect(outbound!.content).not.toContain('Order created');
+
+    // The order, the audit row and the internal notification are unaffected.
+    const order = await prisma.order.findFirst({
+      where: { companyId: acme.company.id },
+    });
+    expect(order!.totalAmount!.toFixed(2)).toBe('25.50');
+    const execution = await prisma.aIActionExecution.findFirst({
+      where: { companyId: acme.company.id, actionKey: 'create_order' },
+    });
+    expect(execution!.status).toBe('completed');
+    const notification = await prisma.notification.findFirst({
+      where: { companyId: acme.company.id, type: 'SYSTEM_ALERT' },
+    });
+    expect(notification!.title).toBe('AI created an order');
+    expect(notification!.body).toContain('Order created');
+  });
+
+  it('never loses the confirmation when the follow-up generation fails', async () => {
+    // First call requests the action; every later call blows up (quota /
+    // provider outage) — the confirmation must still reach the customer.
+    let callCount = 0;
+    setAIProviderForTesting({
+      name: 'fake',
+      async generateResponse(input) {
+        callCount += 1;
+        if (callCount > 1) throw AIError.quotaExceeded();
+        return {
+          text: 'ACTION_REQUEST {"action":"create_order","input":{"items":[{"productName":"coffee","quantity":2},{"productName":"mug","quantity":1}]}}',
+          provider: 'fake',
+          model: input.model,
+          inputTokens: 10,
+          outputTokens: 5,
+          totalTokens: 15,
+          providerResponseId: 'resp_fake',
+          finishReason: 'completed',
+          latencyMs: 2,
+        };
+      },
+    });
+
+    const res = await mockInbound('o4', 'بدي اطلب 2 Coffee Beans و 1 Ceramic Mug');
+    expect(res.body.data.autoReply.generated).toBe(true);
+    expect(callCount).toBe(2);
+
+    // Fallback: the original English summary, verbatim.
+    const outbound = await prisma.message.findFirst({
+      where: {
+        conversationId: res.body.data.conversation.id,
+        senderType: 'AI',
+      },
+    });
+    expect(outbound!.content).toBe(
+      'Order created: 2× Coffee Beans, 1× Ceramic Mug — total 25.50 JOD. Our team will confirm it shortly.',
+    );
+
+    // The order and its audit row still exist (the action itself succeeded).
+    const order = await prisma.order.findFirst({
+      where: { companyId: acme.company.id },
+      include: { items: true },
+    });
+    expect(order!.items).toHaveLength(2);
+    expect(order!.totalAmount!.toFixed(2)).toBe('25.50');
+    const execution = await prisma.aIActionExecution.findFirst({
+      where: { companyId: acme.company.id, actionKey: 'create_order' },
+    });
+    expect(execution!.status).toBe('completed');
   });
 
   it('unknown product -> failed execution and an apologetic reply (no order row)', async () => {

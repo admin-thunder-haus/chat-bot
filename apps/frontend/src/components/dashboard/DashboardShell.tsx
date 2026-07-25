@@ -1,107 +1,73 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
-import Link from 'next/link';
+import { useEffect, useState, type ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
-import { Button, Badge } from '@/components/ui';
-import { NAV_ITEMS, DEV_NAV_ITEMS } from './nav';
+import { Button } from '@/components/ui';
+import { Sidebar } from './Sidebar';
 import { NotificationsBell } from './NotificationsBell';
 
-function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
-  const pathname = usePathname();
+function MenuIcon() {
   return (
-    <nav className="flex flex-col gap-1">
-      {[...NAV_ITEMS, ...DEV_NAV_ITEMS].map((item) => {
-        const active =
-          item.href === '/dashboard'
-            ? pathname === '/dashboard'
-            : pathname.startsWith(item.href);
-        return (
-          <Link
-            key={item.href}
-            href={item.href}
-            onClick={onNavigate}
-            className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition ${
-              active
-                ? 'bg-slate-900 text-white'
-                : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            <span aria-hidden="true">{item.icon}</span>
-            {item.label}
-          </Link>
-        );
-      })}
-    </nav>
-  );
-}
-
-function UserSummary() {
-  const { user, company } = useAuth();
-  if (!user || !company) return null;
-  return (
-    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-      <p className="truncate text-sm font-medium text-slate-900">
-        {user.fullName}
-      </p>
-      <p className="truncate text-xs text-slate-500">{user.email}</p>
-      <div className="mt-2">
-        <Badge color="blue">{user.role}</Badge>
-      </div>
-    </div>
+    <svg
+      width={18}
+      height={18}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M4 7h16" />
+      <path d="M4 12h16" />
+      <path d="M4 17h16" />
+    </svg>
   );
 }
 
 export function DashboardShell({ children }: { children: ReactNode }) {
   const { company, logout } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const pathname = usePathname();
+
+  // Close the drawer whenever the route changes (covers in-drawer navigation
+  // as well as browser back/forward).
+  useEffect(() => setMobileOpen(false), [pathname]);
+
+  // Escape closes the drawer.
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMobileOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [mobileOpen]);
 
   return (
     <div className="min-h-screen bg-slate-50">
-      {/* Sidebar (desktop) */}
-      <aside className="fixed inset-y-0 left-0 hidden w-64 flex-col border-r border-slate-200 bg-white p-4 lg:flex">
-        <div className="mb-6 px-2">
-          <p className="text-xs uppercase tracking-wide text-slate-400">
-            Workspace
-          </p>
-          <p className="truncate text-lg font-semibold text-slate-900">
-            {company?.displayName || company?.name}
-          </p>
-        </div>
-        <NavLinks />
-        <div className="mt-auto flex flex-col gap-3">
-          <UserSummary />
-          <Button variant="secondary" fullWidth onClick={() => void logout()}>
-            Log out
-          </Button>
-        </div>
+      {/* Sidebar (static, large screens) */}
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-slate-200 bg-white lg:flex">
+        <Sidebar />
       </aside>
 
-      {/* Mobile drawer */}
+      {/* Sidebar (drawer, small screens) */}
       {mobileOpen && (
-        <div className="fixed inset-0 z-40 lg:hidden">
+        <div className="fixed inset-0 z-50 lg:hidden">
           <div
             className="absolute inset-0 bg-slate-900/40"
             onClick={() => setMobileOpen(false)}
+            aria-hidden="true"
           />
-          <aside className="absolute inset-y-0 left-0 flex w-64 flex-col border-r border-slate-200 bg-white p-4">
-            <div className="mb-6 px-2">
-              <p className="truncate text-lg font-semibold text-slate-900">
-                {company?.displayName || company?.name}
-              </p>
-            </div>
-            <NavLinks onNavigate={() => setMobileOpen(false)} />
-            <div className="mt-auto flex flex-col gap-3">
-              <UserSummary />
-              <Button
-                variant="secondary"
-                fullWidth
-                onClick={() => void logout()}
-              >
-                Log out
-              </Button>
-            </div>
+          <aside
+            role="dialog"
+            aria-modal="true"
+            aria-label="Navigation"
+            className="absolute inset-y-0 left-0 flex w-64 max-w-[80%] flex-col border-r border-slate-200 bg-white shadow-xl"
+          >
+            <Sidebar onNavigate={() => setMobileOpen(false)} />
           </aside>
         </div>
       )}
@@ -115,9 +81,10 @@ export function DashboardShell({ children }: { children: ReactNode }) {
               type="button"
               onClick={() => setMobileOpen(true)}
               aria-label="Open navigation"
-              className="rounded-md p-2 text-slate-600 hover:bg-slate-100 lg:hidden"
+              aria-expanded={mobileOpen}
+              className="rounded-md p-2 text-slate-600 transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 lg:hidden"
             >
-              ☰
+              <MenuIcon />
             </button>
             <span className="font-semibold text-slate-900">
               {company?.displayName || company?.name}

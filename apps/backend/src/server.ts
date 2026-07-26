@@ -3,6 +3,10 @@ import { createApp } from './app';
 import { env, isBillingEnabled } from './config/env';
 import { prisma } from './config/prisma';
 import { ensureDefaultPlans } from './modules/billing/billing.plans';
+import {
+  startChannelRetryScheduler,
+  stopChannelRetryScheduler,
+} from './modules/channels/channel-retry.scheduler';
 import { logger } from './utils/logger';
 
 async function bootstrap(): Promise<void> {
@@ -41,6 +45,10 @@ async function bootstrap(): Promise<void> {
     });
   });
 
+  // Started only once the server is listening: the sweeper writes to the same
+  // database as the request path, so it must not compete with startup work.
+  startChannelRetryScheduler();
+
   setupGracefulShutdown(server);
 }
 
@@ -48,6 +56,10 @@ async function bootstrap(): Promise<void> {
 function setupGracefulShutdown(server: Server): void {
   const shutdown = (signal: string) => {
     logger.info(`Received ${signal}, shutting down gracefully`);
+
+    // Stop the sweeper before draining so no new delivery attempt starts while
+    // connections close and Prisma disconnects.
+    stopChannelRetryScheduler();
 
     server.close(async () => {
       try {

@@ -57,6 +57,13 @@ services:
         value: gpt-4o-mini
       - key: FAKE_CHANNEL_ENABLED
         value: "false"
+      # In-process retry sweeper. Required here: the free instance sleeps and
+      # restarts, and without a sweep every delivery waiting on its backoff
+      # would be dropped silently instead of being re-attempted.
+      - key: CHANNEL_RETRY_SWEEP_ENABLED
+        value: "true"
+      - key: CHANNEL_RETRY_SWEEP_MS
+        value: "60000"
       # Billing & subscriptions are OFF: customers are invoiced offline (bank
       # transfer / cash). While off, nothing is limited, no subscription rows
       # are written, /api/v1/billing/* answers 410, and the dashboard hides the

@@ -95,6 +95,22 @@ const envSchema = z.object({
     .max(20)
     .default(5),
 
+  // --- Password reset ---
+  // The reset link carries a 256-bit random token, so the TTL is the only
+  // brute-force control needed. One hour is long enough to survive a slow
+  // inbox and short enough that a forwarded email goes stale quickly.
+  PASSWORD_RESET_TOKEN_TTL_MS: z.coerce
+    .number()
+    .int()
+    .min(60000)
+    .default(3600000), // 1 hour
+  // Minimum delay between two reset emails for the same account (mail flood).
+  PASSWORD_RESET_REQUEST_COOLDOWN_MS: z.coerce
+    .number()
+    .int()
+    .min(1000)
+    .default(60000),
+
   // SMTP transport for outbound email. All optional: when SMTP_HOST is unset
   // the mailer falls back to logging emails (codes remain usable in dev and
   // the platform keeps working before SMTP is provisioned).
@@ -220,6 +236,15 @@ const envSchema = z.object({
     .int()
     .min(1000)
     .default(86400000),
+  // In-process retry sweeper: how often due retries (and deliveries orphaned in
+  // SENDING by a restart) are picked up. Minimum 1s so a misconfigured value
+  // cannot turn the sweeper into a database busy-loop.
+  CHANNEL_RETRY_SWEEP_MS: z.coerce.number().int().min(1000).default(60000),
+  // Kill switch for that sweeper — turn it off to run the backend as a pure
+  // request/webhook server (an external worker then drives the retries).
+  // Validated here; READ LAZILY via isChannelRetrySweepEnabled() so tests can
+  // toggle it without re-importing env.
+  CHANNEL_RETRY_SWEEP_ENABLED: z.enum(['true', 'false']).default('true'),
 
   // --- Day 5 Part 3: Web Chat widget ---
   // Secret used to sign stateless widget session tokens (HMAC). Required once a
@@ -467,6 +492,19 @@ export function isAutoReplyGloballyEnabled(): boolean {
  */
 export function isBillingEnabled(): boolean {
   return (process.env.BILLING_ENABLED ?? 'false') === 'true';
+}
+
+/**
+ * Whether the in-process channel delivery retry sweeper may run. Enabled unless
+ * explicitly set to 'false', and ALWAYS off under tests: a background timer that
+ * outlives a test file would race the per-test database reset. Tests drive a
+ * sweep explicitly via runSweepOnce() instead.
+ * Deliberately a FUNCTION reading process.env at call time (same reason as
+ * isAiActionsEnabled): the frozen `env` snapshot cannot be toggled by tests.
+ */
+export function isChannelRetrySweepEnabled(): boolean {
+  if (process.env.NODE_ENV === 'test') return false;
+  return (process.env.CHANNEL_RETRY_SWEEP_ENABLED ?? 'true') !== 'false';
 }
 
 /**

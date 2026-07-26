@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { billingApi } from '@/lib/resources';
 import { parseApiError } from '@/lib/form';
@@ -89,9 +90,14 @@ function UsageBar({ stat }: { stat: UsageStat }) {
 }
 
 export default function BillingPage() {
-  const { user } = useAuth();
+  const { user, features, initializing } = useAuth();
   const { notify } = useToast();
+  const router = useRouter();
   const isOwner = user?.role === 'OWNER';
+  // Billing is switched off platform-wide (customers are invoiced offline):
+  // the route stays mounted but sends the visitor back to the dashboard rather
+  // than rendering a page whose every API call answers 410.
+  const billingOff = !initializing && !features.billing;
 
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [plans, setPlans] = useState<BillingPlan[]>([]);
@@ -104,6 +110,9 @@ export default function BillingPage() {
   const [actionLoading, setActionLoading] = useState(false);
 
   const load = useCallback(async () => {
+    // Wait until the platform features are known, and never call the API when
+    // billing is off (it answers 410 by design).
+    if (initializing || !features.billing) return;
     setLoading(true);
     setError('');
     try {
@@ -119,11 +128,15 @@ export default function BillingPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [initializing, features.billing]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    if (billingOff) router.replace('/dashboard');
+  }, [billingOff, router]);
 
   async function confirmChangePlan() {
     if (!confirmPlan) return;
@@ -174,6 +187,10 @@ export default function BillingPage() {
       setActionLoading(false);
     }
   }
+
+  // Redirecting (or still resolving the flag): render nothing rather than a
+  // flash of billing UI that is about to disappear.
+  if (initializing || !features.billing) return null;
 
   const current = subscription?.plan;
   const status = subscription ? STATUS_BADGE[subscription.status] : null;

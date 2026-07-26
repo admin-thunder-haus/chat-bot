@@ -8,11 +8,16 @@ import {
   setRefreshCookie,
 } from '../../utils/cookies';
 import type { AuthResult } from './auth.types';
+import { platformFeatures } from '../../config/env';
 
 /**
  * Build the client-facing auth payload. The refresh token is delivered via an
  * httpOnly cookie (set separately); it is also included in the body so
  * non-browser API clients can use it, but browser clients should ignore it.
+ *
+ * `features` tells the dashboard which platform-level modules are switched on
+ * (e.g. billing) so it can hide UI the backend would refuse to serve. It is
+ * read fresh on every response, never cached.
  */
 function authPayload(result: AuthResult) {
   return {
@@ -20,6 +25,7 @@ function authPayload(result: AuthResult) {
     company: result.company,
     accessToken: result.tokens.accessToken,
     refreshToken: result.tokens.refreshToken,
+    features: platformFeatures(),
   };
 }
 
@@ -48,6 +54,7 @@ export const authController = {
           user: result.user,
           company: result.company,
           requiresEmailVerification: true,
+          features: platformFeatures(),
         },
         'Company registered. Please verify your email to continue.',
         201,
@@ -64,6 +71,7 @@ export const authController = {
         accessToken: result.tokens.accessToken,
         refreshToken: result.tokens.refreshToken,
         requiresEmailVerification: false,
+        features: platformFeatures(),
       },
       'Company registered successfully',
       201,
@@ -113,6 +121,10 @@ export const authController = {
     // req.user is guaranteed by the authenticate middleware.
     const { id } = req.user!;
     const result = await authService.getMe(id);
-    sendSuccess(res, result, 'Current user fetched successfully');
+    sendSuccess(
+      res,
+      { ...result, features: platformFeatures() },
+      'Current user fetched successfully',
+    );
   },
 };

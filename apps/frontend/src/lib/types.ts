@@ -74,11 +74,28 @@ export interface ApiError {
   code?: string;
 }
 
+/**
+ * Platform-level module switches reported by the backend with every auth
+ * payload. The dashboard uses them to hide UI the API would refuse to serve —
+ * e.g. Billing while the platform invoices customers offline.
+ */
+export interface PlatformFeatures {
+  billing: boolean;
+  aiActions: boolean;
+}
+
+/** Safe default before the backend has answered: hide the optional modules. */
+export const DEFAULT_FEATURES: PlatformFeatures = {
+  billing: false,
+  aiActions: true,
+};
+
 export interface AuthData {
   user: User;
   company: Company;
   accessToken: string;
   refreshToken?: string;
+  features?: PlatformFeatures;
 }
 
 /** Registration response: no tokens until the email is verified. */
@@ -88,6 +105,7 @@ export interface RegisterData {
   accessToken?: string;
   refreshToken?: string;
   requiresEmailVerification: boolean;
+  features?: PlatformFeatures;
 }
 
 export interface Pagination {

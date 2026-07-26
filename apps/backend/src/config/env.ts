@@ -351,6 +351,13 @@ const envSchema = z.object({
   AI_ACTIONS_ENABLED: z.enum(['true', 'false']).default('true'),
 
   // --- Day 12: billing & subscriptions ---
+  // MASTER SWITCH for the whole billing module. OFF by default: customers are
+  // invoiced offline (bank transfer / cash) until subscriptions are launched.
+  // While disabled, NO plan limit is enforced anywhere, no trial subscription
+  // is created, the billing API answers 410, and the dashboard hides Billing.
+  // Flip this single variable to 'true' to restore the full behaviour.
+  // Validated here; READ LAZILY via isBillingEnabled() so tests can toggle it.
+  BILLING_ENABLED: z.enum(['true', 'false']).default('false'),
   // Length of the free trial every new company starts on.
   BILLING_TRIAL_DAYS: z.coerce.number().int().min(1).max(365).default(14),
   // Stripe is OPTIONAL. When STRIPE_SECRET_KEY is unset the platform runs in
@@ -449,4 +456,32 @@ export function isAiActionsEnabled(): boolean {
  */
 export function isAutoReplyGloballyEnabled(): boolean {
   return (process.env.AI_AUTO_REPLY_ENABLED ?? 'true') !== 'false';
+}
+
+/**
+ * Master switch for billing & subscriptions. OFF unless explicitly enabled —
+ * while off the platform behaves as if every tenant were unlimited and no
+ * subscription rows are ever created (customers are invoiced offline).
+ * Deliberately a FUNCTION reading process.env at call time (same reason as
+ * isAiActionsEnabled): the frozen `env` snapshot cannot be toggled by tests.
+ */
+export function isBillingEnabled(): boolean {
+  return (process.env.BILLING_ENABLED ?? 'false') === 'true';
+}
+
+/**
+ * Platform-level feature flags handed to the dashboard so the UI can hide what
+ * the backend will refuse to serve. Read at call time (never cached) and sent
+ * with every auth payload, so a Render env change takes effect on next login.
+ */
+export interface PlatformFeatures {
+  billing: boolean;
+  aiActions: boolean;
+}
+
+export function platformFeatures(): PlatformFeatures {
+  return {
+    billing: isBillingEnabled(),
+    aiActions: isAiActionsEnabled(),
+  };
 }

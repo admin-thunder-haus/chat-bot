@@ -1,6 +1,6 @@
 import type { Server } from 'node:http';
 import { createApp } from './app';
-import { env } from './config/env';
+import { env, isBillingEnabled } from './config/env';
 import { prisma } from './config/prisma';
 import { ensureDefaultPlans } from './modules/billing/billing.plans';
 import { logger } from './utils/logger';
@@ -18,15 +18,20 @@ async function bootstrap(): Promise<void> {
   }
 
   // Seed the default billing plan catalog (idempotent upsert by plan code).
-  // Non-fatal: the catalog is also ensured lazily when a subscription is
-  // first needed, so a transient failure here never blocks startup.
-  try {
-    await ensureDefaultPlans();
-    logger.info('Default billing plans ensured');
-  } catch (err) {
-    logger.warn('Failed to ensure default billing plans', {
-      message: err instanceof Error ? err.message : String(err),
-    });
+  // Skipped entirely while billing is disabled — the platform must not write
+  // billing rows it will never use. Non-fatal otherwise: the catalog is also
+  // ensured lazily when a subscription is first needed.
+  if (isBillingEnabled()) {
+    try {
+      await ensureDefaultPlans();
+      logger.info('Default billing plans ensured');
+    } catch (err) {
+      logger.warn('Failed to ensure default billing plans', {
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  } else {
+    logger.info('Billing is disabled (BILLING_ENABLED is not "true")');
   }
 
   const app = createApp();

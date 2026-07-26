@@ -10,11 +10,17 @@ import {
   type ReactNode,
 } from 'react';
 import { api, setAccessToken, setOnAuthFailure } from './api';
-import type { Company, User } from './types';
+import { DEFAULT_FEATURES, type Company, type PlatformFeatures, type User } from './types';
 
 interface AuthState {
   user: User | null;
   company: Company | null;
+  /**
+   * Platform module switches from the backend. Until a payload arrives this is
+   * DEFAULT_FEATURES, which hides the optional modules — better to reveal
+   * Billing a moment late than to link to a page the API answers 410 for.
+   */
+  features: PlatformFeatures;
   // True while the initial silent-refresh check is in flight.
   initializing: boolean;
 }
@@ -34,10 +40,31 @@ interface AuthContextValue extends AuthState {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+/** State for a signed-in session, from any auth payload that carries tokens. */
+function signedIn(data: {
+  user: User;
+  company: Company;
+  features?: PlatformFeatures;
+}): AuthState {
+  return {
+    user: data.user,
+    company: data.company,
+    features: data.features ?? DEFAULT_FEATURES,
+    initializing: false,
+  };
+}
+
+/** State for "no session" — features fall back to the conservative defaults. */
+const SIGNED_OUT: AuthState = {
+  user: null,
+  company: null,
+  features: DEFAULT_FEATURES,
+  initializing: false,
+};
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({
-    user: null,
-    company: null,
+    ...SIGNED_OUT,
     initializing: true,
   });
 
@@ -45,7 +72,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // The dashboard layout then redirects to /login (once) on the next render.
   useEffect(() => {
     setOnAuthFailure(() => {
-      setState({ user: null, company: null, initializing: false });
+      setState(SIGNED_OUT);
     });
     return () => setOnAuthFailure(null);
   }, []);
@@ -57,17 +84,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const data = await api.refresh();
         setAccessToken(data.accessToken);
-        if (active) {
-          setState({
-            user: data.user,
-            company: data.company,
-            initializing: false,
-          });
-        }
+        if (active) setState(signedIn(data));
       } catch {
-        if (active) {
-          setState({ user: null, company: null, initializing: false });
-        }
+        if (active) setState(SIGNED_OUT);
       }
     })();
     return () => {
@@ -78,11 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (email: string, password: string) => {
     const data = await api.login({ email, password });
     setAccessToken(data.accessToken);
-    setState({
-      user: data.user,
-      company: data.company,
-      initializing: false,
-    });
+    setState(signedIn(data));
   }, []);
 
   const register = useCallback(
@@ -102,11 +117,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       setAccessToken(data.accessToken);
-      setState({
-        user: data.user,
-        company: data.company,
-        initializing: false,
-      });
+      setState(signedIn(data));
       return { requiresEmailVerification: false };
     },
     [],
@@ -115,11 +126,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const verifyEmail = useCallback(async (email: string, code: string) => {
     const data = await api.verifyEmail({ email, code });
     setAccessToken(data.accessToken);
-    setState({
-      user: data.user,
-      company: data.company,
-      initializing: false,
-    });
+    setState(signedIn(data));
   }, []);
 
   const logout = useCallback(async () => {
@@ -127,7 +134,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await api.logout();
     } finally {
       setAccessToken(null);
-      setState({ user: null, company: null, initializing: false });
+      setState(SIGNED_OUT);
     }
   }, []);
 

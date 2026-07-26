@@ -1,3 +1,4 @@
+import { isBillingEnabled } from '../../config/env';
 import { AppError } from '../../utils/AppError';
 import { billingRepository } from './billing.repository';
 import { expireIfOverdue } from './billing.expiry';
@@ -18,6 +19,11 @@ import {
  * Companies WITHOUT a subscription row (legacy rows created before billing,
  * or raw test fixtures) are treated as unlimited — real tenants always get a
  * trial subscription at registration and on the first billing read.
+ *
+ * When BILLING_ENABLED is off (the launch default) every entry point below
+ * short-circuits: nothing is enforced, nothing is read, and no subscription is
+ * ever created as a side effect. This is the ONLY place the feature seams
+ * (AI, channel connect, knowledge documents, ...) need to care about the flag.
  */
 
 function effectiveLimits(sub: SubscriptionWithPlan): PlanLimits {
@@ -44,6 +50,7 @@ export const billingLimitsService = {
    * (in which case nothing is enforced).
    */
   async getLimits(companyId: string): Promise<PlanLimits | null> {
+    if (!isBillingEnabled()) return null;
     const sub = await loadFreshSubscription(companyId);
     return sub ? effectiveLimits(sub) : null;
   },
@@ -57,6 +64,7 @@ export const billingLimitsService = {
     key: PlanLimitKey,
     currentCount: number,
   ): Promise<void> {
+    if (!isBillingEnabled()) return;
     const limits = await this.getLimits(companyId);
     if (!limits) return;
     const limit = limits[key];
@@ -73,6 +81,7 @@ export const billingLimitsService = {
    * AI usage service already enforces).
    */
   async assertAiRequestAllowed(companyId: string): Promise<void> {
+    if (!isBillingEnabled()) return;
     const sub = await loadFreshSubscription(companyId);
     if (!sub) return;
 

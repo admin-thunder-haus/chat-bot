@@ -57,3 +57,9 @@ services:
         value: gpt-4o-mini
       - key: FAKE_CHANNEL_ENABLED
         value: "false"
+      # Billing & subscriptions are OFF: customers are invoiced offline (bank
+      # transfer / cash). While off, nothing is limited, no subscription rows
+      # are written, /api/v1/billing/* answers 410, and the dashboard hides the
+      # Billing page. Flip this ONE value to "true" to start selling plans.
+      - key: BILLING_ENABLED
+        value: "false"

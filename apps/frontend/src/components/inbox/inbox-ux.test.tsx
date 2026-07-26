@@ -85,6 +85,15 @@ const detail: ConversationDetail = {
   customer,
 };
 
+/**
+ * Day separators are computed against the real clock, so these timestamps MUST
+ * be relative — a hardcoded date silently turns into "not today" overnight and
+ * the suite fails for reasons that have nothing to do with the code.
+ */
+const DAY_MS = 24 * 60 * 60 * 1000;
+const TODAY_ISO = new Date().toISOString();
+const TWO_DAYS_AGO_ISO = new Date(Date.now() - 2 * DAY_MS).toISOString();
+
 function message(over: Partial<Message>): Message {
   return {
     id: 'm1',
@@ -98,7 +107,7 @@ function message(over: Partial<Message>): Message {
     content: 'Hello there',
     mediaUrl: null,
     status: 'RECEIVED',
-    createdAt: '2026-07-24T09:00:00.000Z',
+    createdAt: TWO_DAYS_AGO_ISO,
     sentAt: null,
     senderUser: null,
     ...over,
@@ -235,14 +244,14 @@ describe('inbox smoke', () => {
       <MessageThread
         {...base}
         messages={[
-          message({ id: 'a', createdAt: '2026-07-23T09:00:00.000Z' }),
+          message({ id: 'a', createdAt: TWO_DAYS_AGO_ISO }),
           message({
             id: 'b',
             direction: 'OUTBOUND',
             senderType: 'AI',
             content: 'On its way',
             status: 'SENT',
-            createdAt: '2026-07-25T09:00:00.000Z',
+            createdAt: TODAY_ISO,
           }),
         ]}
       />,

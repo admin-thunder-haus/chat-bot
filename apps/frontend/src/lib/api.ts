@@ -2,6 +2,7 @@ import type {
   ApiError,
   ApiSuccess,
   AuthData,
+  PlatformFeatures,
   RegisterData,
   User,
   Company,
@@ -211,9 +212,15 @@ export const api = {
     });
   },
 
-  me(): Promise<{ user: User; company: Company }> {
-    return request<{ user: User; company: Company }>('/auth/me', {
-      auth: true,
-    });
+  me(): Promise<{
+    user: User;
+    company: Company;
+    features?: PlatformFeatures;
+  }> {
+    return request<{
+      user: User;
+      company: Company;
+      features?: PlatformFeatures;
+    }>('/auth/me', { auth: true });
   },
 };

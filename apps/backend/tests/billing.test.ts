@@ -33,11 +33,16 @@ let acme: Tenant;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 beforeEach(async () => {
+  // This suite exercises billing AS SHIPPED WHEN ENABLED. The platform default
+  // is BILLING_ENABLED=false (offline invoicing); billing-disabled.test.ts
+  // covers that side. The flag is read lazily, so setting it here is enough.
+  process.env.BILLING_ENABLED = 'true';
   await ensureDefaultPlans();
   acme = await setupTenant('acme');
 });
 
 afterEach(() => {
+  delete process.env.BILLING_ENABLED;
   setStripeTransportForTesting(null);
   setAIProviderForTesting(null);
   env.STRIPE_SECRET_KEY = undefined;

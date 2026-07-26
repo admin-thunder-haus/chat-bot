@@ -5,16 +5,26 @@ import { usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { Button, Badge } from '@/components/ui';
 import { NavIcon } from './nav-icons';
-import { DEV_NAV_SECTIONS, NAV_SECTIONS, isNavItemActive } from './nav';
+import {
+  DEV_NAV_SECTIONS,
+  NAV_SECTIONS,
+  isNavItemActive,
+  visibleNavSections,
+} from './nav';
 
 const ROW_BASE =
   'group flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2 focus-visible:ring-offset-white';
 
 function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
+  const { features } = useAuth();
+  const sections = visibleNavSections(
+    [...NAV_SECTIONS, ...DEV_NAV_SECTIONS],
+    features,
+  );
   return (
     <nav aria-label="Dashboard" className="flex flex-col gap-5">
-      {[...NAV_SECTIONS, ...DEV_NAV_SECTIONS].map((section) => (
+      {sections.map((section) => (
         <div key={section.title}>
           <p className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
             {section.title}

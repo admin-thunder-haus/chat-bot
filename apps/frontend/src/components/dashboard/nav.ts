@@ -1,9 +1,16 @@
 import type { NavIconName } from './nav-icons';
+import type { PlatformFeatures } from '@/lib/types';
 
 export interface NavItem {
   label: string;
   href: string;
   icon: NavIconName;
+  /**
+   * Platform feature this entry depends on. When the backend reports the
+   * feature as off, the row is hidden (and its page redirects), so the nav can
+   * never link to an endpoint the API refuses to serve.
+   */
+  requires?: keyof PlatformFeatures;
 }
 
 export interface NavSection {
@@ -67,7 +74,12 @@ export const NAV_SECTIONS: NavSection[] = [
         icon: 'integrations',
       },
       { label: 'Company Profile', href: '/dashboard/profile', icon: 'company' },
-      { label: 'Billing', href: '/dashboard/billing', icon: 'billing' },
+      {
+        label: 'Billing',
+        href: '/dashboard/billing',
+        icon: 'billing',
+        requires: 'billing',
+      },
     ],
   },
 ];
@@ -88,6 +100,25 @@ export const DEV_NAV_SECTIONS: NavSection[] =
           ],
         },
       ];
+
+/**
+ * Drop entries whose required platform feature is switched off, then drop any
+ * section left empty. Returns the input untouched when nothing is gated, so
+ * the common case allocates one shallow copy and no more.
+ */
+export function visibleNavSections(
+  sections: NavSection[],
+  features: PlatformFeatures,
+): NavSection[] {
+  return sections
+    .map((section) => ({
+      ...section,
+      items: section.items.filter(
+        (item) => !item.requires || features[item.requires],
+      ),
+    }))
+    .filter((section) => section.items.length > 0);
+}
 
 /** Flattened views (kept for callers that only need the raw item list). */
 export const NAV_ITEMS: NavItem[] = NAV_SECTIONS.flatMap((s) => s.items);

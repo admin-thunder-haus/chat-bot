@@ -1,5 +1,5 @@
 import type { BillingCycle } from '@prisma/client';
-import { env } from '../../config/env';
+import { env, isBillingEnabled } from '../../config/env';
 import { AppError } from '../../utils/AppError';
 import { logger } from '../../utils/logger';
 import { emitDomainEvent } from '../events/domain-events.service';
@@ -179,6 +179,8 @@ export const billingService = {
    * first billing read).
    */
   async ensureTrialSubscription(companyId: string): Promise<void> {
+    // Billing off (launch default): sign-up must not create subscription rows.
+    if (!isBillingEnabled()) return;
     try {
       await getOrCreateSubscription(companyId);
     } catch (err) {

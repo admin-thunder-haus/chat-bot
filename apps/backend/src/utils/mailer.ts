@@ -31,6 +31,14 @@ function getTransporter(): Promise<Transporter | null> {
               env.SMTP_USER && env.SMTP_PASS
                 ? { user: env.SMTP_USER, pass: env.SMTP_PASS }
                 : undefined,
+            // Bounded waits. Without these, nodemailer's defaults let a blocked
+            // or silently-dropping SMTP host hold the caller for minutes — which
+            // is exactly what happened the first time real SMTP was configured.
+            // Failing fast is strictly better here: the send is retried by the
+            // email.send job with backoff.
+            connectionTimeout: env.SMTP_TIMEOUT_MS,
+            greetingTimeout: env.SMTP_TIMEOUT_MS,
+            socketTimeout: env.SMTP_TIMEOUT_MS,
           })
         : null,
     );

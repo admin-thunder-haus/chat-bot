@@ -1,6 +1,11 @@
 import { knowledgeDocumentsService } from '../knowledge-documents/knowledge-documents.service';
 import { channelPipelineService } from '../channels/channel-pipeline.service';
 import { webhookService } from '../channels/webhooks/webhook.service';
+import {
+  issuePasswordResetToken,
+  issueVerificationCode,
+} from '../auth/auth.service';
+import { authRepository } from '../auth/auth.repository';
 import { registerJobHandler } from './jobs.registry';
 import { PermanentJobError } from './jobs.types';
 
@@ -57,4 +62,33 @@ registerJobHandler('ai.auto-reply', async ({ companyId, payload }) => {
     throw new PermanentJobError('ai.auto-reply requires a companyId');
   }
   await channelPipelineService.maybeAutoReply(companyId, payload.messageId);
+});
+
+/**
+ * Mint an auth secret and email it. Previously inline in the request, where an
+ * SMTP failure 500'd a registration whose account had already been committed —
+ * leaving the user unable to register (email taken), unable to log in
+ * (unverified) and without a code. See queueAuthEmail in auth.service.
+ *
+ * The secret is generated HERE, not carried in the payload, so nothing
+ * replayable is ever written to the job table. Each attempt therefore issues a
+ * fresh code/token and invalidates the previous one — correct for "send the
+ * email", and the reason a retry is safe rather than merely idempotent.
+ */
+registerJobHandler('email.send', async ({ payload }) => {
+  const user = await authRepository.findUserById(payload.userId);
+  // A deleted user is not a transient failure — retrying can never succeed.
+  if (!user) {
+    throw new PermanentJobError(`email.send: user ${payload.userId} no longer exists`);
+  }
+
+  if (payload.kind === 'email-verification') {
+    // Nothing to send once the address is already confirmed (e.g. the user
+    // verified from an earlier code before this retry came round).
+    if (user.emailVerifiedAt) return;
+    await issueVerificationCode(user);
+    return;
+  }
+
+  await issuePasswordResetToken(user);
 });

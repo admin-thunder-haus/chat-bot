@@ -137,6 +137,13 @@ const envSchema = z.object({
     .transform((v) => v === 'true'),
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
+  // Per-operation SMTP timeout (connect / greeting / socket). Deliberately
+  // short: a hung relay must not tie up a job worker slot for minutes.
+  SMTP_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120000).default(10000),
+  // MUST be an address the relay is willing to send as. Brevo, SendGrid and
+  // friends reject any From that is not a verified sender in the account —
+  // leaving the default here with real SMTP configured makes EVERY send fail.
+  // Startup warns loudly about exactly that (see the SMTP check below).
   EMAIL_FROM: z.string().default('AI Support <no-reply@localhost>'),
 
   // --- Day 4: AI response engine ---
@@ -519,6 +526,25 @@ function loadEnv(): Env {
       '\n❌ AI_FEATURE_ENABLED=true requires OPENAI_API_KEY to be set.\n',
     );
     process.exit(1);
+  }
+
+  // SMTP is configured but the From address is still the placeholder. Every
+  // send would be rejected by the relay, so this is a warning at startup rather
+  // than a mystery 500 on the first registration. Not fatal: logging-fallback
+  // delivery and the rest of the platform still work.
+  if (
+    parsed.data.SMTP_HOST &&
+    parsed.data.EMAIL_FROM.includes('no-reply@localhost') &&
+    parsed.data.NODE_ENV !== 'test'
+  ) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      '\n⚠️  SMTP_HOST is set but EMAIL_FROM is still the default ' +
+        '"no-reply@localhost".\n    Most relays (Brevo, SendGrid, ...) reject a ' +
+        'From address that is not a verified\n    sender, so verification and ' +
+        'password-reset emails will FAIL to send.\n    Set EMAIL_FROM to a ' +
+        'verified sender, e.g. EMAIL_FROM="AI Support <you@yourdomain.com>".\n',
+    );
   }
 
   return parsed.data;

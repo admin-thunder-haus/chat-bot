@@ -29,6 +29,9 @@ import { durationToMs } from '../../utils/duration';
 import { env, isEmailVerificationEnabled } from '../../config/env';
 import { AppError } from '../../utils/AppError';
 import { billingService } from '../billing/billing.service';
+// Direct service import, NOT the modules/jobs barrel: that barrel side-imports
+// the handler wiring, which imports this file back.
+import { jobsService } from '../jobs/jobs.service';
 import { loginAuditService } from './login-audit.service';
 import type { LoginAuditContext } from './login-audit.service';
 
@@ -85,10 +88,35 @@ async function issueTokens(user: User): Promise<AuthTokens> {
 }
 
 /**
- * Generate a 6-digit verification code, persist its hash (replacing any
- * outstanding code), and email it to the user.
+ * Queue the emailed secret instead of sending it on the request thread.
+ *
+ * This used to be an inline `await mailer.send…()`, which produced a genuinely
+ * bad failure: the account was already committed, so an SMTP error turned into a
+ * 500 AFTER the user existed. The retry then answered "email already exists" and
+ * the user was permanently stuck — registered, unverified, and never emailed.
+ * A slow SMTP host also stalled the request for as long as the socket took.
+ *
+ * Queuing fixes both: registration returns immediately, and a failed send is
+ * retried with backoff by the worker instead of failing the sign-up. Enqueue
+ * itself is best-effort (enqueueSafely) — if even that fails, the user still has
+ * an account and "Resend code" still works.
  */
-async function issueVerificationCode(user: User): Promise<void> {
+function queueAuthEmail(
+  user: User,
+  kind: 'email-verification' | 'password-reset',
+): Promise<unknown> {
+  return jobsService.enqueueSafely('email.send', user.companyId, {
+    userId: user.id,
+    kind,
+  });
+}
+
+/**
+ * Generate a 6-digit verification code, persist its hash (replacing any
+ * outstanding code), and email it to the user. Runs inside the `email.send`
+ * job, never on a request thread.
+ */
+export async function issueVerificationCode(user: User): Promise<void> {
   const code = crypto.randomInt(0, 1_000_000).toString().padStart(6, '0');
 
   await authRepository.replaceVerificationCode({
@@ -107,8 +135,9 @@ async function issueVerificationCode(user: User): Promise<void> {
 /**
  * Mint a password reset token, store only its hash, and email the link. The
  * raw token exists exactly twice: in this function and in the user's inbox.
+ * Runs inside the `email.send` job, never on a request thread.
  */
-async function issuePasswordResetToken(user: User): Promise<void> {
+export async function issuePasswordResetToken(user: User): Promise<void> {
   // 32 random bytes, base64url — URL-safe and far beyond guessing range.
   const token = crypto.randomBytes(32).toString('base64url');
 
@@ -160,7 +189,7 @@ export const authService = {
     await billingService.ensureTrialSubscription(company.id);
 
     if (isEmailVerificationEnabled) {
-      await issueVerificationCode(user);
+      await queueAuthEmail(user, 'email-verification');
       return {
         user: toPublicUser(user),
         company,
@@ -247,7 +276,7 @@ export const authService = {
       return;
     }
 
-    await issueVerificationCode(user);
+    await queueAuthEmail(user, 'email-verification');
   },
 
   /**
@@ -271,7 +300,7 @@ export const authService = {
       return;
     }
 
-    await issuePasswordResetToken(user);
+    await queueAuthEmail(user, 'password-reset');
   },
 
   /**

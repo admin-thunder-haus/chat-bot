@@ -125,6 +125,35 @@ If nothing arrives: Render → your service → **Logs**, and search for
 `SMTP not configured`. If you see that line, the variables did not take effect —
 check for a typo in the variable NAME.
 
+#### The one mistake that breaks everything: `EMAIL_FROM`
+
+`EMAIL_FROM` is **not cosmetic and it is not optional.** Brevo (and SendGrid, and
+Gmail) will **reject every single send** whose From address is not a sender you
+verified in that account. If you set `SMTP_HOST`/`USER`/`PASS` but leave
+`EMAIL_FROM` alone, it keeps its placeholder default `no-reply@localhost`, and
+**100% of your emails fail** — no verification codes, no password resets.
+
+This already happened once during testing. The symptoms to recognise:
+
+- the registration request hangs for a long time, then
+- returns **Internal Server Error**, and
+- retrying the same email says **"An account with this email already exists"**.
+
+The app now guards against all three:
+
+- Startup prints a loud warning if `SMTP_HOST` is set while `EMAIL_FROM` is
+  still the default. **Check your Render logs for `⚠️  SMTP_HOST is set but
+  EMAIL_FROM is still the default` right after your first deploy.**
+- Emails are queued as background jobs, so a rejected send can no longer fail a
+  registration or leave an account stranded — it is retried with backoff.
+- SMTP now has a 10-second timeout (`SMTP_TIMEOUT_MS`), so a dead relay cannot
+  hang a request for minutes.
+
+To confirm a send actually succeeded rather than merely being accepted for
+retry, search the Render logs for `email.send` — a `jobs.job.dead` line naming
+`email.send` means the relay rejected it every time, and the `lastError` on that
+row is the relay's own message (usually "not a verified sender").
+
 ---
 
 ### 1.3 Create a Sentry project and set `SENTRY_DSN` — free, 10 minutes

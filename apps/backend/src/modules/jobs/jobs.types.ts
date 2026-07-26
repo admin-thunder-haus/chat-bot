@@ -15,6 +15,8 @@ export const JOB_TYPES = [
   'ai.auto-reply',
   /** Deliver one signed outbound webhook attempt. */
   'webhook.dispatch',
+  /** Mint an auth secret (verification code / reset link) and email it. */
+  'email.send',
 ] as const;
 
 export type JobType = (typeof JOB_TYPES)[number];
@@ -42,6 +44,16 @@ export interface JobPayloads {
   };
   'ai.auto-reply': { messageId: string };
   'webhook.dispatch': { deliveryId: string };
+  /**
+   * Carries the INTENT, never the secret. The handler mints the code/token
+   * itself, so a plaintext verification code or reset token never lands in the
+   * job table — which matters because a DEAD job row is kept deliberately as the
+   * record of loss and would otherwise preserve a live secret indefinitely.
+   */
+  'email.send': {
+    userId: string;
+    kind: 'email-verification' | 'password-reset';
+  };
 }
 
 export type JobPayload<T extends JobType> = JobPayloads[T];

@@ -1,6 +1,7 @@
 import request from 'supertest';
 import { createApp } from '../src/app';
 import { mailer } from '../src/utils/mailer';
+import { drainJobs } from './jobs-helpers';
 import { hashToken } from '../src/utils/jwt';
 import { hashPassword } from '../src/utils/password';
 import { prisma } from './setup';
@@ -45,8 +46,15 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 
-function forgot(email = EMAIL) {
-  return request(app).post('/api/v1/auth/forgot-password').send({ email });
+async function forgot(email = EMAIL) {
+  const res = await request(app)
+    .post('/api/v1/auth/forgot-password')
+    .send({ email });
+  // Auth emails are QUEUED, not sent inline (an SMTP failure must not fail the
+  // request that triggered it). Let the queue catch up so the mailer spy sees
+  // the send — deterministic, drainJobs never sleeps.
+  await drainJobs();
+  return res;
 }
 
 function reset(body: Record<string, unknown>) {

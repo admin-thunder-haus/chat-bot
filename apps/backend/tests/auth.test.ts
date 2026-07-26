@@ -1,6 +1,7 @@
 import request from 'supertest';
 import { createApp } from '../src/app';
 import { mailer } from '../src/utils/mailer';
+import { drainJobs } from './jobs-helpers';
 
 const app = createApp();
 
@@ -32,9 +33,14 @@ function lastEmailedCode(): string {
 }
 
 async function registerCompany(overrides: Partial<typeof validRegister> = {}) {
-  return request(app)
+  const res = await request(app)
     .post('/api/v1/auth/register')
     .send({ ...validRegister, ...overrides });
+  // The verification email is QUEUED, not sent inline: an SMTP failure must not
+  // fail a sign-up whose account is already committed. Let the queue catch up so
+  // the mailer spy sees the send (deterministic — drainJobs never sleeps).
+  await drainJobs();
+  return res;
 }
 
 /** Register + confirm the emailed code; returns the verify response (tokens). */

@@ -1,6 +1,7 @@
 import request from 'supertest';
 import { createApp } from '../src/app';
 import { mailer } from '../src/utils/mailer';
+import { drainJobs } from './jobs-helpers';
 import { prisma } from './setup';
 
 /**
@@ -38,15 +39,27 @@ function lastEmailedCode(): string {
 }
 
 async function register() {
-  return request(app).post('/api/v1/auth/register').send(validRegister);
+  const res = await request(app).post('/api/v1/auth/register').send(validRegister);
+  // Auth emails are QUEUED, not sent inline (an SMTP failure must not fail the
+  // request that triggered it). Let the queue catch up so the mailer spy sees
+  // the send — deterministic, drainJobs never sleeps.
+  await drainJobs();
+  return res;
 }
 
 function verify(code: string, email = validRegister.email) {
   return request(app).post('/api/v1/auth/verify-email').send({ email, code });
 }
 
-function resend(email = validRegister.email) {
-  return request(app).post('/api/v1/auth/resend-verification').send({ email });
+async function resend(email = validRegister.email) {
+  const res = await request(app)
+    .post('/api/v1/auth/resend-verification')
+    .send({ email });
+  // Auth emails are QUEUED, not sent inline (an SMTP failure must not fail the
+  // request that triggered it). Let the queue catch up so the mailer spy sees
+  // the send — deterministic, drainJobs never sleeps.
+  await drainJobs();
+  return res;
 }
 
 function wrongCode(right: string): string {
@@ -135,5 +148,75 @@ describe('resend', () => {
     const res = await resend();
     expect(res.status).toBe(200);
     expect(sendVerificationSpy).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Regression: the bug that stranded a real signup in production.
+ *
+ * Registration used to `await mailer.sendVerificationEmail()` inline, AFTER the
+ * company + user were already committed. When SMTP was first configured for real
+ * and the relay rejected the send, the request 500'd with the account already in
+ * the database. The retry then answered 409 "email already exists" and the user
+ * was permanently stuck: unable to register, unable to log in (unverified), and
+ * never emailed a code.
+ */
+describe('a failing mail relay never strands a signup', () => {
+  it('registers successfully even when every send fails', async () => {
+    sendVerificationSpy.mockRejectedValue(
+      new Error('501 Invalid sender: not a verified sender in this account'),
+    );
+
+    const res = await request(app)
+      .post('/api/v1/auth/register')
+      .send(validRegister);
+
+    // The user is told to check their email; the account exists and is usable.
+    expect(res.status).toBe(201);
+    expect(res.body.data.requiresEmailVerification).toBe(true);
+
+    const user = await prisma.user.findUnique({
+      where: { email: validRegister.email },
+    });
+    expect(user).not.toBeNull();
+    expect(user!.emailVerifiedAt).toBeNull();
+  });
+
+  it('retries the send in the background instead of losing it', async () => {
+    sendVerificationSpy.mockRejectedValueOnce(new Error('smtp timeout'));
+
+    await request(app).post('/api/v1/auth/register').send(validRegister);
+    await drainJobs();
+
+    // The first attempt failed and the job is QUEUED again, not lost or dead.
+    const job = await prisma.job.findFirst({ where: { type: 'email.send' } });
+    expect(job!.status).toBe('QUEUED');
+    expect(job!.attempts).toBe(1);
+
+    // The retry is deliberately BACKED OFF, so it is not due yet. Rewind runAt
+    // rather than sleeping — the delay is the queue's job to prove, not this
+    // test's to wait out.
+    await prisma.job.update({
+      where: { id: job!.id },
+      data: { runAt: new Date(Date.now() - 1000) },
+    });
+    await drainJobs();
+
+    expect(sendVerificationSpy).toHaveBeenCalledTimes(2);
+    // The retry replaced the code rather than piling up a second live one.
+    expect(await prisma.emailVerificationCode.count()).toBe(1);
+
+    // And the freshly emailed code actually works.
+    expect((await verify(lastEmailedCode())).status).toBe(200);
+  });
+
+  it('a second registration attempt still reports the email as taken', async () => {
+    // Documents the CORRECT behaviour of the 409 the owner hit: it is only
+    // wrong when the first attempt lied about failing. Here it did not.
+    await register();
+    const again = await request(app)
+      .post('/api/v1/auth/register')
+      .send(validRegister);
+    expect(again.status).toBe(409);
   });
 });

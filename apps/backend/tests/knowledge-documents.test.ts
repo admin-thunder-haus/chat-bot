@@ -2,6 +2,7 @@ import request from 'supertest';
 import { PDFDocument, StandardFonts } from 'pdf-lib';
 import { createApp } from '../src/app';
 import { authHeader, setupTenant, type Tenant } from './helpers';
+import { drainJobs } from './jobs-helpers';
 import { prisma } from './setup';
 import { aiRetrievalService } from '../src/modules/ai/ai-retrieval.service';
 import { chunkText } from '../src/modules/knowledge-documents/knowledge-documents.service';
@@ -9,6 +10,11 @@ import { chunkText } from '../src/modules/knowledge-documents/knowledge-document
 /**
  * PDF knowledge documents: upload/extract/chunk, management, and retrieval
  * integration (uploaded content becomes AI-answerable).
+ *
+ * Extraction is a BACKGROUND JOB: the upload response returns while the
+ * document is still PROCESSING, which is the whole point (a 10 MB PDF must not
+ * hold an HTTP connection). Tests therefore `await drainJobs()` and then re-read
+ * the document — deterministic, no sleeping.
  */
 
 const app = createApp();
@@ -39,6 +45,41 @@ function upload(token: string, files: { name: string; buffer: Buffer }[]) {
   return req;
 }
 
+/** Upload, then run the extraction jobs the response deliberately did not wait for. */
+async function uploadAndExtract(
+  token: string,
+  files: { name: string; buffer: Buffer }[],
+) {
+  const res = await upload(token, files);
+  await drainJobs();
+  return res;
+}
+
+/** The serialized document shape the list endpoint returns. */
+interface DocumentView {
+  id: string;
+  status: string;
+  pageCount: number | null;
+  extractedCharacters: number | null;
+  failureReason: string | null;
+  chunkCount: number;
+}
+
+/** Current server-side view of a document, after extraction has run. */
+async function fetchDocument(
+  token: string,
+  id: string,
+): Promise<DocumentView> {
+  const res = await request(app)
+    .get('/api/v1/knowledge-documents')
+    .set(authHeader(token));
+  const found = (res.body.data.documents as DocumentView[]).find(
+    (d) => d.id === id,
+  );
+  if (!found) throw new Error(`document ${id} is not in the list response`);
+  return found;
+}
+
 describe('POST /api/v1/knowledge-documents', () => {
   it('uploads multiple PDFs, extracts text, and chunks them', async () => {
     const warranty = await makePdf([
@@ -54,15 +95,25 @@ describe('POST /api/v1/knowledge-documents', () => {
       { name: 'returns.pdf', buffer: returns },
     ]);
 
+    // The request returns immediately with both documents still PROCESSING —
+    // this is the contract the UI polls against.
     expect(res.status).toBe(201);
-    const docs = res.body.data.documents;
-    expect(docs).toHaveLength(2);
-    for (const doc of docs) {
-      expect(doc.status).toBe('READY');
-      expect(doc.pageCount).toBe(1);
+    const queued = res.body.data.documents;
+    expect(queued).toHaveLength(2);
+    for (const doc of queued) {
+      expect(doc.status).toBe('PROCESSING');
+      expect(doc.data).toBeUndefined();
+    }
+
+    await drainJobs();
+
+    for (const queuedDoc of queued) {
+      const doc = await fetchDocument(acme.tokens.owner, queuedDoc.id);
+      expect(doc).toMatchObject({ status: 'READY', pageCount: 1 });
+      // The raw bytes are never serialized into a list response.
+      expect(doc).not.toHaveProperty('data');
       expect(doc.chunkCount).toBeGreaterThan(0);
       expect(doc.extractedCharacters).toBeGreaterThan(20);
-      expect(doc.data).toBeUndefined();
     }
   });
 
@@ -99,8 +150,15 @@ describe('POST /api/v1/knowledge-documents', () => {
         contentType: 'application/pdf',
       });
     expect(res.status).toBe(201);
-    expect(res.body.data.documents[0].status).toBe('FAILED');
-    expect(res.body.data.documents[0].failureReason).toBeTruthy();
+    const id = res.body.data.documents[0].id as string;
+
+    // A PDF we cannot read is a FAILED document the user can see and replace —
+    // NOT a retried job, so the queue settles on the first attempt.
+    await drainJobs();
+
+    const doc = await fetchDocument(acme.tokens.owner, id);
+    expect(doc).toMatchObject({ status: 'FAILED' });
+    expect(doc.failureReason).toBeTruthy();
   });
 });
 
@@ -109,7 +167,7 @@ describe('retrieval integration', () => {
     const pdf = await makePdf([
       'The premium subscription includes unlimited zorbification credits.',
     ]);
-    await upload(acme.tokens.owner, [{ name: 'plans.pdf', buffer: pdf }]);
+    await uploadAndExtract(acme.tokens.owner, [{ name: 'plans.pdf', buffer: pdf }]);
 
     const result = await aiRetrievalService.retrieve(
       acme.company.id,
@@ -122,7 +180,7 @@ describe('retrieval integration', () => {
 
   it('does not leak documents across tenants', async () => {
     const pdf = await makePdf(['Secret acme zorbification pricing.']);
-    await upload(acme.tokens.owner, [{ name: 'secret.pdf', buffer: pdf }]);
+    await uploadAndExtract(acme.tokens.owner, [{ name: 'secret.pdf', buffer: pdf }]);
 
     const result = await aiRetrievalService.retrieve(
       globex.company.id,
@@ -133,7 +191,7 @@ describe('retrieval integration', () => {
 
   it('deactivated documents are excluded from retrieval', async () => {
     const pdf = await makePdf(['Legacy zorbification policy details.']);
-    const uploaded = await upload(acme.tokens.owner, [
+    const uploaded = await uploadAndExtract(acme.tokens.owner, [
       { name: 'legacy.pdf', buffer: pdf },
     ]);
     const id = uploaded.body.data.documents[0].id as string;
@@ -154,7 +212,7 @@ describe('retrieval integration', () => {
 describe('management', () => {
   it('replace swaps content and re-extracts', async () => {
     const original = await makePdf(['Original glimfrost terms.']);
-    const uploaded = await upload(acme.tokens.owner, [
+    const uploaded = await uploadAndExtract(acme.tokens.owner, [
       { name: 'terms.pdf', buffer: original },
     ]);
     const id = uploaded.body.data.documents[0].id as string;
@@ -170,7 +228,13 @@ describe('management', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.data.document.fileName).toBe('terms-v2.pdf');
-    expect(res.body.data.document.status).toBe('READY');
+    // Back to PROCESSING while re-extraction is queued.
+    expect(res.body.data.document.status).toBe('PROCESSING');
+
+    await drainJobs();
+    expect(await fetchDocument(acme.tokens.owner, id)).toMatchObject({
+      status: 'READY',
+    });
 
     const old = await aiRetrievalService.retrieve(acme.company.id, 'glimfrost terms');
     expect(old.documentChunks).toHaveLength(0);

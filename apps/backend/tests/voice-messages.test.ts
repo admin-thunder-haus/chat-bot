@@ -1,5 +1,6 @@
 import { createApp } from '../src/app';
 import { setupTenant, type Tenant } from './helpers';
+import { drainJobs } from './jobs-helpers';
 import { prisma } from './setup';
 import { setAIProviderForTesting, setTranscriberForTesting } from '../src/modules/ai';
 import { makeFakeProvider } from './ai-helpers';
@@ -17,6 +18,12 @@ import {
   tgVoiceUpdate,
 } from './telegram-helpers';
 
+/**
+ * Voice notes are processed OFF the webhook request: the media download and the
+ * Whisper call are background jobs, because a slow webhook is what makes a
+ * provider mark the endpoint as failing. Each test therefore posts the webhook,
+ * `await drainJobs()`, and only then asserts the transcript / auto-reply.
+ */
 const app = createApp();
 const TRANSCRIPT = 'مرحبا اريد الاسعار';
 const OGG_BYTES = Buffer.from('OggS-fake-voice-note-bytes');
@@ -55,6 +62,7 @@ describe('Voice messages — Telegram webhook end-to-end', () => {
     const res = await tgWebhook(app, id, tgVoiceUpdate({ updateId: 20, messageId: 77 }), secret);
     expect(res.status).toBe(200);
     expect(res.body.data.processed).toBe(1);
+    await drainJobs();
 
     const msg = await prisma.message.findFirst({
       where: { companyId: acme.company.id, senderType: 'CUSTOMER' },
@@ -75,6 +83,7 @@ describe('Voice messages — Telegram webhook end-to-end', () => {
     // Idempotent replay (same update_id): no second message, no second image.
     const dup = await tgWebhook(app, id, tgVoiceUpdate({ updateId: 20, messageId: 77 }), secret);
     expect(dup.body.data.duplicates).toBe(1);
+    await drainJobs();
     expect(await prisma.message.count({ where: { companyId: acme.company.id, senderType: 'CUSTOMER' } })).toBe(1);
     expect(await prisma.storedImage.count({ where: { companyId: acme.company.id } })).toBe(1);
   });
@@ -89,6 +98,9 @@ describe('Voice messages — Telegram webhook end-to-end', () => {
     const { id, secret } = await connected(acme);
 
     await tgWebhook(app, id, tgVoiceUpdate({ updateId: 21, messageId: 78 }), secret);
+    // Two chained jobs: transcribe, then auto-reply on the transcript.
+    await drainJobs();
+
     const conv = await prisma.conversation.findFirst({
       where: { companyId: acme.company.id, channelType: 'TELEGRAM' },
     });
@@ -112,6 +124,7 @@ describe('Voice messages — Telegram webhook end-to-end', () => {
     const res = await tgWebhook(app, id, tgVoiceUpdate({ updateId: 22, messageId: 79 }), secret);
     expect(res.status).toBe(200);
     expect(res.body.data.processed).toBe(1);
+    await drainJobs();
 
     const msg = await prisma.message.findFirst({
       where: { companyId: acme.company.id, senderType: 'CUSTOMER' },

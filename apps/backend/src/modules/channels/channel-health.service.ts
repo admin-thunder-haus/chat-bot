@@ -6,6 +6,7 @@ import type {
 import { prisma } from '../../config/prisma';
 import { AppError } from '../../utils/AppError';
 import { logger } from '../../utils/logger';
+import { emitDomainEvent } from '../events/domain-events.service';
 import { channelsRepository } from './channels.repository';
 import { channelRegistry } from './channel-registry';
 import { channelCredentialsService } from './channel-credentials.service';
@@ -44,6 +45,66 @@ function isDegradation(
 
 function clampScore(n: number): number {
   return Math.max(0, Math.min(100, Math.round(n)));
+}
+
+/**
+ * States that mean the channel is DOWN for the customer and only the owner can
+ * fix it. DEGRADED is deliberately excluded: it is noisy, self-healing, and
+ * already visible on the channels page — waking someone at 3am for it would
+ * teach them to ignore the alert that matters.
+ */
+const ALERT_STATES: ChannelConnectionState[] = ['UNAVAILABLE', 'AUTH_EXPIRED'];
+
+/**
+ * True only on the EDGE into a down state. A channel that stays broken keeps
+ * failing every health check and every delivery, so alerting on the state
+ * itself would notify the owner every minute; alerting on the transition
+ * notifies once, and again only after a genuine recovery.
+ */
+function entersAlertState(
+  prev: ChannelConnectionState,
+  next: ChannelConnectionState,
+): boolean {
+  return ALERT_STATES.includes(next) && !ALERT_STATES.includes(prev);
+}
+
+/**
+ * Owner-facing alert for a channel that just went down. Shared by both places
+ * that compute a state transition (manual probe + delivery outcome) so the
+ * wording and the edge condition can never drift apart.
+ *
+ * The copy names the channel and says what to do next; the raw connection-state
+ * enum stays out of the text and lives in `data` for integrators.
+ */
+async function emitChannelUnavailableAlert(
+  account: ChannelAccount,
+  newState: ChannelConnectionState,
+  previousState: ChannelConnectionState,
+  source: 'manual' | 'delivery',
+): Promise<void> {
+  const authExpired = newState === 'AUTH_EXPIRED';
+  const title = authExpired
+    ? `${account.displayName} sign-in has expired`
+    : `${account.displayName} is not responding`;
+  const body = authExpired
+    ? `The sign-in for ${account.displayName} has expired, so messages can no longer be sent or received on it. Open Setup → Channels and reconnect the channel to start serving customers again.`
+    : `${account.displayName} stopped responding, so messages are not reaching your customers right now. Open Setup → Channels, run a health check, and reconnect the channel if it stays down.`;
+
+  await emitDomainEvent({
+    companyId: account.companyId,
+    type: 'channel.unavailable',
+    title,
+    body,
+    data: {
+      channelAccountId: account.id,
+      providerKey: account.providerKey,
+      channelType: account.channelType,
+      connectionState: newState,
+      previousState,
+      detectedBy: source,
+    },
+    notify: { type: 'SYSTEM_ALERT', emailRoles: ['OWNER'] },
+  });
 }
 
 /** Delivery-derived connection state from a health score. */
@@ -131,6 +192,21 @@ export const channelHealthService = {
       errorMessage: outcome.success ? null : outcome.errorMessage ?? null,
       source: 'delivery',
     });
+
+    if (entersAlertState(previousState, newState)) {
+      // DETACHED on purpose. This method runs INSIDE the delivery engine's
+      // transaction, and emitDomainEvent does I/O (owner email + the customer's
+      // own webhooks, with retries). Awaiting it here would hold the
+      // transaction open past Prisma's timeout and roll the delivery back — the
+      // alert must never cost us the message. emitDomainEvent never rejects, so
+      // nothing escapes this call.
+      void emitChannelUnavailableAlert(
+        account,
+        newState,
+        previousState,
+        'delivery',
+      );
+    }
 
     const degraded = isDegradation(previousState, newState);
     const recovered = isRecovery(previousState, newState);
@@ -258,6 +334,17 @@ export const channelHealthService = {
       }
       return acc;
     });
+
+    // AFTER the transaction commits: the alert is only true once the new state
+    // is durable, and emitDomainEvent's I/O must not run inside a transaction.
+    if (entersAlertState(previousState, nextState)) {
+      await emitChannelUnavailableAlert(
+        account,
+        nextState,
+        previousState,
+        'manual',
+      );
+    }
 
     return serializeChannelAccount(updated as ChannelAccount);
   },

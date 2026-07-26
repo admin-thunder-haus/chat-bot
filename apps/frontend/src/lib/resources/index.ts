@@ -30,6 +30,7 @@ export type {
   CreateWebhookInput,
   UpdateWebhookInput,
 } from './integrations';
+export { loginHistoryApi } from './login-history';
 export { actionsApi } from './actions';
 export type {
   ExecutionListParams,

@@ -1,6 +1,7 @@
 import request from 'supertest';
 import { createApp } from '../src/app';
 import { setupTenant, authHeader, type Tenant } from './helpers';
+import { drainJobs } from './jobs-helpers';
 import { prisma } from './setup';
 import { setAIProviderForTesting } from '../src/modules/ai';
 import { makeFakeProvider } from './ai-helpers';
@@ -110,6 +111,8 @@ describe('Facebook — webhook + incoming pipeline', () => {
     await prisma.companyAISettings.upsert({ where: { companyId: acme.company.id }, create: { companyId: acme.company.id, autoReplyEnabled: true }, update: { autoReplyEnabled: true } });
     const id = await connectedAccountId(acme);
     await fbWebhook(app, id, fbTextPayload({ mid: 'm.AI', text: 'What are your hours?' }));
+    // The auto-reply is a background job — the webhook must not wait on OpenAI.
+    await drainJobs();
     const conv = await prisma.conversation.findFirst({ where: { companyId: acme.company.id, channelType: 'FACEBOOK' } });
     const ai = await prisma.message.findFirst({ where: { conversationId: conv!.id, senderType: 'AI' } });
     expect(ai?.content).toBe('Messenger AI reply.');

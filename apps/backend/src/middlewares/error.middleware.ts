@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from 'express';
 import { Prisma } from '@prisma/client';
 import { ZodError } from 'zod';
 import { JsonWebTokenError, TokenExpiredError } from 'jsonwebtoken';
+import { captureServerError } from '../config/sentry';
 import { AppError, type AppErrorDetail } from '../utils/AppError';
 import { sendError } from '../utils/apiResponse';
 import { logger } from '../utils/logger';
@@ -123,6 +124,16 @@ export function errorHandler(
       requestId: req.requestId,
       message: err instanceof Error ? err.message : String(err),
       stack: err instanceof Error ? err.stack : undefined,
+    });
+    // Same condition as the log line above — expected 4xx business outcomes
+    // (validation, auth, not-found) are NOT incidents and must not fill Sentry.
+    // A no-op unless SENTRY_DSN is set. `req.route.path` is the route PATTERN
+    // ("/:id"), which keeps tag cardinality flat; it is only populated once a
+    // router matched, so `req.path` (raw, may contain ids) is the fallback.
+    captureServerError(err, {
+      requestId: req.requestId,
+      companyId: req.user?.companyId,
+      route: `${req.method} ${typeof req.route?.path === 'string' ? req.route.path : req.path}`,
     });
   }
 

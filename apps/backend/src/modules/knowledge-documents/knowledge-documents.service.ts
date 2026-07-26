@@ -1,6 +1,9 @@
 import { PDFParse } from 'pdf-parse';
 import { prisma } from '../../config/prisma';
 import { billingLimitsService } from '../billing/billing-limits.service';
+// Imported from the service, not the module index: the index pulls the handler
+// registry, which imports this file back.
+import { jobsService } from '../jobs/jobs.service';
 import { knowledgeDocumentsRepository } from './knowledge-documents.repository';
 import {
   serializeKnowledgeDocument,
@@ -55,7 +58,11 @@ interface UploadFile {
   buffer: Buffer;
 }
 
-/** Extract text + persist chunks for one stored document. Never throws. */
+/**
+ * Extract text + persist chunks for one stored document. Never throws: a PDF we
+ * cannot read is a FAILED document the user can see and replace, not an error
+ * for the background worker to retry five times to the same conclusion.
+ */
 async function processDocument(
   companyId: string,
   documentId: string,
@@ -108,7 +115,33 @@ export const knowledgeDocumentsService = {
     return rows.map(serializeKnowledgeDocument);
   },
 
-  /** Upload one or more PDFs; each is extracted + chunked synchronously. */
+  /**
+   * Re-read a stored document and extract it. The queue's entry point: it takes
+   * ids only, so the job row never carries the file bytes.
+   */
+  async runExtraction(companyId: string, documentId: string): Promise<void> {
+    const doc = await knowledgeDocumentsRepository.findDataScoped(
+      companyId,
+      documentId,
+    );
+    if (!doc) {
+      // Deleted between upload and extraction — nothing to do, and retrying
+      // cannot bring it back.
+      logger.info('knowledge-document extraction skipped: document is gone', {
+        companyId,
+        documentId,
+      });
+      return;
+    }
+    await processDocument(companyId, documentId, Buffer.from(doc.data));
+  },
+
+  /**
+   * Upload one or more PDFs. Each is stored immediately and left PROCESSING;
+   * extraction + chunking happen in a background job so a large file never
+   * holds the HTTP request (and its database connection) open. The UI already
+   * polls PROCESSING → READY, so this is the contract it expects.
+   */
   async upload(
     companyId: string,
     files: UploadFile[],
@@ -135,7 +168,11 @@ export const knowledgeDocumentsService = {
         data: file.buffer,
       });
 
-      await processDocument(companyId, created.id, file.buffer);
+      // enqueueSafely: failing to SCHEDULE the extraction must not fail an
+      // upload whose bytes are already safely stored.
+      await jobsService.enqueueSafely('knowledge-document.extract', companyId, {
+        documentId: created.id,
+      });
 
       const fresh = await knowledgeDocumentsRepository.findByIdScoped(
         companyId,
@@ -147,7 +184,10 @@ export const knowledgeDocumentsService = {
     return results;
   },
 
-  /** Replace the file behind an existing document and re-extract. */
+  /**
+   * Replace the file behind an existing document. Same contract as upload: the
+   * row returns to PROCESSING and re-extraction happens in the background.
+   */
   async replace(
     companyId: string,
     id: string,
@@ -165,7 +205,9 @@ export const knowledgeDocumentsService = {
     );
     if (count === 0) throw AppError.notFound('Document not found');
 
-    await processDocument(companyId, id, file.buffer);
+    await jobsService.enqueueSafely('knowledge-document.extract', companyId, {
+      documentId: id,
+    });
 
     const fresh = await knowledgeDocumentsRepository.findByIdScoped(
       companyId,

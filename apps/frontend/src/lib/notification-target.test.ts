@@ -36,13 +36,41 @@ describe('notificationHref', () => {
     ).toBe('/dashboard/billing');
   });
 
-  it('sends AI action / system alerts to operations', () => {
+  it('sends AI action alerts to operations', () => {
     expect(
       notificationHref({
         type: 'SYSTEM_ALERT',
         data: { actionKey: 'book_appointment', conversationId: CONV_ID },
       }),
     ).toBe('/dashboard/operations');
+  });
+
+  it('sends a dead-channel alert to the page where it can be reconnected', () => {
+    expect(
+      notificationHref({
+        type: 'SYSTEM_ALERT',
+        data: {
+          channelAccountId: 'acct-1',
+          providerKey: 'whatsapp',
+          connectionState: 'AUTH_EXPIRED',
+        },
+      }),
+    ).toBe('/dashboard/channels');
+  });
+
+  it('sends an auto-disabled webhook alert to integrations', () => {
+    expect(
+      notificationHref({
+        type: 'SYSTEM_ALERT',
+        data: { webhookId: 'wh-1', url: 'https://example.test/hook' },
+      }),
+    ).toBe('/dashboard/integrations');
+  });
+
+  it('an operational alert with no ids still lands somewhere useful', () => {
+    expect(notificationHref({ type: 'SYSTEM_ALERT', data: null })).toBe(
+      '/dashboard/operations',
+    );
   });
 
   it('falls back to the inbox when data is missing or malformed', () => {

@@ -80,4 +80,15 @@ router.post('/logout', asyncHandler(authController.logout));
 
 router.get('/me', authenticate, asyncHandler(authController.me));
 
+// The caller's own sign-in history. It lives under /auth rather than /users
+// because /users is about MANAGING the company's other users, while this is a
+// property of the caller's own credentials — the same "who am I" surface as
+// /auth/me, written by the login path in this very module. There is deliberately
+// no :userId variant: one user's trail is only ever readable by that user.
+router.get(
+  '/login-history',
+  authenticate,
+  asyncHandler(authController.loginHistory),
+);
+
 export const authRoutes = router;

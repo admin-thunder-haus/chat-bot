@@ -29,6 +29,8 @@ import { durationToMs } from '../../utils/duration';
 import { env, isEmailVerificationEnabled } from '../../config/env';
 import { AppError } from '../../utils/AppError';
 import { billingService } from '../billing/billing.service';
+import { loginAuditService } from './login-audit.service';
+import type { LoginAuditContext } from './login-audit.service';
 
 /** Strip the password hash before exposing a user to the client. */
 function toPublicUser(user: User): PublicUser {
@@ -302,8 +304,25 @@ export const authService = {
     });
   },
 
-  /** Authenticate with email + password. */
-  async login(input: LoginInput): Promise<AuthResult> {
+  /**
+   * Authenticate with email + password.
+   *
+   * `context` carries the caller's IP and user-agent for the audit trail. It is
+   * threaded down from the controller rather than read here because those two
+   * facts are HTTP-transport details the service must not know how to obtain
+   * (and `req.ip` is only trustworthy because app.ts sets 'trust proxy') — while
+   * the OUTCOME, which is the interesting half of an audit row, is known only
+   * here. Passing a small context in is the one arrangement that keeps both
+   * halves in the layer that owns them.
+   *
+   * Every branch below records its own outcome and none of them changes the
+   * response: the generic "Invalid email or password" message and the dummy-hash
+   * timing equalizer behave exactly as before.
+   */
+  async login(
+    input: LoginInput,
+    context: LoginAuditContext = {},
+  ): Promise<AuthResult> {
     const user = await authRepository.findUserByEmail(input.email);
 
     // Same generic message whether the email is unknown or the password is
@@ -313,17 +332,38 @@ export const authService = {
     if (!user) {
       // Still run a hash comparison to reduce timing side-channels.
       await verifyPassword(input.password, await getDummyHash());
+      // No user and no company: the attempted email is the whole record.
+      await loginAuditService.record({
+        outcome: 'UNKNOWN_EMAIL',
+        email: input.email,
+        context,
+      });
       throw invalid;
     }
 
+    const audit = {
+      email: input.email,
+      companyId: user.companyId,
+      userId: user.id,
+      context,
+    };
+
     const ok = await verifyPassword(input.password, user.passwordHash);
-    if (!ok) throw invalid;
+    if (!ok) {
+      await loginAuditService.record({ ...audit, outcome: 'INVALID_PASSWORD' });
+      throw invalid;
+    }
 
     if (user.status !== 'ACTIVE') {
+      await loginAuditService.record({ ...audit, outcome: 'ACCOUNT_DISABLED' });
       throw AppError.forbidden('This account has been disabled');
     }
 
     if (isEmailVerificationEnabled && !user.emailVerifiedAt) {
+      await loginAuditService.record({
+        ...audit,
+        outcome: 'EMAIL_NOT_VERIFIED',
+      });
       throw AppError.forbidden(
         'Please verify your email address before logging in',
         'EMAIL_NOT_VERIFIED',
@@ -331,14 +371,21 @@ export const authService = {
     }
 
     const company = await authRepository.findCompanyById(user.companyId);
+    // Deliberately NOT audited: a user row without its company violates the FK
+    // and is an internal fault, not an authentication outcome.
     if (!company) {
       throw AppError.internal();
     }
     if (company.status !== 'ACTIVE') {
+      await loginAuditService.record({
+        ...audit,
+        outcome: 'COMPANY_SUSPENDED',
+      });
       throw AppError.forbidden('This company account is suspended');
     }
 
     const tokens = await issueTokens(user);
+    await loginAuditService.record({ ...audit, outcome: 'SUCCESS' });
     return { user: toPublicUser(user), company, tokens };
   },
 

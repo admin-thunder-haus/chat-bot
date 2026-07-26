@@ -2,14 +2,20 @@ import type { Server } from 'node:http';
 import { createApp } from './app';
 import { env, isBillingEnabled } from './config/env';
 import { prisma } from './config/prisma';
+import { initSentry } from './config/sentry';
 import { ensureDefaultPlans } from './modules/billing/billing.plans';
 import {
   startChannelRetryScheduler,
   stopChannelRetryScheduler,
 } from './modules/channels/channel-retry.scheduler';
+import { startJobsWorker, stopJobsWorker } from './modules/jobs';
 import { logger } from './utils/logger';
 
 async function bootstrap(): Promise<void> {
+  // Error tracking first, before the app exists, so a failure while wiring
+  // routes is still reported. A no-op (and no SDK load at all) without a DSN.
+  await initSentry();
+
   // Fail fast if the database is unreachable at startup.
   try {
     await prisma.$connect();
@@ -45,9 +51,10 @@ async function bootstrap(): Promise<void> {
     });
   });
 
-  // Started only once the server is listening: the sweeper writes to the same
-  // database as the request path, so it must not compete with startup work.
+  // Started only once the server is listening: both loops write to the same
+  // database as the request path, so they must not compete with startup work.
   startChannelRetryScheduler();
+  startJobsWorker();
 
   setupGracefulShutdown(server);
 }
@@ -57,9 +64,12 @@ function setupGracefulShutdown(server: Server): void {
   const shutdown = (signal: string) => {
     logger.info(`Received ${signal}, shutting down gracefully`);
 
-    // Stop the sweeper before draining so no new delivery attempt starts while
-    // connections close and Prisma disconnects.
+    // Stop the background loops before draining so no new delivery attempt or
+    // job starts while connections close and Prisma disconnects. An in-flight
+    // job is left to finish; if the process dies first the job returns to
+    // QUEUED and is picked up after the restart.
     stopChannelRetryScheduler();
+    stopJobsWorker();
 
     server.close(async () => {
       try {

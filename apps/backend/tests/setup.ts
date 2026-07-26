@@ -55,6 +55,12 @@ export async function resetDatabase(): Promise<void> {
   await prisma.refreshToken.deleteMany();
   await prisma.emailVerificationCode.deleteMany();
   await prisma.passwordResetToken.deleteMany();
+  // Explicit: an UNKNOWN_EMAIL attempt has neither userId nor companyId, so the
+  // cascades from users/companies below would leave those rows behind.
+  await prisma.loginAuditEvent.deleteMany();
+  // Explicit as well: platform-level jobs carry no companyId, and a job left
+  // behind by one suite would be claimed by the next one's first drain.
+  await prisma.job.deleteMany();
   await prisma.user.deleteMany();
   await prisma.company.deleteMany();
 }

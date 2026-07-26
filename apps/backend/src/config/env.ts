@@ -246,6 +246,29 @@ const envSchema = z.object({
   // toggle it without re-importing env.
   CHANNEL_RETRY_SWEEP_ENABLED: z.enum(['true', 'false']).default('true'),
 
+  // --- Background job queue ---
+  // Postgres-backed queue with an in-process worker. Chosen over Redis/BullMQ
+  // because the deployment is a SINGLE instance with no Redis: SELECT ... FOR
+  // UPDATE SKIP LOCKED already gives claim-once semantics, jobs survive the
+  // restarts the free tier does constantly, and it adds no infrastructure cost.
+  // Kill switch is READ LAZILY via isJobsWorkerEnabled().
+  JOBS_WORKER_ENABLED: z.enum(['true', 'false']).default('true'),
+  // How often the worker looks for due work. Seconds, not minutes: an uploaded
+  // PDF and an inbound message both want to be picked up promptly. Minimum 250ms
+  // so a misconfigured value cannot become a database busy-loop.
+  JOBS_POLL_MS: z.coerce.number().int().min(250).default(2000),
+  // Total attempts (first run + retries) before a job is dead-lettered.
+  JOBS_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(20).default(5),
+  // Same backoff shape as the channel delivery engine, so operators have only
+  // one retry curve to reason about.
+  JOBS_BACKOFF_BASE_MS: z.coerce.number().int().min(1).default(2000),
+  JOBS_BACKOFF_FACTOR: z.coerce.number().min(1).max(10).default(3),
+  JOBS_BACKOFF_MAX_MS: z.coerce.number().int().min(1000).default(600000),
+  JOBS_BACKOFF_JITTER: z.coerce.number().min(0).max(1).default(0.2),
+  // Finished (SUCCEEDED/FAILED) jobs are pruned after this many days. DEAD jobs
+  // are deliberately NEVER pruned: they are the record of what was lost.
+  JOBS_RETENTION_DAYS: z.coerce.number().int().min(1).max(365).default(7),
+
   // --- Day 5 Part 3: Web Chat widget ---
   // Secret used to sign stateless widget session tokens (HMAC). Required once a
   // Web Chat channel is actually used; validated lazily by the session service.
@@ -391,6 +414,35 @@ const envSchema = z.object({
   // webhook (verified with STRIPE_WEBHOOK_SECRET when provided) applies them.
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
+
+  // --- Login audit trail ---
+  // How long a recorded sign-in attempt is kept. Long enough that "was that me
+  // last quarter?" is answerable, short enough that the table stays small and a
+  // stale IP/user-agent trail is not a liability we hold forever.
+  LOGIN_AUDIT_RETENTION_DAYS: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(3650)
+    .default(90),
+  // Kill switch for the opportunistic prune that rides along on a login write.
+  // Turn it off only to prune from outside the app (a cron/SQL job).
+  // Validated here; READ LAZILY via isLoginAuditPruneEnabled() so tests can
+  // toggle it without re-importing env.
+  LOGIN_AUDIT_PRUNE_ENABLED: z.enum(['true', 'false']).default('true'),
+
+  // --- Error tracking (Sentry) ---
+  // FULLY OPTIONAL. Without SENTRY_DSN the SDK is never even loaded, let alone
+  // initialised: no network, no instrumentation, no overhead (config/sentry.ts).
+  // Set it per environment in the Render dashboard, never in the repo.
+  SENTRY_DSN: z.string().optional(),
+  // Environment label shown in Sentry. Kept optional instead of defaulted
+  // because a zod default cannot read NODE_ENV from the same object — the
+  // fallback to NODE_ENV lives in config/sentry.ts.
+  SENTRY_ENVIRONMENT: z.string().optional(),
+  // Performance tracing is OFF by default: this integration reports unexpected
+  // server errors from the central error middleware and installs no tracing.
+  SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(0),
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -505,6 +557,30 @@ export function isBillingEnabled(): boolean {
 export function isChannelRetrySweepEnabled(): boolean {
   if (process.env.NODE_ENV === 'test') return false;
   return (process.env.CHANNEL_RETRY_SWEEP_ENABLED ?? 'true') !== 'false';
+}
+
+/**
+ * Whether the in-process background job worker may run. Same reasoning as the
+ * retry sweeper: enabled unless explicitly disabled, and ALWAYS off under tests
+ * so no timer races the per-test database reset. Tests enqueue and then call
+ * jobsService.drainJobs() to run the work deterministically.
+ */
+export function isJobsWorkerEnabled(): boolean {
+  if (process.env.NODE_ENV === 'test') return false;
+  return (process.env.JOBS_WORKER_ENABLED ?? 'true') !== 'false';
+}
+
+/**
+ * Whether a login may opportunistically prune the audit trail. ALWAYS off under
+ * tests for the same reason as the sweepers above: a fire-and-forget delete
+ * would race the per-test database reset. Tests call
+ * pruneLoginAuditEvents() directly instead.
+ * Deliberately a FUNCTION reading process.env at call time (same reason as
+ * isAiActionsEnabled): the frozen `env` snapshot cannot be toggled by tests.
+ */
+export function isLoginAuditPruneEnabled(): boolean {
+  if (process.env.NODE_ENV === 'test') return false;
+  return (process.env.LOGIN_AUDIT_PRUNE_ENABLED ?? 'true') !== 'false';
 }
 
 /**

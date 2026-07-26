@@ -37,6 +37,28 @@ export interface User {
   updatedAt: string;
 }
 
+/** Why a sign-in attempt ended the way it did. Never rendered raw (§8). */
+export type LoginAuditOutcome =
+  | 'SUCCESS'
+  | 'INVALID_PASSWORD'
+  | 'UNKNOWN_EMAIL'
+  | 'ACCOUNT_DISABLED'
+  | 'EMAIL_NOT_VERIFIED'
+  | 'COMPANY_SUSPENDED';
+
+/**
+ * One entry of the signed-in user's OWN sign-in history. The attempted email is
+ * deliberately absent: the caller is the only subject, so there is nothing to
+ * disambiguate and nothing about another account to leak.
+ */
+export interface LoginHistoryEntry {
+  id: string;
+  outcome: LoginAuditOutcome;
+  ipAddress: string | null;
+  userAgent: string | null;
+  createdAt: string;
+}
+
 export interface Company {
   id: string;
   name: string;

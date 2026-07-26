@@ -9,6 +9,8 @@ import {
 } from '../../utils/cookies';
 import type { AuthResult } from './auth.types';
 import { platformFeatures } from '../../config/env';
+import { loginAuditService } from './login-audit.service';
+import type { LoginAuditContext } from './login-audit.service';
 
 /**
  * Build the client-facing auth payload. The refresh token is delivered via an
@@ -26,6 +28,20 @@ function authPayload(result: AuthResult) {
     accessToken: result.tokens.accessToken,
     refreshToken: result.tokens.refreshToken,
     features: platformFeatures(),
+  };
+}
+
+/**
+ * Collect the two transport facts the audit trail needs. `req.ip` is used
+ * rather than parsing X-Forwarded-For by hand because app.ts sets
+ * `trust proxy`, which already resolves it to the real client IP behind
+ * Render's proxy — a hand-rolled header parse would be a spoofable duplicate.
+ */
+function loginAuditContext(req: Request): LoginAuditContext {
+  const userAgent = req.get('user-agent');
+  return {
+    ipAddress: req.ip ?? null,
+    userAgent: userAgent && userAgent.length > 0 ? userAgent : null,
   };
 }
 
@@ -120,7 +136,7 @@ export const authController = {
   },
 
   async login(req: Request, res: Response): Promise<void> {
-    const result = await authService.login(req.body);
+    const result = await authService.login(req.body, loginAuditContext(req));
     setRefreshCookie(res, result.tokens.refreshToken);
     sendSuccess(res, authPayload(result), 'Logged in successfully');
   },
@@ -151,5 +167,16 @@ export const authController = {
       { ...result, features: platformFeatures() },
       'Current user fetched successfully',
     );
+  },
+
+  /**
+   * The caller's own recent sign-in attempts. Identity comes exclusively from
+   * req.user (set from the verified access token), so there is no id in the
+   * path or query a caller could swap for someone else's.
+   */
+  async loginHistory(req: Request, res: Response): Promise<void> {
+    const { id, companyId } = req.user!;
+    const result = await loginAuditService.listForUser(companyId, id);
+    sendSuccess(res, result, 'Sign-in history fetched successfully');
   },
 };

@@ -17,10 +17,15 @@ import type {
   ChannelProvider,
   NormalizedChannelEvent,
   NormalizedDeliveryStatusEvent,
+  NormalizedIncomingMedia,
   NormalizedIncomingMessageEvent,
   NormalizedReadReceiptEvent,
   ProviderCredentials,
 } from '../providers/channel-provider.interface';
+// Imported from the service, not the module index: the index pulls the handler
+// registry, which imports this file back.
+import { jobsService } from '../../jobs/jobs.service';
+import { PermanentJobError } from '../../jobs/jobs.types';
 import { isUuid } from './webhook.validation';
 import type {
   WebhookProcessingResult,
@@ -435,25 +440,82 @@ export const webhookService = {
     }
     result.processed += 1;
 
-    // Voice notes: download + store the audio and transcribe it BEFORE any
-    // auto-reply, only for freshly-created messages (replays returned above).
-    let transcript: string | null = null;
+    // Everything past this point is BACKGROUND work. The webhook returns as
+    // soon as the message is durably stored: a media download and a Whisper
+    // call on the request path is exactly the latency that makes Meta mark an
+    // endpoint as failing, and a burst of inbound messages would otherwise
+    // queue behind each other's OpenAI calls.
     if (isAudio && event.media) {
-      transcript = await this.processInboundAudio({
-        companyId,
+      // The audio job transcribes AND then enqueues the auto-reply itself, so
+      // the AI only ever sees a message whose transcript is already stored.
+      await jobsService.enqueueSafely('channel.inbound-audio', companyId, {
         messageId: ingest.messageId,
-        event,
-        provider,
-        credentials,
+        channelAccountId: account.id,
+        providerKey: account.providerKey,
+        externalMessageId: normalized.externalMessageId,
+        media: event.media,
         publicBaseUrl,
       });
+      return;
     }
 
-    // Optional AI auto-reply AFTER the inbound commit (never throws). Voice
-    // messages only qualify once a non-empty transcript exists — the AI then
-    // answers the transcription like any text question.
-    if (!isAudio || (transcript && transcript.trim() !== '')) {
-      await channelPipelineService.maybeAutoReply(companyId, ingest.messageId);
+    await jobsService.enqueueSafely('ai.auto-reply', companyId, {
+      messageId: ingest.messageId,
+    });
+  },
+
+  /**
+   * Queue entry point for an inbound voice note. Re-resolves the provider and
+   * its credentials from ids — a job row must never carry credentials, and by
+   * the time it runs the account may have been reconnected with new ones.
+   *
+   * Then enqueues the auto-reply, but ONLY when a transcript exists: without
+   * one the AI has nothing to answer, exactly as the inline version required.
+   */
+  async processInboundAudioJob(params: {
+    companyId: string;
+    messageId: string;
+    channelAccountId: string;
+    providerKey: string;
+    externalMessageId: string;
+    media: NormalizedIncomingMedia;
+    publicBaseUrl: string;
+  }): Promise<void> {
+    const provider = channelRegistry.tryGet(params.providerKey);
+    if (!provider) {
+      throw new PermanentJobError(
+        `Provider "${params.providerKey}" is no longer registered`,
+      );
+    }
+    const account = await channelsRepository.findForWebhook(
+      params.channelAccountId,
+      params.providerKey,
+    );
+    if (!account || account.companyId !== params.companyId) {
+      // Disconnected or deleted between webhook and job: the AUDIO message is
+      // already stored, and no retry can bring the account back.
+      throw new PermanentJobError(
+        'The channel account no longer exists for this company',
+      );
+    }
+    const credentials = provider.requiresCredentials
+      ? await channelCredentialsService.load(account.companyId, account.id)
+      : null;
+
+    const transcript = await this.processInboundAudio({
+      companyId: params.companyId,
+      messageId: params.messageId,
+      media: params.media,
+      externalMessageId: params.externalMessageId,
+      provider,
+      credentials,
+      publicBaseUrl: params.publicBaseUrl,
+    });
+
+    if (transcript && transcript.trim() !== '') {
+      await jobsService.enqueueSafely('ai.auto-reply', params.companyId, {
+        messageId: params.messageId,
+      });
     }
   },
 
@@ -467,24 +529,26 @@ export const webhookService = {
   async processInboundAudio(params: {
     companyId: string;
     messageId: string;
-    event: NormalizedIncomingMessageEvent;
+    /** Provider pointer to the audio (CDN url or provider media id). */
+    media: NormalizedIncomingMedia;
+    externalMessageId: string;
     provider: ChannelProvider;
     credentials: ProviderCredentials | null;
     publicBaseUrl: string;
   }): Promise<string | null> {
-    const { companyId, messageId, event, provider, credentials } = params;
+    const { companyId, messageId, media, provider, credentials } = params;
     try {
-      if (typeof provider.fetchInboundMedia !== 'function' || !event.media) {
+      if (typeof provider.fetchInboundMedia !== 'function') {
         return null;
       }
       const fetched = await provider.fetchInboundMedia({
-        media: event.media,
+        media,
         credentials,
       });
       if (!fetched) return null;
 
       // Store the audio bytes and expose them on the public media URL.
-      const fileName = `voice-${event.externalMessageId}`;
+      const fileName = `voice-${params.externalMessageId}`;
       const stored = await imagesRepository.create({
         companyId,
         fileName,

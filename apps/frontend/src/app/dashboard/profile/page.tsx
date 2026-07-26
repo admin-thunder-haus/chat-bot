@@ -18,6 +18,7 @@ import {
   Skeleton,
   Textarea,
 } from '@/components/ui';
+import { LoginHistorySection } from './LoginHistorySection';
 
 type FormState = {
   name: string;
@@ -298,6 +299,13 @@ export default function ProfilePage() {
             )}
           </form>
         )}
+
+        {/*
+          Rendered unconditionally, outside the company form: this is about the
+          signed-in user's own account, so it must still appear when the company
+          profile fails to load — and every role can read their own history.
+        */}
+        <LoginHistorySection />
       </div>
     </div>
   );

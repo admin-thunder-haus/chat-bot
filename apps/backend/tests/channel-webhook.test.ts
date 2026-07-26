@@ -1,5 +1,6 @@
 import { createApp } from '../src/app';
 import { setupTenant, type Tenant } from './helpers';
+import { drainJobs } from './jobs-helpers';
 import { prisma } from './setup';
 import {
   createFakeChannel,
@@ -161,6 +162,8 @@ describe('Webhook engine — incoming message pipeline', () => {
     const body = fakeInboundBody({ messageId: 'dup', eventId: 'evt-dup' });
     await postWebhook(app, id, body);
     await postWebhook(app, id, body);
+    // The auto-reply is a background job; a duplicate enqueues no second one.
+    await drainJobs();
     // 1 inbound + 1 AI reply, no duplicates.
     const count = await prisma.message.count({ where: { companyId: acme.company.id } });
     expect(count).toBe(2);

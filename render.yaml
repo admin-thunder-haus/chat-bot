@@ -45,6 +45,10 @@ services:
         sync: false
       - key: WIDGET_SESSION_SECRET
         sync: false
+      # Error tracking. OPTIONAL: leave it unset and the SDK is never loaded —
+      # the app behaves exactly as it does today, just without reporting.
+      - key: SENTRY_DSN
+        sync: false
       # --- non-secret app config ---
       - key: AI_FEATURE_ENABLED
         value: "true"
@@ -70,3 +74,15 @@ services:
       # Billing page. Flip this ONE value to "true" to start selling plans.
       - key: BILLING_ENABLED
         value: "false"
+      # Login audit trail retention. Pruning rides along on login writes (no
+      # extra timer), which matters on an instance that sleeps and restarts.
+      - key: LOGIN_AUDIT_RETENTION_DAYS
+        value: "90"
+      - key: LOGIN_AUDIT_PRUNE_ENABLED
+        value: "true"
+      # Sentry environment label (defaults to NODE_ENV when unset). Tracing is
+      # deliberately 0: errors are reported, requests are never wrapped.
+      - key: SENTRY_ENVIRONMENT
+        value: production
+      - key: SENTRY_TRACES_SAMPLE_RATE
+        value: "0"

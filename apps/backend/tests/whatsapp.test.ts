@@ -1,6 +1,7 @@
 import request from 'supertest';
 import { createApp } from '../src/app';
 import { setupTenant, authHeader, type Tenant } from './helpers';
+import { drainJobs } from './jobs-helpers';
 import { prisma } from './setup';
 import { setAIProviderForTesting } from '../src/modules/ai';
 import { makeFakeProvider } from './ai-helpers';
@@ -165,6 +166,8 @@ describe('WhatsApp — incoming pipeline (shared, no special cases)', () => {
     });
     const id = await connectedAccountId(acme);
     await waWebhook(app, id, metaTextPayload({ wamid: 'wamid.AI', from: '15551230005', text: 'What are your hours?' }));
+    // The auto-reply is a background job — the webhook must not wait on OpenAI.
+    await drainJobs();
     const conv = await prisma.conversation.findFirst({ where: { companyId: acme.company.id, channelType: 'WHATSAPP' } });
     const ai = await prisma.message.findFirst({ where: { conversationId: conv!.id, senderType: 'AI' } });
     expect(ai?.content).toBe('WhatsApp AI reply.');

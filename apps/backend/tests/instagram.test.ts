@@ -1,6 +1,7 @@
 import request from 'supertest';
 import { createApp } from '../src/app';
 import { setupTenant, authHeader, type Tenant } from './helpers';
+import { drainJobs } from './jobs-helpers';
 import { prisma } from './setup';
 import { setAIProviderForTesting } from '../src/modules/ai';
 import { makeFakeProvider } from './ai-helpers';
@@ -189,6 +190,8 @@ describe('Instagram — incoming pipeline (shared, no special cases)', () => {
     await igWebhook(app, id, body);
     const second = await igWebhook(app, id, body);
     expect(second.body.data.duplicates).toBe(1);
+    // A duplicate enqueues no second auto-reply job.
+    await drainJobs();
     expect(await prisma.message.count({ where: { companyId: acme.company.id, senderType: 'CUSTOMER' } })).toBe(1);
     expect(await prisma.message.count({ where: { companyId: acme.company.id, senderType: 'AI' } })).toBe(1);
   });
@@ -209,6 +212,8 @@ describe('Instagram — incoming pipeline (shared, no special cases)', () => {
     });
     const id = await connectedAccountId(acme);
     await igWebhook(app, id, igTextPayload({ mid: 'ig.AI', text: 'What are your hours?' }));
+    // The auto-reply is a background job — the webhook must not wait on OpenAI.
+    await drainJobs();
     const conv = await prisma.conversation.findFirst({ where: { companyId: acme.company.id, channelType: 'INSTAGRAM' } });
     const ai = await prisma.message.findFirst({ where: { conversationId: conv!.id, senderType: 'AI' } });
     expect(ai?.content).toBe('Instagram AI reply.');

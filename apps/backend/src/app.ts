@@ -19,6 +19,10 @@ import { webhookRoutes } from './modules/channels';
 import { widgetRoutes } from './modules/widget';
 import { publicApiRoutes } from './modules/public-api/public-api.public.routes';
 import { sendSuccess } from './utils/apiResponse';
+// Side-effect import: registers every background job handler. Done here rather
+// than in server.ts so the registry is populated in tests too — they build the
+// app and then drain the queue explicitly.
+import './modules/jobs';
 
 /** Build and configure the Express application (no network binding here). */
 export function createApp(): Application {

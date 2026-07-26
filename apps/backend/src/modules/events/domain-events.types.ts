@@ -13,6 +13,12 @@ export const DOMAIN_EVENT_TYPES = [
   'ai.reply_failed',
   'subscription.updated',
   'action.executed',
+  // --- Operational alerts: things the owner must act on, not business news ---
+  // A channel stopped working (unreachable, or its sign-in expired), so
+  // messages are no longer flowing until someone reconnects it.
+  'channel.unavailable',
+  // An outbound webhook endpoint was switched off after a long failure streak.
+  'webhook.auto_disabled',
 ] as const;
 
 export type DomainEventType = (typeof DOMAIN_EVENT_TYPES)[number];

@@ -315,6 +315,8 @@ model Company {
   channelDeliveryAttempts ChannelDeliveryAttempt[]
   channelHealthChecks     ChannelHealthCheck[]
   channelActivities       ChannelActivity[]
+  loginAuditEvents        LoginAuditEvent[]
+  jobs                    Job[]
 
   @@map("companies")
 }
@@ -338,6 +340,7 @@ model User {
   refreshTokens          RefreshToken[]
   emailVerificationCodes EmailVerificationCode[]
   passwordResetTokens    PasswordResetToken[]
+  loginAuditEvents       LoginAuditEvent[]
 
   assignedConversations Conversation[]         @relation("AssignedConversations")
   sentMessages          Message[]              @relation("SentMessages")
@@ -398,6 +401,46 @@ model PasswordResetToken {
 
   @@index([userId, createdAt])
   @@map("password_reset_tokens")
+}
+
+// One row per login *attempt*, successful or not. Exists as a customer-facing
+// trust signal ("here is every sign-in on your account") and as the only record
+// that survives a failed attempt — nothing else in the system remembers that
+// someone tried a wrong password.
+enum LoginAuditOutcome {
+  SUCCESS
+  INVALID_PASSWORD
+  UNKNOWN_EMAIL
+  ACCOUNT_DISABLED
+  EMAIL_NOT_VERIFIED
+  COMPANY_SUSPENDED
+}
+
+// Unlike every other tenant-scoped model, companyId AND userId are NULLABLE: an
+// attempt on an email that matches no account has neither, and that attempt is
+// exactly the one worth keeping. `email` is therefore the only identifier always
+// present, and it is stored lowercased (the login schema normalizes it) so a
+// case-variant probe cannot hide in the trail.
+model LoginAuditEvent {
+  id        String            @id @default(uuid()) @db.Uuid
+  companyId String?           @db.Uuid
+  userId    String?           @db.Uuid
+  email     String
+  outcome   LoginAuditOutcome
+  ipAddress String?
+  // Truncated to LOGIN_AUDIT_USER_AGENT_MAX_LENGTH before insert — a client
+  // controls this header, and an unbounded one would be a free write amplifier.
+  userAgent String?
+  createdAt DateTime          @default(now())
+
+  company Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user    User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // The two ways this table is ever read: one user's own history, and (future)
+  // a company-wide trail. Both are "newest first", hence the composite indexes.
+  @@index([userId, createdAt])
+  @@index([companyId, createdAt])
+  @@map("login_audit_events")
 }
 
 // ---------------------------------------------------------------------------
@@ -858,6 +901,63 @@ model KnowledgeDocument {
 }
 
 // Retrieval unit: a contiguous slice of a document's extracted text.
+// ---------------------------------------------------------------------------
+// Background job queue
+// ---------------------------------------------------------------------------
+
+enum JobStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  // Exhausted every attempt. Kept (never deleted on failure) so the operator
+  // can see WHAT was lost and why instead of guessing.
+  DEAD
+}
+
+/**
+ * Durable background work. Postgres-backed on purpose: the deployment is a
+ * single instance with no Redis, `FOR UPDATE SKIP LOCKED` gives correct
+ * claim-once semantics, and a job survives the restarts the free tier does
+ * constantly. The transport is hidden behind modules/jobs, so swapping in
+ * Redis/BullMQ later touches the repository and worker only.
+ */
+model Job {
+  id      String @id @default(uuid()) @db.Uuid
+  // Nullable only for platform-level work. Every tenant job carries it, and
+  // handlers receive it explicitly so one can never read another tenant.
+  // A REAL relation, not a loose id: deleting a company must take its pending
+  // jobs with it, otherwise a tenant deletion leaves work that would run
+  // against rows that no longer exist.
+  companyId String?  @db.Uuid
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  // Handler key, e.g. "knowledge-document.extract". A string rather than an
+  // enum so adding a job type needs no migration.
+  type      String
+  payload   Json
+  status    JobStatus @default(QUEUED)
+  attempts  Int       @default(0)
+  maxAttempts Int     @default(5)
+  /// When the job becomes eligible to run — also the retry backoff clock.
+  runAt      DateTime  @default(now())
+  startedAt  DateTime?
+  finishedAt DateTime?
+  /// Truncated failure message from the most recent attempt.
+  lastError  String?
+  /**
+   * Optional idempotency key. NULLs are distinct in Postgres, so jobs without
+   * one are never deduplicated, while a key makes a repeat enqueue a no-op.
+   */
+  dedupeKey String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([type, dedupeKey])
+  @@index([status, runAt])
+  @@index([companyId, type])
+  @@map("jobs")
+}
+
 model KnowledgeDocumentChunk {
   id         String   @id @default(uuid()) @db.Uuid
   companyId  String   @db.Uuid

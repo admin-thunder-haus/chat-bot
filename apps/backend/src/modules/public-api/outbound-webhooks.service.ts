@@ -4,6 +4,11 @@ import { isTest } from '../../config/env';
 import { AppError } from '../../utils/AppError';
 import { logger } from '../../utils/logger';
 import { channelSecurityService } from '../channels/channel-security.service';
+// Deliberate import cycle: the events module dispatches THROUGH this service,
+// and this service reports its own auto-disable back through the same seam.
+// Safe because both directions are used at call time only — never while either
+// module is still initialising.
+import { emitDomainEvent } from '../events/domain-events.service';
 import { publicApiRepository } from './public-api.repository';
 import {
   serializeDelivery,
@@ -72,6 +77,33 @@ function delay(ms: number): Promise<void> {
 
 function generateSigningSecret(): string {
   return `whsec_${randomBytes(24).toString('hex')}`;
+}
+
+/**
+ * Tell the owner an endpoint was switched off. Without this the platform stops
+ * delivering events silently and the integration looks "fine but empty" until
+ * someone opens the deliveries log.
+ *
+ * Cannot loop: the endpoint is inactive by the time this runs, so it is not a
+ * recipient of its own alert, and a webhook can only cross the threshold once
+ * (re-enabling resets the streak).
+ */
+async function emitWebhookAutoDisabledAlert(
+  webhook: OutboundWebhook,
+): Promise<void> {
+  await emitDomainEvent({
+    companyId: webhook.companyId,
+    type: 'webhook.auto_disabled',
+    title: 'Webhook turned off after repeated failures',
+    body: `Deliveries to ${webhook.url} failed ${AUTO_DISABLE_AFTER_FAILURES} times in a row, so the endpoint was turned off and no events are being sent to it. Fix the endpoint, then switch it back on under Setup → Integrations.`,
+    data: {
+      webhookId: webhook.id,
+      url: webhook.url,
+      failureCount: webhook.failureCount,
+      disabledAfterFailures: AUTO_DISABLE_AFTER_FAILURES,
+    },
+    notify: { type: 'SYSTEM_ALERT', emailRoles: ['OWNER'] },
+  });
 }
 
 /** HMAC-SHA256 signature over the raw request body. */
@@ -268,6 +300,23 @@ export const outboundWebhooksService = {
           webhook.id,
           AUTO_DISABLE_AFTER_FAILURES,
         );
+        // The repository owns the auto-disable, so the only way to catch the
+        // EDGE is to re-read the row — and we only pay for that read on the one
+        // failure that can possibly cross the threshold (`webhook` is the
+        // pre-increment snapshot). Alerting on the edge instead of on
+        // "isActive === false" keeps it to a single notification.
+        if (
+          webhook.isActive &&
+          webhook.failureCount + 1 >= AUTO_DISABLE_AFTER_FAILURES
+        ) {
+          const fresh = await publicApiRepository.findWebhookScoped(
+            webhook.companyId,
+            webhook.id,
+          );
+          if (fresh && !fresh.isActive) {
+            await emitWebhookAutoDisabledAlert(fresh);
+          }
+        }
       }
     } catch (err) {
       logger.warn('outboundWebhooks.recordOutcome.failed', {

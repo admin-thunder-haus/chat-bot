@@ -196,6 +196,29 @@ export const api = {
     });
   },
 
+  /**
+   * Request a password reset link. Deliberately resolves the same way for an
+   * unknown email — the backend never reveals which addresses are registered,
+   * so the UI must not branch on the outcome either.
+   */
+  forgotPassword(input: { email: string }): Promise<null> {
+    return request<null>('/auth/forgot-password', {
+      method: 'POST',
+      body: input,
+    });
+  },
+
+  resetPassword(input: {
+    token: string;
+    password: string;
+    confirmPassword: string;
+  }): Promise<null> {
+    return request<null>('/auth/reset-password', {
+      method: 'POST',
+      body: input,
+    });
+  },
+
   login(input: { email: string; password: string }): Promise<AuthData> {
     return request<AuthData>('/auth/login', { method: 'POST', body: input });
   },

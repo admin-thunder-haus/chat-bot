@@ -55,6 +55,31 @@ export const resendVerificationSchema = z.object({
   email: emailSchema,
 });
 
+/** POST /auth/forgot-password — request a reset link. */
+export const forgotPasswordSchema = z.object({
+  email: emailSchema,
+});
+
+/**
+ * POST /auth/reset-password — consume the emailed token and set a new
+ * password. The token is opaque to the client; only its length is bounded so a
+ * megabyte of junk never reaches the hash.
+ */
+export const resetPasswordSchema = z
+  .object({
+    token: z
+      .string()
+      .trim()
+      .min(20, 'This password reset link is invalid')
+      .max(200, 'This password reset link is invalid'),
+    password: passwordSchema,
+    confirmPassword: z.string().min(1, 'Please confirm your password'),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    path: ['confirmPassword'],
+    message: 'Passwords do not match',
+  });
+
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type RefreshInput = z.infer<typeof refreshSchema>;
@@ -62,3 +87,5 @@ export type VerifyEmailInput = z.infer<typeof verifyEmailSchema>;
 export type ResendVerificationInput = z.infer<
   typeof resendVerificationSchema
 >;
+export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
+export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;

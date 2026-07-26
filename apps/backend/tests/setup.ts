@@ -54,6 +54,7 @@ import { prisma } from '../src/config/prisma';
 export async function resetDatabase(): Promise<void> {
   await prisma.refreshToken.deleteMany();
   await prisma.emailVerificationCode.deleteMany();
+  await prisma.passwordResetToken.deleteMany();
   await prisma.user.deleteMany();
   await prisma.company.deleteMany();
 }

@@ -2,9 +2,11 @@ import crypto from 'node:crypto';
 import type { Company, User } from '@prisma/client';
 import { authRepository } from './auth.repository';
 import type {
+  ForgotPasswordInput,
   LoginInput,
   RegisterInput,
   ResendVerificationInput,
+  ResetPasswordInput,
   VerifyEmailInput,
 } from './auth.validation';
 import type {
@@ -97,6 +99,28 @@ async function issueVerificationCode(user: User): Promise<void> {
     to: user.email,
     fullName: user.fullName,
     code,
+  });
+}
+
+/**
+ * Mint a password reset token, store only its hash, and email the link. The
+ * raw token exists exactly twice: in this function and in the user's inbox.
+ */
+async function issuePasswordResetToken(user: User): Promise<void> {
+  // 32 random bytes, base64url — URL-safe and far beyond guessing range.
+  const token = crypto.randomBytes(32).toString('base64url');
+
+  await authRepository.replacePasswordResetToken({
+    userId: user.id,
+    tokenHash: hashToken(token),
+    expiresAt: new Date(Date.now() + env.PASSWORD_RESET_TOKEN_TTL_MS),
+  });
+
+  const resetUrl = `${env.FRONTEND_APP_URL.replace(/\/$/, '')}/reset-password?token=${encodeURIComponent(token)}`;
+  await mailer.sendPasswordResetEmail({
+    to: user.email,
+    fullName: user.fullName,
+    resetUrl,
   });
 }
 
@@ -222,6 +246,60 @@ export const authService = {
     }
 
     await issueVerificationCode(user);
+  },
+
+  /**
+   * Start a password reset. Always resolves — the caller returns one fixed
+   * message whether or not the email exists, so this endpoint cannot be used
+   * to enumerate accounts. A cooldown prevents mail flooding.
+   */
+  async requestPasswordReset(input: ForgotPasswordInput): Promise<void> {
+    const user = await authRepository.findUserByEmail(input.email);
+    // Disabled accounts get no reset link: a password would not let them in.
+    if (!user || user.status !== 'ACTIVE') return;
+
+    const latest = await authRepository.findLatestPasswordResetToken(user.id);
+    if (
+      latest &&
+      Date.now() - latest.createdAt.getTime() <
+        env.PASSWORD_RESET_REQUEST_COOLDOWN_MS
+    ) {
+      // Within the cooldown window: silently skip. The outstanding link is
+      // still valid, so the user is not stuck.
+      return;
+    }
+
+    await issuePasswordResetToken(user);
+  },
+
+  /**
+   * Consume a reset token and set the new password. Every failure mode returns
+   * the SAME error: an attacker probing tokens learns nothing about which of
+   * them exist, are expired, or were already used.
+   */
+  async resetPassword(input: ResetPasswordInput): Promise<void> {
+    const invalid = AppError.badRequest(
+      'This password reset link is invalid or has expired. Please request a new one.',
+      [],
+      'RESET_TOKEN_INVALID',
+    );
+
+    const stored = await authRepository.findPasswordResetTokenByHash(
+      hashToken(input.token),
+    );
+    if (!stored) throw invalid;
+    if (stored.consumedAt) throw invalid;
+    if (stored.expiresAt.getTime() < Date.now()) throw invalid;
+    if (stored.user.status !== 'ACTIVE') throw invalid;
+
+    const passwordHash = await hashPassword(input.password);
+    await authRepository.applyPasswordReset({
+      tokenId: stored.id,
+      userId: stored.userId,
+      passwordHash,
+      // Clicking a link sent to the address proves ownership of it.
+      ...(stored.user.emailVerifiedAt ? {} : { emailVerifiedAt: new Date() }),
+    });
   },
 
   /** Authenticate with email + password. */

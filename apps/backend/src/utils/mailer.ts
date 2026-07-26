@@ -91,6 +91,40 @@ export const mailer = {
 
     await mailer.sendEmail({ to: input.to, subject, text, html });
   },
+
+  /**
+   * Send a password reset link. The URL contains the ONLY copy of the raw
+   * token (the database holds just its hash), so if this email is not
+   * delivered the request is simply lost and the user asks again.
+   */
+  async sendPasswordResetEmail(input: {
+    to: string;
+    fullName: string;
+    resetUrl: string;
+  }): Promise<void> {
+    const ttlMinutes = Math.round(env.PASSWORD_RESET_TOKEN_TTL_MS / 60000);
+    const subject = 'Reset your password';
+    const text = [
+      `Hi ${input.fullName},`,
+      '',
+      'Use the link below to choose a new password:',
+      input.resetUrl,
+      '',
+      `The link expires in ${ttlMinutes} minutes and can be used once.`,
+      'If you did not request a password reset, you can safely ignore this',
+      'email — your current password still works.',
+    ].join('\n');
+    const url = escapeHtml(input.resetUrl);
+    const html = [
+      `<p>Hi ${escapeHtml(input.fullName)},</p>`,
+      '<p>Use the link below to choose a new password:</p>',
+      `<p><a href="${url}" style="font-weight:bold">Reset my password</a></p>`,
+      `<p style="word-break:break-all;color:#64748b;font-size:12px">${url}</p>`,
+      `<p>The link expires in ${ttlMinutes} minutes and can be used once. If you did not request a password reset, you can safely ignore this email — your current password still works.</p>`,
+    ].join('\n');
+
+    await mailer.sendEmail({ to: input.to, subject, text, html });
+  },
 };
 
 function escapeHtml(value: string): string {

@@ -1,6 +1,7 @@
 import type {
   Company,
   EmailVerificationCode,
+  PasswordResetToken,
   Prisma,
   RefreshToken,
   User,
@@ -154,6 +155,83 @@ export const authRepository = {
       prisma.user.update({
         where: { id: input.userId },
         data: { emailVerifiedAt: new Date() },
+      }),
+    ]);
+    return user;
+  },
+
+  // --- Password reset tokens ---
+
+  /**
+   * Issue a reset token, dropping any outstanding one first so a user always
+   * has exactly one live link — requesting a new email silently kills the old.
+   */
+  async replacePasswordResetToken(input: {
+    userId: string;
+    tokenHash: string;
+    expiresAt: Date;
+  }): Promise<PasswordResetToken> {
+    return prisma.$transaction(async (tx) => {
+      await tx.passwordResetToken.deleteMany({
+        where: { userId: input.userId, consumedAt: null },
+      });
+      return tx.passwordResetToken.create({ data: input });
+    });
+  },
+
+  findPasswordResetTokenByHash(
+    tokenHash: string,
+  ): Promise<(PasswordResetToken & { user: User }) | null> {
+    return prisma.passwordResetToken.findUnique({
+      where: { tokenHash },
+      include: { user: true },
+    });
+  },
+
+  /** Most recent token regardless of state — used for the resend cooldown. */
+  findLatestPasswordResetToken(
+    userId: string,
+  ): Promise<PasswordResetToken | null> {
+    return prisma.passwordResetToken.findFirst({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+    });
+  },
+
+  /**
+   * Apply a completed reset atomically: set the new password, burn the token,
+   * drop every other outstanding token, and revoke ALL refresh tokens so any
+   * session opened by whoever knew the old password is terminated. If the
+   * account was never email-verified, clicking a link sent to that address
+   * proves ownership — mark it verified rather than leaving the user unable to
+   * log in with the password they just set.
+   */
+  async applyPasswordReset(input: {
+    tokenId: string;
+    userId: string;
+    passwordHash: string;
+    /** Set only when the account was still unverified (otherwise omitted). */
+    emailVerifiedAt?: Date;
+  }): Promise<User> {
+    const now = new Date();
+    const [, , , user] = await prisma.$transaction([
+      prisma.passwordResetToken.update({
+        where: { id: input.tokenId },
+        data: { consumedAt: now },
+      }),
+      prisma.passwordResetToken.deleteMany({
+        where: { userId: input.userId, consumedAt: null },
+      }),
+      prisma.refreshToken.updateMany({
+        where: { userId: input.userId, revokedAt: null },
+        data: { revokedAt: now },
+      }),
+      prisma.user.update({
+        where: { id: input.userId },
+        data: {
+          passwordHash: input.passwordHash,
+          emailVerifiedAt: input.emailVerifiedAt ?? undefined,
+        },
       }),
     ]);
     return user;

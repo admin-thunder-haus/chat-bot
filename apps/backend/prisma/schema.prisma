@@ -337,6 +337,7 @@ model User {
   company                Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
   refreshTokens          RefreshToken[]
   emailVerificationCodes EmailVerificationCode[]
+  passwordResetTokens    PasswordResetToken[]
 
   assignedConversations Conversation[]         @relation("AssignedConversations")
   sentMessages          Message[]              @relation("SentMessages")
@@ -378,6 +379,25 @@ model EmailVerificationCode {
 
   @@index([userId, createdAt])
   @@map("email_verification_codes")
+}
+
+// Password reset links. Same shape as EmailVerificationCode, with one
+// deliberate difference: the secret is a 256-bit random token in the URL rather
+// than a 6-digit code, so there is nothing to brute-force and no attempt
+// counter is needed. Only the SHA-256 hash is stored — a database leak cannot
+// be replayed into account takeover. Single-use (consumedAt) and TTL'd.
+model PasswordResetToken {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @db.Uuid
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("password_reset_tokens")
 }
 
 // ---------------------------------------------------------------------------

@@ -94,6 +94,31 @@ export const authController = {
     );
   },
 
+  /**
+   * Request a password reset. The response is IDENTICAL whether or not the
+   * email is registered — anything else turns this endpoint into an account
+   * enumeration oracle.
+   */
+  async forgotPassword(req: Request, res: Response): Promise<void> {
+    await authService.requestPasswordReset(req.body);
+    sendSuccess(
+      res,
+      null,
+      'If an account with this email exists, a password reset link has been sent.',
+    );
+  },
+
+  async resetPassword(req: Request, res: Response): Promise<void> {
+    await authService.resetPassword(req.body);
+    // No tokens are issued here on purpose: the user re-authenticates with the
+    // new password, which also confirms it was stored as they expect.
+    sendSuccess(
+      res,
+      null,
+      'Your password has been reset. Please sign in with your new password.',
+    );
+  },
+
   async login(req: Request, res: Response): Promise<void> {
     const result = await authService.login(req.body);
     setRefreshCookie(res, result.tokens.refreshToken);

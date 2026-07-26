@@ -95,6 +95,21 @@ const envSchema = z.object({
     .max(20)
     .default(5),
 
+  // --- Public legal pages (/privacy, /terms) ---
+  // ALL optional and ALL business-specific: they are the blanks in the legal
+  // TEMPLATE. Until each is set, the corresponding page renders a highlighted
+  // "[ FILL IN: … ]" placeholder plus a banner — a policy that names no legal
+  // entity must LOOK unfinished rather than quietly ship. Not legal advice; see
+  // docs/LAUNCH-CHECKLIST.md.
+  LEGAL_ENTITY_NAME: z.string().optional(),
+  LEGAL_ENTITY_ADDRESS: z.string().optional(),
+  LEGAL_CONTACT_EMAIL: z.string().optional(),
+  /** e.g. "30 days" — how long data survives an account closure. */
+  LEGAL_DATA_RETENTION: z.string().optional(),
+  /** e.g. "Jordan" — the law governing the terms. */
+  LEGAL_JURISDICTION: z.string().optional(),
+  LEGAL_LAST_UPDATED: z.string().default('July 2026'),
+
   // --- Password reset ---
   // The reset link carries a 256-bit random token, so the TTL is the only
   // brute-force control needed. One hour is long enough to survive a slow
@@ -415,6 +430,27 @@ const envSchema = z.object({
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
 
+  // --- File storage (images, voice notes, knowledge PDFs) ---
+  // ALL OPTIONAL. With any of these unset the platform stores uploaded bytes
+  // INSIDE POSTGRES exactly as it always has (see modules/storage) — that is the
+  // default on every dev machine and in the whole test suite, and it must stay
+  // that way. Setting all of them switches new writes to an S3-compatible
+  // bucket (Cloudflare R2 or AWS S3) without any feature code changing.
+  // Validated here for shape only; READ LAZILY via s3StorageConfig() so tests
+  // can toggle storage modes without re-importing env.
+  S3_ENDPOINT: z.string().url().optional(),
+  S3_BUCKET: z.string().optional(),
+  S3_ACCESS_KEY_ID: z.string().optional(),
+  S3_SECRET_ACCESS_KEY: z.string().optional(),
+  // Base URL the stored objects are readable at (R2 public bucket domain, a
+  // custom CDN domain, or the bucket's website endpoint). Kept separate from
+  // S3_ENDPOINT because the signing endpoint is almost never the public one.
+  S3_PUBLIC_BASE_URL: z.string().url().optional(),
+  // SigV4 region. Cloudflare R2 REQUIRES the literal 'auto'; AWS S3 needs the
+  // bucket's real region (e.g. eu-central-1), so this default suits R2 and must
+  // be set explicitly for AWS.
+  S3_REGION: z.string().default('auto'),
+
   // --- Login audit trail ---
   // How long a recorded sign-in attempt is kept. Long enough that "was that me
   // last quarter?" is answerable, short enough that the table stays small and a
@@ -568,6 +604,52 @@ export function isChannelRetrySweepEnabled(): boolean {
 export function isJobsWorkerEnabled(): boolean {
   if (process.env.NODE_ENV === 'test') return false;
   return (process.env.JOBS_WORKER_ENABLED ?? 'true') !== 'false';
+}
+
+/**
+ * Fully-resolved S3-compatible storage configuration, or null when object
+ * storage is not configured (the DEFAULT — uploaded bytes then live in Postgres).
+ *
+ * All five secrets/locations must be present: a half-configured bucket is worse
+ * than no bucket, because uploads would succeed and reads would 404. Returning
+ * null on any gap is what makes "unset == today's behaviour" unconditional.
+ * Deliberately a FUNCTION reading process.env at call time (same reason as
+ * isAiActionsEnabled): the frozen `env` snapshot cannot be toggled by tests.
+ */
+export interface S3StorageConfig {
+  endpoint: string;
+  bucket: string;
+  region: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  publicBaseUrl: string;
+}
+
+export function s3StorageConfig(): S3StorageConfig | null {
+  const endpoint = process.env.S3_ENDPOINT;
+  const bucket = process.env.S3_BUCKET;
+  const accessKeyId = process.env.S3_ACCESS_KEY_ID;
+  const secretAccessKey = process.env.S3_SECRET_ACCESS_KEY;
+  const publicBaseUrl = process.env.S3_PUBLIC_BASE_URL;
+  if (!endpoint || !bucket || !accessKeyId || !secretAccessKey || !publicBaseUrl) {
+    return null;
+  }
+  return {
+    // Trailing slashes are stripped once here so every key join downstream is a
+    // plain `${base}/${key}` with no double-slash surprises in a signed path.
+    endpoint: endpoint.replace(/\/$/, ''),
+    bucket,
+    // 'auto' is what Cloudflare R2 requires; AWS S3 needs the bucket's region.
+    region: process.env.S3_REGION ?? 'auto',
+    accessKeyId,
+    secretAccessKey,
+    publicBaseUrl: publicBaseUrl.replace(/\/$/, ''),
+  };
+}
+
+/** True when uploaded bytes go to an S3-compatible bucket instead of Postgres. */
+export function isS3StorageEnabled(): boolean {
+  return s3StorageConfig() !== null;
 }
 
 /**

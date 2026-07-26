@@ -87,4 +87,19 @@ export const updateProfileSchema = z
     message: 'At least one field must be provided',
   });
 
+/**
+ * DELETE /company — the typed-name confirmation. Required and non-empty at the
+ * schema level so an empty body can never reach the service.
+ */
+export const deleteCompanySchema = z
+  .object({
+    confirmName: z
+      .string()
+      .trim()
+      .min(1, 'Type the company name to confirm deletion')
+      .max(100),
+  })
+  .strict();
+
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
+export type DeleteCompanyInput = z.infer<typeof deleteCompanySchema>;

@@ -1,9 +1,14 @@
+import crypto from 'node:crypto';
 import type {
   KnowledgeDocument,
   KnowledgeDocumentStatus,
   Prisma,
 } from '@prisma/client';
 import { prisma } from '../../config/prisma';
+import {
+  knowledgeDocumentStorageKey,
+  storageService,
+} from '../storage/storage.service';
 
 // Everything except the raw bytes — the standard read shape. `data` is only
 // ever selected for downloads.
@@ -29,15 +34,27 @@ export type KnowledgeDocumentRow = Omit<KnowledgeDocument, 'data'> & {
 
 /** Data-access for knowledge documents. EVERY query is companyId-scoped. */
 export const knowledgeDocumentsRepository = {
-  create(input: {
+  /**
+   * The id is generated here (not by the database default) so the object key is
+   * known before the upload — see imagesRepository.create for the same reasoning.
+   */
+  async create(input: {
     companyId: string;
     fileName: string;
     mimeType: string;
     sizeBytes: number;
     data: Buffer;
   }): Promise<KnowledgeDocument> {
+    const id = crypto.randomUUID();
+    const { inlineData } = await storageService.put({
+      key: knowledgeDocumentStorageKey(input.companyId, id),
+      contentType: input.mimeType,
+      data: input.data,
+    });
     return prisma.knowledgeDocument.create({
-      data: { ...input, data: new Uint8Array(input.data) },
+      // DB mode: `inlineData` is exactly `new Uint8Array(input.data)`, i.e. the
+      // one INSERT of the same bytes this always did.
+      data: { ...input, id, data: inlineData },
     });
   },
 
@@ -59,15 +76,29 @@ export const knowledgeDocumentsRepository = {
     });
   },
 
-  /** Download path only: the stored original bytes. */
-  findDataScoped(
+  /**
+   * Download + extraction path: the stored original bytes, resolved through the
+   * storage provider. The `data` column is still selected in both modes because
+   * it is the pre-migration home of the bytes AND the marker that a row has been
+   * migrated (empty = the object lives in the bucket).
+   */
+  async findDataScoped(
     companyId: string,
     id: string,
-  ): Promise<{ fileName: string; mimeType: string; data: Uint8Array } | null> {
-    return prisma.knowledgeDocument.findFirst({
+  ): Promise<{ fileName: string; mimeType: string; data: Buffer } | null> {
+    const row = await prisma.knowledgeDocument.findFirst({
       where: { id, companyId },
-      select: { fileName: true, mimeType: true, data: true },
+      select: { id: true, fileName: true, mimeType: true, data: true },
     });
+    if (!row) return null;
+    return {
+      fileName: row.fileName,
+      mimeType: row.mimeType,
+      data: await storageService.get({
+        key: knowledgeDocumentStorageKey(companyId, row.id),
+        inline: row.data,
+      }),
+    };
   },
 
   /**
@@ -125,7 +156,15 @@ export const knowledgeDocumentsRepository = {
     });
   },
 
-  /** Replace the stored file ahead of re-extraction. */
+  /**
+   * Replace the stored file ahead of re-extraction. The object key is unchanged
+   * (it is derived from the id), so this OVERWRITES the previous object — no
+   * orphan, and no window where the row points at the old file.
+   *
+   * A replace aimed at another tenant's document writes under the CALLER's own
+   * key prefix and then matches zero rows here, so the victim's object is never
+   * touched; the only cost is an orphaned object the caller paid for.
+   */
   async replaceFile(
     companyId: string,
     id: string,
@@ -136,11 +175,16 @@ export const knowledgeDocumentsRepository = {
       data: Buffer;
     },
   ): Promise<number> {
+    const { inlineData } = await storageService.put({
+      key: knowledgeDocumentStorageKey(companyId, id),
+      contentType: input.mimeType,
+      data: input.data,
+    });
     const result = await prisma.knowledgeDocument.updateMany({
       where: { id, companyId },
       data: {
         ...input,
-        data: new Uint8Array(input.data),
+        data: inlineData,
         status: 'PROCESSING' satisfies KnowledgeDocumentStatus,
       },
     });
@@ -163,6 +207,11 @@ export const knowledgeDocumentsRepository = {
     const result = await prisma.knowledgeDocument.deleteMany({
       where: { id, companyId },
     });
+    // Object dropped only after the row is gone (no-op in DB mode): an orphaned
+    // object is cheap, a row without its file is a broken download.
+    if (result.count > 0) {
+      await storageService.delete(knowledgeDocumentStorageKey(companyId, id));
+    }
     return result.count;
   },
 

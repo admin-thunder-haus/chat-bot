@@ -36,6 +36,13 @@ yarn-error.log*
 coverage/
 .nyc_output/
 
+# Playwright (e2e) artifacts — traces, screenshots and HTML reports
+test-results/
+playwright-report/
+blob-report/
+.playwright/
+playwright/.cache/
+
 # Editor / OS
 .DS_Store
 Thumbs.db

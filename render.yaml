@@ -49,6 +49,21 @@ services:
       # the app behaves exactly as it does today, just without reporting.
       - key: SENTRY_DSN
         sync: false
+      # Object storage for uploaded files (images, voice notes, knowledge PDFs).
+      # OPTIONAL — while ANY of these is unset the bytes stay in Postgres, which
+      # is the current, working behaviour. Set all five (plus S3_REGION below) to
+      # move new uploads to Cloudflare R2 / AWS S3, then run
+      # `npx tsx scripts/migrate-storage-to-s3.ts` once to move the existing rows.
+      - key: S3_ENDPOINT
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: S3_PUBLIC_BASE_URL
+        sync: false
       # --- non-secret app config ---
       - key: AI_FEATURE_ENABLED
         value: "true"
@@ -74,6 +89,11 @@ services:
       # Billing page. Flip this ONE value to "true" to start selling plans.
       - key: BILLING_ENABLED
         value: "false"
+      # SigV4 region for the bucket above. Cloudflare R2 requires the literal
+      # "auto"; for AWS S3 change this to the bucket's real region. Not a secret,
+      # so it is checked in rather than set in the dashboard.
+      - key: S3_REGION
+        value: auto
       # Login audit trail retention. Pruning rides along on login writes (no
       # extra timer), which matters on an instance that sleeps and restarts.
       - key: LOGIN_AUDIT_RETENTION_DAYS
@@ -86,3 +106,17 @@ services:
         value: production
       - key: SENTRY_TRACES_SAMPLE_RATE
         value: "0"
+      # Blanks in the public /privacy and /terms TEMPLATE. Until each is set the
+      # page renders a visible "[ FILL IN: … ]" placeholder and a banner — so an
+      # unfinished policy cannot be mistaken for a finished one. Meta app review
+      # and EU customers read these pages; fill all five before launch.
+      - key: LEGAL_ENTITY_NAME
+        sync: false
+      - key: LEGAL_ENTITY_ADDRESS
+        sync: false
+      - key: LEGAL_CONTACT_EMAIL
+        sync: false
+      - key: LEGAL_DATA_RETENTION
+        sync: false
+      - key: LEGAL_JURISDICTION
+        sync: false

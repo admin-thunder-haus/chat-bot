@@ -450,7 +450,15 @@ export function Toolbar({
     >
       {search && <div className="w-full sm:max-w-xs">{search}</div>}
       {filters && (
-        <div className="flex flex-col gap-3 [&>*]:w-full sm:flex-row sm:items-center sm:[&>*]:w-auto">
+        // `:not(.sr-only)` is load-bearing, not defensive. Callers pass a
+        // visually hidden <label className="sr-only"> alongside each control, and
+        // a bare `[&>*]:w-full` child-combinator outranks `.sr-only`'s own
+        // `width: 1px`. That inflated the hidden label into a 375px-wide
+        // absolutely-positioned box, pushing the document to 390px and giving
+        // every page with a filter toolbar a horizontal scrollbar on a phone —
+        // invisible on desktop, and invisible in the DOM until you measure
+        // scrollWidth. Caught by the 375px Playwright pass.
+        <div className="flex flex-col gap-3 [&>*:not(.sr-only)]:w-full sm:flex-row sm:items-center sm:[&>*:not(.sr-only)]:w-auto">
           {filters}
         </div>
       )}

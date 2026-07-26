@@ -158,16 +158,24 @@ describe('running due jobs', () => {
       ids.push((await enqueueFake(acme.company.id)).id);
     }
 
-    await jobsService.runDueJobs(2);
+    const result = await jobsService.runDueJobs(2);
 
-    // Scoped to THIS test's rows: other suites now enqueue real jobs, and a
-    // global count would make this assertion depend on their timing.
+    // The IN-PROCESS facts first. These are immune to anything else touching the
+    // database — which matters: a `npm run dev` server pointed at the test
+    // database has a job worker polling every couple of seconds, and it will
+    // happily claim the third job out from under this test. That cost real time
+    // to diagnose once; assert on what this process did, not on what the table
+    // looks like a moment later.
+    expect(result.claimed).toBe(2);
+    expect(fakeCalls).toBe(2);
+
+    // Then the rows, scoped to THIS test's ids (other suites enqueue real jobs).
     const mine = await prisma.job.findMany({
       where: { id: { in: ids } },
       select: { status: true },
     });
+    expect(mine).toHaveLength(3);
     expect(mine.filter((j) => j.status === 'SUCCEEDED')).toHaveLength(2);
-    expect(mine.filter((j) => j.status === 'QUEUED')).toHaveLength(1);
   });
 
   it('passes the tenant and attempt number to the handler', async () => {

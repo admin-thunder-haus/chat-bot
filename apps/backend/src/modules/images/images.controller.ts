@@ -15,7 +15,26 @@ export const imagesController = {
     sendSuccess(res, { image }, 'Image uploaded successfully', 201);
   },
 
-  /** Public, unauthenticated: providers fetch attachment URLs directly. */
+  /**
+   * Public, unauthenticated: providers fetch attachment URLs directly.
+   *
+   * With object storage configured this route PROXIES the bytes rather than
+   * redirecting to the bucket's public URL. Both work; proxying was chosen
+   * because:
+   *  1. The URL is durable — it is already stored in Product/Service.imageUrl
+   *     and Message.mediaUrl rows and already delivered to Meta/Telegram, so it
+   *     must keep resolving even if the bucket or CDN domain changes later.
+   *  2. The response headers below stay OURS. A redirect hands the final
+   *     response — the one the browser actually judges — to the bucket, which
+   *     typically sets neither of the two headers this route exists to set. That
+   *     failure mode is invisible to curl and to server-side fetches and shows up
+   *     only as a blocked image in a real browser.
+   *  3. The bucket can stay private: the UUID remains the only capability, and
+   *     no object is world-readable just because it was uploaded.
+   * The cost is Render egress for image traffic; if that ever matters, the switch
+   * is a 302 to storageService.publicUrl(key) for NEW ids only, keeping this
+   * proxy for everything already published.
+   */
   async serve(req: Request, res: Response): Promise<void> {
     const { mimeType, data } = await imagesService.getForServing(
       req.params.imageId,

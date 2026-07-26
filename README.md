@@ -2083,6 +2083,33 @@ Covered: health endpoint, registration, duplicate-email rejection, login
 success, invalid login, protected `/auth/me`, refresh + rotation/reuse, logout
 revocation, and validation failures.
 
+### Frontend unit tests (Vitest)
+
+```bash
+npm test -w apps/frontend
+```
+
+Collects `apps/frontend/src/**/*.test.{ts,tsx}` only.
+
+### Frontend end-to-end smoke suite (Playwright)
+
+Four headless Chromium specs in `apps/frontend/e2e/` covering login, creating a
+product with an uploaded image, replying in the inbox, and the 375px
+no-horizontal-scroll rule (docs/DESIGN-SYSTEM.md §5).
+
+```bash
+npm run e2e -w apps/frontend
+```
+
+Deliberately **not** part of `npm test`. It needs a local backend on a local
+seeded database (`ai_support_e2e` on port 5433) and refuses to run against any
+non-loopback URL — it writes real records, so it must never see the deployed
+backend or the Neon database. Playwright starts the frontend dev server itself.
+
+**Full setup, the literal commands, the env vars (`E2E_BASE_URL`, `E2E_API_URL`,
+`E2E_EMAIL`, `E2E_PASSWORD`) and one known real UI bug it catches are documented
+in [`apps/frontend/e2e/README.md`](apps/frontend/e2e/README.md).**
+
 ---
 
 ## Available scripts
@@ -2096,6 +2123,8 @@ Run from the repo root (delegates to the workspaces):
 | `npm run lint` | Lint both apps |
 | `npm run format` | Prettier-format both apps |
 | `npm run test` | Run backend tests |
+| `npm test -w apps/frontend` | Run frontend unit tests (Vitest) |
+| `npm run e2e -w apps/frontend` | Run the Playwright smoke suite (local backend required — see [`apps/frontend/e2e/README.md`](apps/frontend/e2e/README.md)) |
 | `npm run prisma:migrate` | Apply committed migrations (deploy) |
 | `npm run prisma:seed` | Seed demo data |
 

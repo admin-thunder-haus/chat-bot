@@ -133,7 +133,9 @@ export const knowledgeDocumentsService = {
       });
       return;
     }
-    await processDocument(companyId, documentId, Buffer.from(doc.data));
+    // findDataScoped already resolved the bytes through the storage provider
+    // (the row's own column, or the bucket once the row has been migrated).
+    await processDocument(companyId, documentId, doc.data);
   },
 
   /**
@@ -251,10 +253,6 @@ export const knowledgeDocumentsService = {
       id,
     );
     if (!doc) throw AppError.notFound('Document not found');
-    return {
-      fileName: doc.fileName,
-      mimeType: doc.mimeType,
-      data: Buffer.from(doc.data),
-    };
+    return { fileName: doc.fileName, mimeType: doc.mimeType, data: doc.data };
   },
 };

@@ -19,6 +19,7 @@ import {
   Textarea,
 } from '@/components/ui';
 import { LoginHistorySection } from './LoginHistorySection';
+import { DangerZoneSection } from './DangerZoneSection';
 
 type FormState = {
   name: string;
@@ -306,6 +307,13 @@ export default function ProfilePage() {
           profile fails to load — and every role can read their own history.
         */}
         <LoginHistorySection />
+
+        {/*
+          Last on the page, and OWNER-only (the component hides itself for other
+          roles): the irreversible action should be the thing you have to scroll
+          past everything else to reach.
+        */}
+        <DangerZoneSection />
       </div>
     </div>
   );

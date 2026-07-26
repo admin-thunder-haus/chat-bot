@@ -176,10 +176,44 @@ even loaded.
 6. In Sentry, open **Settings → Alerts** and confirm your email is set to
    receive new-issue notifications.
 
-**Verify it worked:** Render → **Logs** and look for a line mentioning Sentry at
-startup. Then check Sentry's **Issues** page over the next day — it should be
-empty but active (the project shows as having received data once any error
-occurs). Do not deliberately break production to test it.
+**Verify it worked — two levels.**
+
+*Level 1: did it start?* Render → **Logs**, search `Sentry`. Exactly one of:
+
+| Log line | Meaning |
+|---|---|
+| `Sentry error tracking enabled` | ✅ initialised |
+| `Sentry is disabled (SENTRY_DSN is not set)` | the variable never arrived |
+| `Failed to initialise Sentry` | the DSN is malformed |
+
+Or ask the API, signed in as the OWNER:
+
+```bash
+curl -H "Authorization: Bearer <your access token>" \
+  https://ai-support-backend-hpub.onrender.com/api/v1/health/integrations
+```
+
+It answers `{"sentry":true,"smtp":true}` — booleans only, never a DSN or key.
+
+*Level 2: do errors actually ARRIVE?* Level 1 only proves the SDK started. An
+alerting path nobody has ever fired is not an alerting path, so fire it once:
+
+```bash
+curl -X POST -H "Authorization: Bearer <your access token>" \
+  https://ai-support-backend-hpub.onrender.com/api/v1/health/test-error
+```
+
+You get a normal `500` back, and within a minute a Sentry issue titled
+**"Sentry verification error triggered deliberately"** appears in **Issues**. If
+you get the 500 but no issue, the DSN is wrong or the project is muted — that is
+the failure this step exists to catch, and finding it now beats finding it during
+your first real outage.
+
+The route is OWNER-only and can do nothing but throw — it touches no data. Run it
+whenever you want to re-confirm alerting, e.g. after changing the DSN.
+
+Note: request payloads are scrubbed of passwords, tokens, cookies, API keys and
+contact details before being sent, so a Sentry report cannot leak a credential.
 
 Note: request payloads are scrubbed of passwords, tokens, cookies, API keys and
 contact details before being sent, so a Sentry report cannot leak a credential.

@@ -36,21 +36,39 @@ export const jobsRepository = {
    * `attempts` in the same statement that selects them, so a crash between
    * claim and execution still burns an attempt and cannot loop forever.
    */
+  /**
+   * Claim at most `limit` due jobs for this worker.
+   *
+   * The candidate SELECT lives in a CTE rather than an `IN (SELECT …)`
+   * subquery. Both look equivalent, but only the CTE is GUARANTEED to run
+   * exactly once: a sub-select can legally be planned as a semi-join and
+   * re-scanned, and a re-scanned `FOR UPDATE SKIP LOCKED … LIMIT n` can hand
+   * back more than n rows. A batch size that is not actually a bound is worth
+   * nothing — it exists to stop one pass from monopolising the single Prisma
+   * pool this instance shares with the request path.
+   *
+   * (This replaced a sub-select form after `runDueJobs(2)` was observed
+   * returning 3 claimed jobs in CI. That was never reproduced on demand, so
+   * the CTE is defence against the only mechanism that could produce it,
+   * not a confirmed fix — see the note in jobs-queue.test.ts.)
+   */
   async claimDue(limit: number): Promise<Job[]> {
     return prisma.$queryRaw<Job[]>`
-      UPDATE "jobs"
-      SET status = 'RUNNING',
-          attempts = attempts + 1,
-          "startedAt" = NOW(),
-          "updatedAt" = NOW()
-      WHERE id IN (
+      WITH due AS (
         SELECT id FROM "jobs"
         WHERE status = 'QUEUED' AND "runAt" <= NOW()
         ORDER BY "runAt" ASC
         FOR UPDATE SKIP LOCKED
         LIMIT ${limit}
       )
-      RETURNING *
+      UPDATE "jobs" j
+      SET status = 'RUNNING',
+          attempts = j.attempts + 1,
+          "startedAt" = NOW(),
+          "updatedAt" = NOW()
+      FROM due
+      WHERE j.id = due.id
+      RETURNING j.*
     `;
   },
 

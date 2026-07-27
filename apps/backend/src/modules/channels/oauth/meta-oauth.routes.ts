@@ -32,6 +32,28 @@ const completeWhatsAppSchema = z
   })
   .strict();
 
+const selectionParamsSchema = z
+  .object({ selectionId: z.string().uuid('A valid selection id is required') })
+  .strict();
+
+/**
+ * The chosen asset. Which fields are required depends on the provider, and the
+ * service is the authority on that (it matches the choice against the stored
+ * assets); this schema only bounds the shapes so nothing oversized or
+ * unexpected reaches it.
+ */
+const connectSelectionSchema = z
+  .object({
+    pageId: z.string().trim().min(1).max(64).optional(),
+    wabaId: z.string().trim().min(1).max(64).optional(),
+    phoneNumberId: z.string().trim().min(1).max(64).optional(),
+  })
+  .strict()
+  .refine((d) => Boolean(d.pageId || (d.wabaId && d.phoneNumberId)), {
+    message:
+      'Provide pageId, or both wabaId and phoneNumberId for a WhatsApp number',
+  });
+
 // Safe status (no secrets) — any authenticated role may read it.
 router.get(
   '/meta/status',
@@ -62,6 +84,28 @@ router.post(
   manageRoles,
   validate({ body: completeWhatsAppSchema }),
   asyncHandler(metaOauthController.completeWhatsApp),
+);
+
+/**
+ * Asset selection. Both routes are AUTHENTICATED and OWNER/ADMIN: the callback
+ * that created the selection is public, so the picker is where we re-establish
+ * who is asking. The selection is additionally scoped to the caller's company
+ * inside the service, so holding the id is never sufficient.
+ */
+router.get(
+  '/meta/selection/:selectionId',
+  authenticate,
+  manageRoles,
+  validate({ params: selectionParamsSchema }),
+  asyncHandler(metaOauthController.getSelection),
+);
+
+router.post(
+  '/meta/selection/:selectionId/connect',
+  authenticate,
+  manageRoles,
+  validate({ params: selectionParamsSchema, body: connectSelectionSchema }),
+  asyncHandler(metaOauthController.connectSelection),
 );
 
 export const metaOauthRoutes = router;

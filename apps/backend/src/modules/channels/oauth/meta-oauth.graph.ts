@@ -189,6 +189,33 @@ export const metaOauthGraphClient = {
     }
   },
 
+  /**
+   * Read a WABA's display name. Purely cosmetic: the selection screen shows
+   * "Acme Bakery" instead of a 16-digit id. Never throws and never fails the
+   * flow — the caller falls back to the id.
+   */
+  async getWabaName(input: {
+    version: string;
+    accessToken: string;
+    wabaId: string;
+  }): Promise<string | undefined> {
+    try {
+      const res = await transport.request({
+        url: graphUrl(
+          input.version,
+          `${encodeURIComponent(input.wabaId)}?fields=id,name`,
+        ),
+        method: 'GET',
+        accessToken: input.accessToken,
+        timeoutMs: REQUEST_TIMEOUT_MS,
+      });
+      const name = asRecord(res.json)?.name;
+      return res.ok && typeof name === 'string' && name ? name : undefined;
+    } catch {
+      return undefined;
+    }
+  },
+
   /** List phone numbers registered under a WhatsApp Business Account. */
   async getPhoneNumbers(input: {
     version: string;

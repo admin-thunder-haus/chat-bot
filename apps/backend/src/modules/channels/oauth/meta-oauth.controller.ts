@@ -37,12 +37,44 @@ export const metaOauthController = {
     res.redirect(302, redirectUrl);
   },
 
+  /**
+   * Two possible outcomes, deliberately distinguished by status code so the
+   * client cannot mistake "choose one" for "done": 201 when a single asset was
+   * unambiguous and is now connected, 200 with a selection when the operator
+   * still has to pick.
+   */
   async completeWhatsApp(req: Request, res: Response): Promise<void> {
-    const account = await metaOauthService.completeWhatsApp(
+    const result = await metaOauthService.completeWhatsApp(
       req.user!.companyId,
       req.user!.id,
       req.body as { code: string; phoneNumberId?: string; wabaId?: string },
     );
-    sendSuccess(res, { account }, 'WhatsApp connected successfully', 201);
+    if ('account' in result) {
+      sendSuccess(res, result, 'WhatsApp connected successfully', 201);
+      return;
+    }
+    sendSuccess(
+      res,
+      { ...result, requiresSelection: true },
+      'Choose which WhatsApp number to connect',
+    );
+  },
+
+  async getSelection(req: Request, res: Response): Promise<void> {
+    const selection = await metaOauthService.getSelection(
+      req.user!.companyId,
+      req.params.selectionId,
+    );
+    sendSuccess(res, { selection }, 'Selection retrieved successfully');
+  },
+
+  async connectSelection(req: Request, res: Response): Promise<void> {
+    const account = await metaOauthService.connectSelected(
+      req.user!.companyId,
+      req.user!.id,
+      req.params.selectionId,
+      req.body as { pageId?: string; wabaId?: string; phoneNumberId?: string },
+    );
+    sendSuccess(res, { account }, 'Channel connected successfully', 201);
   },
 };

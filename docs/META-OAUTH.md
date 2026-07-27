@@ -22,16 +22,19 @@ one-click button, and everything else keeps working.
 3. The user authorizes in Meta's dialog and lands on the **public** callback
    `GET /api/v1/channels/oauth/meta/callback?code=…&state=…`. The state is
    verified (signature + expiry), then:
-   - **facebook / instagram**: the code is exchanged for a user token, the
-     first granted Page is read from `GET /me/accounts?fields=id,name,access_token,instagram_business_account`,
-     and the existing connect service is called with the Page token, the
-     platform `META_APP_SECRET`, and a server-generated verify token. Instagram
-     additionally requires the Page to have a linked
-     `instagram_business_account`.
-   - **whatsapp**: the code is exchanged for a business token; the WABA id is
-     read from `GET /debug_token` granular scopes; the first phone number from
-     `GET /{waba_id}/phone_numbers` is connected via the existing WhatsApp
-     connect service.
+   - **facebook / instagram**: the code is exchanged for a user token and
+     `GET /me/accounts?fields=id,name,access_token,instagram_business_account`
+     lists **every** granted Page. Instagram keeps only Pages that have a linked
+     `instagram_business_account` (a Page without one cannot be connected, so it
+     is never offered).
+   - **whatsapp**: the code is exchanged for a business token; **all** WABA ids
+     are unioned from the `GET /debug_token` granular scopes, and every WABA's
+     numbers are read from `GET /{waba_id}/phone_numbers`.
+
+   Then, in both cases:
+   - **exactly one** connectable asset -> it is connected immediately (the
+     common case stays one click)
+   - **more than one** -> nothing is connected. See *Asset selection* below.
 4. Credentials are encrypted (AES-256-GCM) exactly like the manual flow, a
    health check runs, and the app is subscribed to webhooks
    (`POST /{page_id}/subscribed_apps` with `subscribed_fields=messages`, or
@@ -47,13 +50,59 @@ There is also `POST /api/v1/channels/oauth/meta/whatsapp/complete`
 the JS-SDK Embedded Signup **popup** variant, where the frontend receives those
 values via `postMessage`.
 
-### Known v1 limitation
+### Asset selection
 
-If the user grants access to **multiple** Facebook Pages, the **first** page
-returned by `/me/accounts` is connected. Ask customers to select a single Page
-in the Meta dialog, or reconnect after adjusting the granted assets.
+An authorization often grants more than one connectable asset — an agency with
+ten client Pages, a business with two WABAs, a WABA with several numbers.
+Connecting whichever one Graph returned first is a guess, and a wrong guess
+wires a live customer channel to the wrong brand; it may go unnoticed until a
+customer's message lands in the wrong inbox.
 
-## Environment variables (backend)
+So when 2+ assets are eligible the flow **connects nothing** and instead:
+
+1. Stores the discovered assets in `meta_oauth_selections`, **encrypted**
+   (AES-256-GCM, the same service as channel credentials) because the payload
+   carries Page/business access tokens. TTL 15 minutes, single-use.
+2. Redirects to
+   `${FRONTEND_APP_URL}/dashboard/channels/select?selection=<id>&provider=<p>`.
+3. The picker reads `GET /api/v1/channels/oauth/meta/selection/:selectionId`
+   (authenticated, OWNER/ADMIN). The response carries **ids and display names
+   only** — no access token ever reaches the browser.
+4. The operator's choice is sent to
+   `POST /api/v1/channels/oauth/meta/selection/:selectionId/connect` with
+   `{ pageId }` or `{ wabaId, phoneNumberId }`. Only that asset is connected.
+
+A WABA with three numbers is **three** choices, not one: picking the wrong
+number is as wrong as picking the wrong business.
+
+The `whatsapp/complete` popup variant behaves the same way — it answers `201`
+with `{ account }` when the grant was unambiguous, or `200` with
+`{ requiresSelection: true, selection }` when the operator must choose.
+
+#### Security properties
+
+Two independent checks stand between a request and a live channel:
+
+- **Tenant scoping.** A selection is loaded with `companyId` in the WHERE
+  clause, so another company holding the id cannot read or consume it. Every
+  unusable case — unknown id, another tenant's id, already consumed, expired —
+  answers the same `404`, so the endpoint cannot be used to probe which
+  selection ids exist.
+- **Membership.** The chosen ids must appear in **that selection's** stored
+  assets. A caller cannot name an arbitrary Page or WABA and have the backend
+  connect it with a token it holds. For WhatsApp the number must belong to the
+  **chosen** WABA, so a valid-looking pair cannot be assembled from two
+  different businesses.
+
+A rejected choice (`400 ASSET_NOT_IN_GRANT`) does **not** burn the selection —
+a typo must not force the operator through the whole Meta authorization again.
+A successful connect does, so a selection can never be replayed.
+
+> **Behaviour change.** `whatsapp/complete` previously trusted any
+> `wabaId` / `phoneNumberId` the caller sent and connected it using our business
+> token. Those ids are now verified against the grant first.
+
+## Environment variables (backend)## Environment variables (backend)
 
 | Variable | Required | Description |
 | --- | --- | --- |

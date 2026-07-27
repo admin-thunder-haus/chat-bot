@@ -5,29 +5,45 @@ import { logger } from '../../../utils/logger';
 import { channelsService } from '../channels.service';
 import { channelHealthService } from '../channel-health.service';
 import { metaOauthGraphClient } from './meta-oauth.graph';
+import {
+  metaOauthSelectionStore,
+  selectionNotFound,
+  toClientView,
+  type LoadedSelection,
+  type SelectionView,
+  type StoredPageAsset,
+  type StoredWabaAsset,
+} from './meta-oauth.selection';
+import {
+  isMetaOauthProvider,
+  type MetaOauthProvider,
+} from './meta-oauth.types';
 import type { ChannelAccountView } from '../channels.types';
 
 /**
  * Meta OAuth / Embedded Signup service — the one-click alternative to the
  * manual connect forms. It drives the browser through Meta's OAuth dialog,
- * exchanges the returned code for tokens, discovers the asset ids (Page /
- * Instagram account / WABA + phone number) and then hands off to the SAME
- * connect path the manual flow uses (channelsService.connectCredentialedProvider),
- * so credential encryption, duplicate detection, activity logging and health
- * checks are identical in both flows.
+ * exchanges the returned code for tokens, discovers the available assets
+ * (Pages / Instagram professional accounts / WABAs + phone numbers) and hands
+ * off to the SAME connect path the manual flow uses
+ * (channelsService.connectCredentialedProvider), so credential encryption,
+ * duplicate detection, activity logging and health checks are identical in
+ * both flows. The manual forms are untouched by any of this.
  *
- * v1 limitation (documented): when the user grants access to multiple Facebook
- * Pages, the FIRST page returned by /me/accounts is connected. Reconnect with
- * a single page selected in the Meta dialog to target a specific one.
+ * ASSET SELECTION. An authorization frequently grants more than one eligible
+ * asset — an agency with ten client Pages, a business with two WABAs, a WABA
+ * with several numbers. Connecting the first one returned by Graph is a guess,
+ * and a wrong guess here is expensive: it wires a live customer channel to the
+ * wrong brand, and the operator may not notice until a customer message lands
+ * in the wrong inbox. So the flow now:
+ *
+ *   1 eligible asset  -> connect it (the common case stays one click)
+ *   2+ eligible       -> park the assets ENCRYPTED and send the operator to a
+ *                        picker; connect only what they explicitly choose
+ *   0 eligible        -> the same safe NO_PAGES / NO_WABA codes as before
  */
 
-export type MetaOauthProvider = 'facebook' | 'instagram' | 'whatsapp';
-
-const META_PROVIDERS: readonly MetaOauthProvider[] = [
-  'facebook',
-  'instagram',
-  'whatsapp',
-];
+export type { MetaOauthProvider } from './meta-oauth.types';
 
 /** Signed state lives at most 10 minutes (start → callback round-trip). */
 export const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
@@ -121,7 +137,7 @@ export function verifyOauthState(
       typeof parsed.userId !== 'string' ||
       typeof parsed.nonce !== 'string' ||
       typeof parsed.iat !== 'number' ||
-      !META_PROVIDERS.includes(parsed.provider as MetaOauthProvider)
+      !isMetaOauthProvider(parsed.provider)
     ) {
       return null;
     }
@@ -220,14 +236,21 @@ async function finalizeConnection(input: {
 // Provider-specific connect steps (all reuse the existing connect service).
 // ---------------------------------------------------------------------------
 
-async function connectPageProvider(input: {
-  companyId: string;
-  userId: string;
+/**
+ * Exchange the code and list the Pages this authorization actually grants.
+ *
+ * For Instagram, "eligible" means the Page has a linked Instagram professional
+ * account — a Page without one cannot be connected at all, so it must not be
+ * offered as a choice. Filtering here rather than at the picker keeps the
+ * one-asset fast path honest: a grant of five Pages where only one has
+ * Instagram is genuinely unambiguous.
+ */
+async function discoverPageAssets(input: {
   provider: 'facebook' | 'instagram';
   code: string;
   redirectUri: string;
   cfg: MetaOauthConfig;
-}): Promise<ChannelAccountView> {
+}): Promise<{ accessToken: string; pages: StoredPageAsset[] }> {
   const { cfg } = input;
   const exchange = await metaOauthGraphClient.exchangeCode({
     version: cfg.graphVersion,
@@ -247,32 +270,54 @@ async function connectPageProvider(input: {
   if (!pagesRes.ok || pagesRes.pages.length === 0) {
     throw new MetaFlowError('NO_PAGES');
   }
-  // v1 limitation: the FIRST granted page is connected (documented above).
-  const page = pagesRes.pages[0];
-  if (!page.id || !page.access_token) {
-    throw new MetaFlowError('TOKEN_EXCHANGE_FAILED');
-  }
 
+  const usable = pagesRes.pages.filter((p) => p.id && p.access_token);
+  if (usable.length === 0) throw new MetaFlowError('TOKEN_EXCHANGE_FAILED');
+
+  const pages: StoredPageAsset[] = usable.map((p) => ({
+    pageId: p.id,
+    pageName: p.name,
+    pageAccessToken: p.access_token!,
+    instagramAccountId: p.instagram_business_account?.id,
+  }));
+
+  if (input.provider === 'instagram') {
+    const linked = pages.filter((p) => p.instagramAccountId);
+    if (linked.length === 0) throw new MetaFlowError('NO_INSTAGRAM_ACCOUNT');
+    return { accessToken: exchange.accessToken, pages: linked };
+  }
+  return { accessToken: exchange.accessToken, pages };
+}
+
+/** Connect ONE already-chosen Page (or its linked Instagram account). */
+async function connectSelectedPage(input: {
+  companyId: string;
+  userId: string;
+  provider: 'facebook' | 'instagram';
+  page: StoredPageAsset;
+  cfg: MetaOauthConfig;
+}): Promise<ChannelAccountView> {
+  const { cfg, page } = input;
   const verifyToken = newVerifyToken();
   let account: ChannelAccountView;
+
   if (input.provider === 'facebook') {
     // Same payload shape as the manual POST /channels/facebook/connect flow.
     account = await channelsService.connectCredentialedProvider(
       input.companyId,
       input.userId,
       'facebook',
-      page.name ?? 'Facebook Messenger',
+      page.pageName ?? 'Facebook Messenger',
       {
-        pageId: page.id,
-        pageName: page.name,
-        accessToken: page.access_token,
+        pageId: page.pageId,
+        pageName: page.pageName,
+        accessToken: page.pageAccessToken,
         appSecret: cfg.appSecret!,
         verifyToken,
       },
     );
   } else {
-    const instagramAccountId = page.instagram_business_account?.id;
-    if (!instagramAccountId) {
+    if (!page.instagramAccountId) {
       throw new MetaFlowError('NO_INSTAGRAM_ACCOUNT');
     }
     // Same payload shape as the manual POST /channels/instagram/connect flow.
@@ -280,11 +325,11 @@ async function connectPageProvider(input: {
       input.companyId,
       input.userId,
       'instagram',
-      page.name ?? 'Instagram',
+      page.pageName ?? 'Instagram',
       {
-        instagramAccountId,
-        facebookPageId: page.id,
-        accessToken: page.access_token,
+        instagramAccountId: page.instagramAccountId,
+        facebookPageId: page.pageId,
+        accessToken: page.pageAccessToken,
         appSecret: cfg.appSecret!,
         verifyToken,
       },
@@ -296,24 +341,29 @@ async function connectPageProvider(input: {
     userId: input.userId,
     accountId: account.id,
     provider: input.provider,
-    subscribeNodeId: page.id,
-    subscribeAccessToken: page.access_token,
+    subscribeNodeId: page.pageId,
+    subscribeAccessToken: page.pageAccessToken,
     subscribedFields: 'messages',
     graphVersion: cfg.graphVersion,
   });
   return account;
 }
 
-async function connectWhatsAppFromCode(input: {
-  companyId: string;
-  userId: string;
+/**
+ * Exchange the code and enumerate EVERY WhatsApp Business Account this
+ * authorization grants, each with its registered numbers.
+ *
+ * The WABA ids come from the granular scopes on the business token. The old
+ * code took `target_ids[0]` of the first matching scope; it now unions the
+ * target_ids across both whatsapp scopes, because a business that shared two
+ * WABAs is exactly the case a "pick the first" rule gets wrong.
+ */
+async function discoverWhatsAppAssets(input: {
   code: string;
   /** Present for the redirect flow; absent for the JS-SDK popup variant. */
   redirectUri?: string;
-  phoneNumberId?: string;
-  wabaId?: string;
   cfg: MetaOauthConfig;
-}): Promise<ChannelAccountView> {
+}): Promise<{ accessToken: string; wabas: StoredWabaAsset[] }> {
   const { cfg } = input;
   const exchange = await metaOauthGraphClient.exchangeCode({
     version: cfg.graphVersion,
@@ -327,55 +377,81 @@ async function connectWhatsAppFromCode(input: {
   }
   const businessToken = exchange.accessToken;
 
-  // WABA id: prefer the one shared by the popup; otherwise read the granular
-  // scopes granted to the business token via /debug_token.
-  let wabaId = input.wabaId;
-  if (!wabaId) {
-    const dbg = await metaOauthGraphClient.debugToken({
-      version: cfg.graphVersion,
-      appId: cfg.appId!,
-      appSecret: cfg.appSecret!,
-      inputToken: businessToken,
-    });
-    const scope = dbg.granularScopes.find(
-      (s) =>
-        (s.scope === 'whatsapp_business_management' ||
-          s.scope === 'whatsapp_business_messaging') &&
-        Array.isArray(s.target_ids) &&
-        s.target_ids.length > 0,
-    );
-    wabaId = scope?.target_ids?.[0];
-  }
-  if (!wabaId) throw new MetaFlowError('NO_WABA');
+  const dbg = await metaOauthGraphClient.debugToken({
+    version: cfg.graphVersion,
+    appId: cfg.appId!,
+    appSecret: cfg.appSecret!,
+    inputToken: businessToken,
+  });
+  const wabaIds = [
+    ...new Set(
+      dbg.granularScopes
+        .filter(
+          (s) =>
+            s.scope === 'whatsapp_business_management' ||
+            s.scope === 'whatsapp_business_messaging',
+        )
+        .flatMap((s) => (Array.isArray(s.target_ids) ? s.target_ids : [])),
+    ),
+  ];
+  if (wabaIds.length === 0) throw new MetaFlowError('NO_WABA');
 
-  let phoneNumberId = input.phoneNumberId;
-  let displayPhoneNumber: string | undefined;
-  let verifiedName: string | undefined;
-  if (!phoneNumberId) {
-    const phones = await metaOauthGraphClient.getPhoneNumbers({
+  const wabas: StoredWabaAsset[] = [];
+  for (const wabaId of wabaIds) {
+    // Sequential: a business shares a handful of WABAs at most, and a burst of
+    // parallel Graph calls buys nothing but rate-limit risk.
+    /* eslint-disable no-await-in-loop */
+    const phonesRes = await metaOauthGraphClient.getPhoneNumbers({
       version: cfg.graphVersion,
       accessToken: businessToken,
       wabaId,
     });
-    const first = phones.phones[0];
-    if (!phones.ok || !first?.id) throw new MetaFlowError('NO_PHONE_NUMBER');
-    phoneNumberId = first.id;
-    displayPhoneNumber = first.display_phone_number;
-    verifiedName = first.verified_name;
+    const phones = phonesRes.phones.filter((p) => p.id);
+    if (phones.length === 0) continue; // a WABA with no numbers cannot be used
+    const wabaName = await metaOauthGraphClient.getWabaName({
+      version: cfg.graphVersion,
+      accessToken: businessToken,
+      wabaId,
+    });
+    /* eslint-enable no-await-in-loop */
+    wabas.push({
+      wabaId,
+      wabaName,
+      phones: phones.map((p) => ({
+        phoneNumberId: p.id,
+        displayPhoneNumber: p.display_phone_number,
+        verifiedName: p.verified_name,
+      })),
+    });
   }
+
+  if (wabas.length === 0) throw new MetaFlowError('NO_PHONE_NUMBER');
+  return { accessToken: businessToken, wabas };
+}
+
+/** Connect ONE already-chosen (WABA, phone number) pair. */
+async function connectSelectedWhatsApp(input: {
+  companyId: string;
+  userId: string;
+  accessToken: string;
+  waba: StoredWabaAsset;
+  phone: StoredWabaAsset['phones'][number];
+  cfg: MetaOauthConfig;
+}): Promise<ChannelAccountView> {
+  const { cfg, waba, phone } = input;
 
   // Same payload shape as the manual POST /channels/whatsapp/connect flow.
   const account = await channelsService.connectCredentialedProvider(
     input.companyId,
     input.userId,
     'whatsapp',
-    verifiedName ?? 'WhatsApp',
+    phone.verifiedName ?? waba.wabaName ?? 'WhatsApp',
     {
-      phoneNumberId,
-      wabaId,
-      displayPhoneNumber,
-      businessName: verifiedName,
-      accessToken: businessToken,
+      phoneNumberId: phone.phoneNumberId,
+      wabaId: waba.wabaId,
+      displayPhoneNumber: phone.displayPhoneNumber,
+      businessName: phone.verifiedName,
+      accessToken: input.accessToken,
       appSecret: cfg.appSecret!,
       verifyToken: newVerifyToken(),
     },
@@ -386,11 +462,21 @@ async function connectWhatsAppFromCode(input: {
     userId: input.userId,
     accountId: account.id,
     provider: 'whatsapp',
-    subscribeNodeId: wabaId,
-    subscribeAccessToken: businessToken,
+    subscribeNodeId: waba.wabaId,
+    subscribeAccessToken: input.accessToken,
     graphVersion: cfg.graphVersion,
   });
   return account;
+}
+
+/**
+ * Total connectable assets in a discovery result. A WABA with three numbers is
+ * three choices, not one — picking the wrong number is as wrong as picking the
+ * wrong WABA, so the fast path must only trigger when the whole result is a
+ * single (waba, phone) pair.
+ */
+function countWhatsAppChoices(wabas: StoredWabaAsset[]): number {
+  return wabas.reduce((n, w) => n + w.phones.length, 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -482,25 +568,59 @@ export const metaOauthService = {
 
     try {
       const redirectUri = callbackUrl(publicBaseUrl);
+      const selectUrl = (id: string): string =>
+        `${base}/select?selection=${encodeURIComponent(id)}&provider=${encodeURIComponent(state.provider)}`;
+
       if (state.provider === 'whatsapp') {
-        await connectWhatsAppFromCode({
-          companyId: state.companyId,
-          userId: state.userId,
+        const { accessToken, wabas } = await discoverWhatsAppAssets({
           code,
           redirectUri,
           cfg,
         });
-      } else {
-        await connectPageProvider({
+        // One WABA with one number is unambiguous — keep it one click.
+        if (countWhatsAppChoices(wabas) === 1) {
+          await connectSelectedWhatsApp({
+            companyId: state.companyId,
+            userId: state.userId,
+            accessToken,
+            waba: wabas[0],
+            phone: wabas[0].phones[0],
+            cfg,
+          });
+          return `${base}?connected=${encodeURIComponent(state.provider)}`;
+        }
+        const id = await metaOauthSelectionStore.create({
           companyId: state.companyId,
           userId: state.userId,
           provider: state.provider,
-          code,
-          redirectUri,
+          payload: { accessToken, wabas },
+        });
+        return selectUrl(id);
+      }
+
+      const { accessToken, pages } = await discoverPageAssets({
+        provider: state.provider,
+        code,
+        redirectUri,
+        cfg,
+      });
+      if (pages.length === 1) {
+        await connectSelectedPage({
+          companyId: state.companyId,
+          userId: state.userId,
+          provider: state.provider,
+          page: pages[0],
           cfg,
         });
+        return `${base}?connected=${encodeURIComponent(state.provider)}`;
       }
-      return `${base}?connected=${encodeURIComponent(state.provider)}`;
+      const id = await metaOauthSelectionStore.create({
+        companyId: state.companyId,
+        userId: state.userId,
+        provider: state.provider,
+        payload: { accessToken, pages },
+      });
+      return selectUrl(id);
     } catch (err) {
       const safeCode = toSafeRedirectCode(err);
       logger.warn('meta_oauth.callback.failed', {
@@ -521,7 +641,9 @@ export const metaOauthService = {
     companyId: string,
     userId: string,
     input: { code: string; phoneNumberId?: string; wabaId?: string },
-  ): Promise<ChannelAccountView> {
+  ): Promise<
+    { account: ChannelAccountView } | { selection: SelectionView }
+  > {
     const cfg = readConfig();
     if (!cfg.appId || !cfg.appSecret) {
       throw AppError.conflict(
@@ -531,12 +653,150 @@ export const metaOauthService = {
       );
     }
     try {
-      return await connectWhatsAppFromCode({
+      const { accessToken, wabas } = await discoverWhatsAppAssets({
+        code: input.code,
+        cfg,
+      });
+
+      // The popup can hand us the exact ids the user picked in Meta's own UI.
+      // Honour them — but only after checking they are genuinely part of THIS
+      // authorization, so a caller cannot name someone else's WABA or a number
+      // the grant never covered.
+      if (input.wabaId || input.phoneNumberId) {
+        const waba = wabas.find((w) => w.wabaId === input.wabaId) ?? wabas[0];
+        const phone = input.phoneNumberId
+          ? waba?.phones.find((p) => p.phoneNumberId === input.phoneNumberId)
+          : waba?.phones[0];
+        if (!waba || !phone) {
+          throw AppError.badRequest(
+            'That WhatsApp account or phone number was not part of this authorization',
+            [],
+            'ASSET_NOT_IN_GRANT',
+          );
+        }
+        return {
+          account: await connectSelectedWhatsApp({
+            companyId,
+            userId,
+            accessToken,
+            waba,
+            phone,
+            cfg,
+          }),
+        };
+      }
+
+      if (countWhatsAppChoices(wabas) === 1) {
+        return {
+          account: await connectSelectedWhatsApp({
+            companyId,
+            userId,
+            accessToken,
+            waba: wabas[0],
+            phone: wabas[0].phones[0],
+            cfg,
+          }),
+        };
+      }
+
+      // Ambiguous: hand back a selection for the picker instead of guessing.
+      const id = await metaOauthSelectionStore.create({
         companyId,
         userId,
-        code: input.code,
-        phoneNumberId: input.phoneNumberId,
-        wabaId: input.wabaId,
+        provider: 'whatsapp',
+        payload: { accessToken, wabas },
+      });
+      const loaded = await metaOauthSelectionStore.load(id, companyId);
+      return { selection: toClientView(loaded!) };
+    } catch (err) {
+      if (err instanceof MetaFlowError) {
+        throw AppError.badRequest(
+          FLOW_ERROR_MESSAGES[err.safeCode] ?? 'Meta connection failed',
+          [],
+          err.safeCode,
+        );
+      }
+      throw err;
+    }
+  },
+
+  /**
+   * Read a pending selection for the picker. Scoped to the caller's company —
+   * an id belonging to another tenant is simply "not found".
+   */
+  async getSelection(
+    companyId: string,
+    selectionId: string,
+  ): Promise<SelectionView> {
+    const loaded = await metaOauthSelectionStore.load(selectionId, companyId);
+    if (!loaded) throw selectionNotFound();
+    return toClientView(loaded);
+  },
+
+  /**
+   * Connect exactly the asset the operator chose.
+   *
+   * Two independent checks stand between a request and a live channel, and
+   * both matter:
+   *   - the selection must belong to the CALLER's company (tenant isolation)
+   *   - the chosen ids must be present in THAT selection's stored assets, so a
+   *     caller cannot smuggle in an arbitrary Page or WABA id and have the
+   *     backend connect it with a token it holds
+   */
+  async connectSelected(
+    companyId: string,
+    userId: string,
+    selectionId: string,
+    choice: { pageId?: string; wabaId?: string; phoneNumberId?: string },
+  ): Promise<ChannelAccountView> {
+    const cfg = readConfig();
+    if (!cfg.appId || !cfg.appSecret) {
+      throw AppError.conflict(
+        'Meta OAuth is not configured for this deployment',
+        [],
+        'OAUTH_NOT_CONFIGURED',
+      );
+    }
+
+    const selection = await metaOauthSelectionStore.load(selectionId, companyId);
+    if (!selection) throw selectionNotFound();
+
+    const notInGrant = (): AppError =>
+      AppError.badRequest(
+        'That account was not part of this authorization',
+        [],
+        'ASSET_NOT_IN_GRANT',
+      );
+
+    // Resolve the choice BEFORE burning the selection, so a bad choice leaves
+    // the operator able to try again instead of having to redo the whole
+    // Meta authorization.
+    const resolved = resolveChoice(selection, choice);
+    if (!resolved) throw notInGrant();
+
+    // Burn it now: whatever happens next, this selection cannot be replayed.
+    // Losing the race (a double-clicked button) is indistinguishable from a
+    // stale id, which is exactly right.
+    if (!(await metaOauthSelectionStore.consume(selectionId, companyId))) {
+      throw selectionNotFound();
+    }
+
+    try {
+      if (resolved.kind === 'page') {
+        return await connectSelectedPage({
+          companyId,
+          userId,
+          provider: selection.provider === 'instagram' ? 'instagram' : 'facebook',
+          page: resolved.page,
+          cfg,
+        });
+      }
+      return await connectSelectedWhatsApp({
+        companyId,
+        userId,
+        accessToken: selection.payload.accessToken,
+        waba: resolved.waba,
+        phone: resolved.phone,
         cfg,
       });
     } catch (err) {
@@ -551,3 +811,43 @@ export const metaOauthService = {
     }
   },
 };
+
+/**
+ * Match the operator's choice against the assets actually stored for this
+ * selection. Returns null when the choice names anything the grant did not
+ * include — which is the check that stops an arbitrary id from being connected.
+ */
+function resolveChoice(
+  selection: LoadedSelection,
+  choice: { pageId?: string; wabaId?: string; phoneNumberId?: string },
+):
+  | { kind: 'page'; page: StoredPageAsset }
+  | { kind: 'whatsapp'; waba: StoredWabaAsset; phone: StoredWabaAsset['phones'][number] }
+  | null {
+  if (selection.provider === 'whatsapp') {
+    if (!choice.wabaId || !choice.phoneNumberId) return null;
+    const waba = (selection.payload.wabas ?? []).find(
+      (w) => w.wabaId === choice.wabaId,
+    );
+    if (!waba) return null;
+    const phone = waba.phones.find(
+      (p) => p.phoneNumberId === choice.phoneNumberId,
+    );
+    // The number must belong to the CHOSEN waba, not merely exist somewhere in
+    // the payload — otherwise a valid pair could be assembled from two WABAs.
+    if (!phone) return null;
+    return { kind: 'whatsapp', waba, phone };
+  }
+
+  if (!choice.pageId) return null;
+  const page = (selection.payload.pages ?? []).find(
+    (p) => p.pageId === choice.pageId,
+  );
+  if (!page) return null;
+  // Instagram selections are pre-filtered to linked Pages, but re-check: the
+  // payload is the authority, not the filter that produced it.
+  if (selection.provider === 'instagram' && !page.instagramAccountId) {
+    return null;
+  }
+  return { kind: 'page', page };
+}

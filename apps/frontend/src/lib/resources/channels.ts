@@ -29,6 +29,34 @@ export interface UpdateChannelInput {
 export type MetaOauthProvider = 'facebook' | 'instagram' | 'whatsapp';
 
 /** Safe Meta OAuth status — config ids are public, secrets never leave the API. */
+/**
+ * A pending asset selection. Carries ids and display names only — the Page /
+ * business access tokens stay on the backend and never reach this client.
+ */
+export interface MetaOauthSelectionPage {
+  pageId: string;
+  pageName: string | null;
+  instagramAccountId: string | null;
+}
+
+export interface MetaOauthSelectionWaba {
+  wabaId: string;
+  wabaName: string | null;
+  phones: {
+    phoneNumberId: string;
+    displayPhoneNumber: string | null;
+    verifiedName: string | null;
+  }[];
+}
+
+export interface MetaOauthSelection {
+  id: string;
+  provider: MetaOauthProvider;
+  expiresAt: string;
+  pages: MetaOauthSelectionPage[];
+  wabas: MetaOauthSelectionWaba[];
+}
+
 export interface MetaOauthStatus {
   configured: boolean;
   appId: string | null;
@@ -88,17 +116,43 @@ export const channelsApi = {
       auth: true,
     });
   },
-  /** Complete the WhatsApp Embedded Signup popup variant (JS-SDK postMessage). */
+  /**
+   * Complete the WhatsApp Embedded Signup popup variant (JS-SDK postMessage).
+   * Returns `{ account }` when the grant was unambiguous, or
+   * `{ requiresSelection, selection }` when the operator still has to choose.
+   */
   oauthCompleteWhatsApp(input: {
     code: string;
     phoneNumberId?: string;
     wabaId?: string;
-  }): Promise<{ account: ChannelAccount }> {
+  }): Promise<
+    | { account: ChannelAccount }
+    | { requiresSelection: true; selection: MetaOauthSelection }
+  > {
     return request('/channels/oauth/meta/whatsapp/complete', {
       method: 'POST',
       body: input,
       auth: true,
     });
+  },
+  /** Read a pending asset selection (scoped to the caller's company). */
+  oauthSelection(selectionId: string): Promise<{
+    selection: MetaOauthSelection;
+  }> {
+    return request(
+      `/channels/oauth/meta/selection/${encodeURIComponent(selectionId)}`,
+      { auth: true },
+    );
+  },
+  /** Connect exactly the asset the operator picked. */
+  oauthConnectSelection(
+    selectionId: string,
+    choice: { pageId?: string; wabaId?: string; phoneNumberId?: string },
+  ): Promise<{ account: ChannelAccount }> {
+    return request(
+      `/channels/oauth/meta/selection/${encodeURIComponent(selectionId)}/connect`,
+      { method: 'POST', body: choice, auth: true },
+    );
   },
   connectTelegram(
     input: TelegramConnectInput,

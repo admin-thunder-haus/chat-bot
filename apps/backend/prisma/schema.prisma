@@ -317,6 +317,7 @@ model Company {
   channelActivities       ChannelActivity[]
   loginAuditEvents        LoginAuditEvent[]
   jobs                    Job[]
+  metaOauthSelections     MetaOauthSelection[]
 
   @@map("companies")
 }
@@ -1280,6 +1281,45 @@ model AIUsageDaily {
 
 // A connected (or draft) channel account. Provider-agnostic: platform-specific
 // behavior lives in the provider adapter, never here.
+/**
+ * A pending Meta OAuth asset selection.
+ *
+ * When a Meta authorization returns MORE THAN ONE eligible asset (several
+ * Facebook Pages, Instagram accounts, WhatsApp Business Accounts or phone
+ * numbers), the flow must not guess which one the operator meant. The
+ * discovered assets are parked here and the browser is sent to a picker.
+ *
+ * The payload is ENCRYPTED because it carries Page/business access tokens
+ * alongside the asset ids — the same class of secret as ChannelCredential, and
+ * it must never be handed to the browser. The row is the only place those
+ * tokens live between the callback and the operator's choice.
+ *
+ * Scoped to a company and single-use: `companyId` is what stops one tenant
+ * from consuming another's pending selection, and `consumedAt` stops a
+ * selection id from being replayed into a second connection.
+ */
+model MetaOauthSelection {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @db.Uuid
+  // The operator who started the flow; recorded as the actor on connect.
+  userId    String @db.Uuid
+  // 'facebook' | 'instagram' | 'whatsapp' (kept as text: this mirrors the
+  // OAuth provider key, not the ChannelType enum).
+  provider  String
+
+  encryptedPayload  String
+  encryptionVersion String
+
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, createdAt])
+  @@map("meta_oauth_selections")
+}
+
 model ChannelAccount {
   id                       String                 @id @default(uuid()) @db.Uuid
   companyId                String                 @db.Uuid

@@ -409,19 +409,48 @@ describe('Meta OAuth — whatsapp complete (Embedded Signup popup)', () => {
 
   it('honors explicit phoneNumberId/wabaId from the popup and rejects AGENT', async () => {
     setMetaOauthTransportForTesting(makeMetaTransport().transport);
+    // The ids the popup reports must be ones this authorization actually
+    // granted — i.e. the ids the fake Graph returns.
     const res = await request(app)
       .post('/api/v1/channels/oauth/meta/whatsapp/complete')
       .set(authHeader(acme.tokens.admin))
-      .send({ code: 'es-code-2', phoneNumberId: '777', wabaId: '888' });
+      .send({ code: 'es-code-2', phoneNumberId: PHONE_ID, wabaId: WABA_ID });
     expect(res.status).toBe(201);
-    expect(res.body.data.account.externalAccountId).toBe('777');
-    expect(res.body.data.account.externalPageId).toBe('888');
+    expect(res.body.data.account.externalAccountId).toBe(PHONE_ID);
+    expect(res.body.data.account.externalPageId).toBe(WABA_ID);
 
     const agent = await request(app)
       .post('/api/v1/channels/oauth/meta/whatsapp/complete')
       .set(authHeader(acme.tokens.agent))
       .send({ code: 'x' });
     expect(agent.status).toBe(403);
+  });
+
+  it('refuses ids the authorization never granted', async () => {
+    // These used to be trusted verbatim and connected with OUR business token,
+    // so any ADMIN could name an arbitrary WABA / phone number — an asset
+    // belonging to someone else entirely — and have it wired up.
+    setMetaOauthTransportForTesting(makeMetaTransport().transport);
+    const res = await request(app)
+      .post('/api/v1/channels/oauth/meta/whatsapp/complete')
+      .set(authHeader(acme.tokens.admin))
+      .send({ code: 'es-code-2', phoneNumberId: '777', wabaId: '888' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('ASSET_NOT_IN_GRANT');
+    expect(
+      await prisma.channelAccount.count({ where: { companyId: acme.company.id } }),
+    ).toBe(0);
+  });
+
+  it('refuses a granted WABA paired with a number from outside it', async () => {
+    setMetaOauthTransportForTesting(makeMetaTransport().transport);
+    const res = await request(app)
+      .post('/api/v1/channels/oauth/meta/whatsapp/complete')
+      .set(authHeader(acme.tokens.admin))
+      .send({ code: 'es-code-2', wabaId: WABA_ID, phoneNumberId: '999' });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('ASSET_NOT_IN_GRANT');
   });
 
   it('returns a safe 400 code when no WABA was shared', async () => {

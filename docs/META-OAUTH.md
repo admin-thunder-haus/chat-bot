@@ -102,7 +102,7 @@ A successful connect does, so a selection can never be replayed.
 > `wabaId` / `phoneNumberId` the caller sent and connected it using our business
 > token. Those ids are now verified against the grant first.
 
-## Environment variables (backend)## Environment variables (backend)
+## Environment variables (backend)
 
 | Variable | Required | Description |
 | --- | --- | --- |
@@ -166,6 +166,24 @@ maps these to friendly messages.
 
 `apps/backend/tests/meta-oauth.test.ts` covers the status/start gating, state
 signing (round-trip, expiry, tamper rejection), the Facebook/Instagram
-callback paths, the WhatsApp complete + callback paths, and error mapping —
-all against an injected fake Graph transport
+callback paths, the WhatsApp complete + callback paths, and error mapping.
+
+`apps/backend/tests/meta-oauth-selection.test.ts` covers asset selection: the
+multi-Page / multi-Instagram / multi-WABA pickers, the one-asset fast paths,
+single-use and expiry, cross-tenant isolation (including two tenants holding a
+pending selection at once), rejection of ids outside the grant, and that no
+access token appears in any response or in the stored row.
+
+Both run against an injected fake Graph transport
 (`setMetaOauthTransportForTesting`), so no real Meta calls are ever made.
+`npm test -w apps/backend -- meta-oauth` runs them together.
+
+### Trying the picker without a Meta app
+
+The picker only needs a row in `meta_oauth_selections`, so it can be exercised
+before `META_APP_ID` exists: insert one (encrypted with
+`channelSecurityService.encrypt`) for your company and open
+`/dashboard/channels/select?selection=<id>&provider=<p>`. Reading the selection
+and every access check work; **pressing Connect will not**, because storing the
+channel credentials needs `META_APP_SECRET` — it fails fast with
+`OAUTH_NOT_CONFIGURED` rather than half-connecting.

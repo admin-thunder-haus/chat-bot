@@ -31,6 +31,10 @@ import type {
   WhatsAppConfig,
   WhatsAppCredentials,
 } from './whatsapp.types';
+import {
+  splitWhatsAppWebhook,
+  validateMetaSharedSignature,
+} from '../meta-webhook-routing';
 
 export const WHATSAPP_PROVIDER_KEY = 'whatsapp';
 export const WHATSAPP_SIGNATURE_HEADER = 'x-hub-signature-256';
@@ -196,6 +200,20 @@ export class WhatsAppChannelProvider implements ChannelProvider {
   }
 
   // --- Webhook parsing (defensive; never throws on unknown fields) ---------
+
+  /** Route a shared-endpoint payload to the right tenant (see the interface). */
+  /** Shared endpoint authenticates the PLATFORM app, not a tenant. */
+  async validateSharedWebhookSignature(input: {
+    rawBody: Buffer;
+    headers: Record<string, string | undefined>;
+    appSecret: string;
+  }): Promise<boolean> {
+    return validateMetaSharedSignature(input);
+  }
+
+  splitWebhookByTarget(body: unknown) {
+    return splitWhatsAppWebhook(body);
+  }
 
   async parseWebhook(input: RawWebhookInput): Promise<NormalizedChannelEvent[]> {
     try {

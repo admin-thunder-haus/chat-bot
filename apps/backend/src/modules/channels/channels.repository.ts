@@ -90,6 +90,35 @@ export const channelsRepository = {
     });
   },
 
+  /**
+   * Resolve the account a SHARED webhook event belongs to, from the ids carried
+   * in the payload. Used by the account-less endpoint, where one platform app
+   * serves every tenant and the URL therefore names no account.
+   *
+   * `externalAccountId` is tried before `externalPageId` because it is the
+   * account's own identity (Page id, Instagram account id, WhatsApp phone
+   * number id) while the page/WABA id is a shared parent — several accounts can
+   * hang off ONE WABA, so matching the parent first could pick the wrong
+   * sibling. Two queries rather than one OR for exactly that reason: the order
+   * is the correctness property, and an OR would leave it to the planner.
+   *
+   * Disabled accounts are excluded here rather than by the caller, so a
+   * disconnected channel can never be resurrected by an inbound event.
+   */
+  async findForSharedWebhook(
+    providerKey: string,
+    externalIds: string[],
+  ): Promise<ChannelAccount | null> {
+    if (externalIds.length === 0) return null;
+    const byAccount = await prisma.channelAccount.findFirst({
+      where: { providerKey, isEnabled: true, externalAccountId: { in: externalIds } },
+    });
+    if (byAccount) return byAccount;
+    return prisma.channelAccount.findFirst({
+      where: { providerKey, isEnabled: true, externalPageId: { in: externalIds } },
+    });
+  },
+
   async list(
     companyId: string,
     filters: ChannelAccountListFilters = {},

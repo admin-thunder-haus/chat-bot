@@ -43,6 +43,10 @@ services:
         sync: false
       - key: CHANNEL_CREDENTIAL_ENCRYPTION_KEY
         sync: false
+      # Platform verify token for the SHARED Meta webhook endpoints. Set it here
+      # and paste the same value into the Meta app's Webhooks product.
+      - key: META_WEBHOOK_VERIFY_TOKEN
+        sync: false
       - key: WIDGET_SESSION_SECRET
         sync: false
       # Error tracking. OPTIONAL: leave it unset and the SDK is never loaded —

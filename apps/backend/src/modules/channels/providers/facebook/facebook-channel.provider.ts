@@ -27,6 +27,10 @@ import { NO_CAPABILITIES } from '../channel-provider.interface';
 import { facebookApiClient } from './facebook-api-client';
 import { normalizeFacebookWebhook } from './facebook-normalizer';
 import type { FacebookConfig, FacebookCredentials } from './facebook.types';
+import {
+  splitMetaMessagingWebhook,
+  validateMetaSharedSignature,
+} from '../meta-webhook-routing';
 
 export const FACEBOOK_PROVIDER_KEY = 'facebook';
 export const FACEBOOK_SIGNATURE_HEADER = 'x-hub-signature-256';
@@ -149,6 +153,20 @@ export class FacebookChannelProvider implements ChannelProvider {
 
   static computeSignature(rawBody: Buffer | string, appSecret: string): string {
     return 'sha256=' + createHmac('sha256', appSecret).update(rawBody).digest('hex');
+  }
+
+  /** Route a shared-endpoint payload to the right tenant (see the interface). */
+  /** Shared endpoint authenticates the PLATFORM app, not a tenant. */
+  async validateSharedWebhookSignature(input: {
+    rawBody: Buffer;
+    headers: Record<string, string | undefined>;
+    appSecret: string;
+  }): Promise<boolean> {
+    return validateMetaSharedSignature(input);
+  }
+
+  splitWebhookByTarget(body: unknown) {
+    return splitMetaMessagingWebhook(body);
   }
 
   async parseWebhook(input: RawWebhookInput): Promise<NormalizedChannelEvent[]> {

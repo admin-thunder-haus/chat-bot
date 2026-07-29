@@ -1,6 +1,7 @@
-import { createHash } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import type { ChannelAccount } from '@prisma/client';
+import { env } from '../../../config/env';
 import { prisma } from '../../../config/prisma';
 import { AppError } from '../../../utils/AppError';
 import { logger } from '../../../utils/logger';
@@ -34,6 +35,14 @@ import type {
 
 function hashRaw(rawBody: Buffer): string {
   return createHash('sha256').update(rawBody).digest('hex');
+}
+
+/** Constant-time compare for the shared verify token (length-safe). */
+function safeEqualStrings(a: string, b: string): boolean {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ab.length !== bb.length) return false;
+  return timingSafeEqual(ab, bb);
 }
 
 /**
@@ -82,6 +91,129 @@ export const webhookService = {
       throw AppError.forbidden('Verification failed');
     }
     return { verified: true, challenge: result.challenge ?? '' };
+  },
+
+  /**
+   * GET verification for the SHARED endpoint (no account in the URL).
+   *
+   * Checked against the PLATFORM verify token rather than a per-account one:
+   * this URL belongs to our Meta app, not to any single tenant. With the token
+   * unset the endpoint stays closed — a shared webhook that verifies against
+   * nothing would accept a subscription from anyone.
+   */
+  verifyShared(
+    providerKey: string,
+    query: Record<string, string | undefined>,
+  ): WebhookVerificationOutcome {
+    const provider = channelRegistry.tryGet(providerKey);
+    if (!provider || typeof provider.splitWebhookByTarget !== 'function') {
+      throw AppError.notFound('Not found');
+    }
+    const expected = env.META_WEBHOOK_VERIFY_TOKEN;
+    const provided = query['hub.verify_token'];
+    if (
+      !expected ||
+      query['hub.mode'] !== 'subscribe' ||
+      typeof provided !== 'string' ||
+      !safeEqualStrings(provided, expected)
+    ) {
+      throw AppError.forbidden('Verification failed');
+    }
+    return { verified: true, challenge: query['hub.challenge'] ?? '' };
+  },
+
+  /**
+   * POST ingest for the SHARED endpoint.
+   *
+   * A Meta app has ONE callback URL for every customer it serves, so the URL
+   * names no account and the payload has to say who it is for. One POST may
+   * legitimately carry entries for several tenants, so the body is split per
+   * entry, each slice resolved to its own account, and each parsed in isolation
+   * — a tenant can never see another tenant's events.
+   *
+   * The signature is verified ONCE against the platform app secret, because the
+   * platform app is what signed it. Unresolvable entries are counted as ignored
+   * and acknowledged: answering an error would make Meta retry forever and
+   * eventually disable the subscription for every other tenant too.
+   */
+  async handleIncomingShared(params: {
+    providerKey: string;
+    rawBody: Buffer;
+    body: unknown;
+    headers: Record<string, string | undefined>;
+    publicBaseUrl?: string;
+  }): Promise<WebhookProcessingResult> {
+    const { providerKey, rawBody, body, headers } = params;
+    const publicBaseUrl = params.publicBaseUrl ?? '';
+
+    const provider = channelRegistry.tryGet(providerKey);
+    if (!provider || typeof provider.splitWebhookByTarget !== 'function') {
+      throw AppError.notFound('Not found');
+    }
+
+    const appSecret = env.META_APP_SECRET;
+    if (!appSecret || !env.META_WEBHOOK_VERIFY_TOKEN) {
+      // Not configured for shared delivery: refuse rather than accept unsigned
+      // traffic on a URL that fans out to every tenant.
+      throw AppError.notFound('Not found');
+    }
+
+    if (typeof provider.validateSharedWebhookSignature !== 'function') {
+      throw AppError.notFound('Not found');
+    }
+    const signatureOk = await provider.validateSharedWebhookSignature({
+      rawBody,
+      headers,
+      appSecret,
+    });
+    if (!signatureOk) throw AppError.unauthorized('Invalid signature');
+
+    const total: WebhookProcessingResult = {
+      acknowledged: true,
+      processed: 0,
+      duplicates: 0,
+      ignored: 0,
+      failed: 0,
+    };
+
+    for (const group of provider.splitWebhookByTarget(body)) {
+      // eslint-disable-next-line no-await-in-loop
+      const account = await channelsRepository.findForSharedWebhook(
+        providerKey,
+        group.externalIds,
+      );
+      if (!account) {
+        total.ignored += 1;
+        logger.info('webhook.shared.unresolved', {
+          providerKey,
+          // Ids only — a Page id is not a secret and this is the one field that
+          // makes "why did nothing arrive?" answerable.
+          externalIds: group.externalIds,
+        });
+        continue;
+      }
+      // eslint-disable-next-line no-await-in-loop
+      const credentials = provider.requiresCredentials
+        ? await channelCredentialsService.load(account.companyId, account.id)
+        : null;
+      // eslint-disable-next-line no-await-in-loop
+      const result = await this.ingest(
+        provider,
+        account,
+        providerKey,
+        rawBody,
+        group.body,
+        headers,
+        credentials,
+        publicBaseUrl,
+      );
+      total.processed += result.processed;
+      total.duplicates += result.duplicates;
+      total.ignored += result.ignored;
+      total.failed += result.failed;
+    }
+
+    return total;
   },
 
   /**

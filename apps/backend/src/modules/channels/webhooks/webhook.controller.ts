@@ -31,6 +31,27 @@ export const webhookController = {
     res.status(200).type('text/plain').send(outcome.challenge);
   },
 
+  /** GET: verification challenge for the SHARED (account-less) endpoint. */
+  async verifyShared(req: Request, res: Response): Promise<void> {
+    const outcome = webhookService.verifyShared(
+      req.params.providerKey,
+      queryMap(req),
+    );
+    res.status(200).type('text/plain').send(outcome.challenge);
+  },
+
+  /** POST: event ingest for the SHARED (account-less) endpoint. */
+  async receiveShared(req: Request, res: Response): Promise<void> {
+    const result = await webhookService.handleIncomingShared({
+      providerKey: req.params.providerKey,
+      rawBody: req.rawBody ?? Buffer.from(''),
+      body: req.body,
+      headers: headerMap(req),
+      publicBaseUrl: `${req.protocol}://${req.get('host')}`,
+    });
+    sendSuccess(res, result, 'Webhook received');
+  },
+
   /** POST: event ingest. */
   async receive(req: Request, res: Response): Promise<void> {
     const result = await webhookService.handleIncoming({

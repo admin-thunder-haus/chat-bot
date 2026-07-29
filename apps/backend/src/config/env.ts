@@ -414,6 +414,14 @@ const envSchema = z.object({
   // Where the browser is redirected after the OAuth callback completes.
   FRONTEND_APP_URL: z.string().url().default('http://localhost:3000'),
 
+  // Verify token for the SHARED Meta webhook endpoints
+  // (/api/v1/webhooks/{facebook,instagram,whatsapp} with no account id).
+  // A Meta app has ONE callback URL for every tenant it serves, so this is a
+  // PLATFORM-level secret set once here and once in the Meta dashboard —
+  // customers never see or configure it. Unset = the shared endpoints stay off
+  // and every channel keeps using its own per-account URL.
+  META_WEBHOOK_VERIFY_TOKEN: z.string().optional(),
+
   // --- Day 12: AI actions ---
   // Master switch for AI-performed business actions (appointments, orders,
   // support tickets, availability lookups). Validated here; READ LAZILY via

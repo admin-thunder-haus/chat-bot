@@ -27,6 +27,10 @@ import { NO_CAPABILITIES } from '../channel-provider.interface';
 import { instagramApiClient } from './instagram-api-client';
 import { normalizeInstagramWebhook } from './instagram-normalizer';
 import type { InstagramConfig, InstagramCredentials } from './instagram.types';
+import {
+  splitMetaMessagingWebhook,
+  validateMetaSharedSignature,
+} from '../meta-webhook-routing';
 
 export const INSTAGRAM_PROVIDER_KEY = 'instagram';
 export const INSTAGRAM_SIGNATURE_HEADER = 'x-hub-signature-256';
@@ -189,6 +193,20 @@ export class InstagramChannelProvider implements ChannelProvider {
   }
 
   // --- Webhook parsing (defensive; never throws on unknown fields) ---------
+
+  /** Route a shared-endpoint payload to the right tenant (see the interface). */
+  /** Shared endpoint authenticates the PLATFORM app, not a tenant. */
+  async validateSharedWebhookSignature(input: {
+    rawBody: Buffer;
+    headers: Record<string, string | undefined>;
+    appSecret: string;
+  }): Promise<boolean> {
+    return validateMetaSharedSignature(input);
+  }
+
+  splitWebhookByTarget(body: unknown) {
+    return splitMetaMessagingWebhook(body);
+  }
 
   async parseWebhook(input: RawWebhookInput): Promise<NormalizedChannelEvent[]> {
     try {

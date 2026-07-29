@@ -143,6 +143,21 @@ export interface RawWebhookInput {
   credentials?: ProviderCredentials | null;
 }
 
+/**
+ * One destination account's slice of a shared webhook payload.
+ *
+ * `externalIds` are CANDIDATES, not a single key: the same account is
+ * identified by different ids depending on the provider and the event (a
+ * WhatsApp payload carries both the phone number id and the WABA id, and only
+ * one of them matches the stored account). The engine resolves an account by
+ * matching ANY of them, scoped to the provider.
+ */
+export interface WebhookTargetGroup {
+  externalIds: string[];
+  /** Only this account's entries — never the whole original payload. */
+  body: unknown;
+}
+
 /** Input to send an outbound message through the provider. */
 export interface ChannelSendMessageInput {
   channelType: ChannelType;
@@ -267,6 +282,38 @@ export interface ChannelProvider {
   validateWebhookSignature(input: WebhookSignatureInput): Promise<boolean>;
 
   parseWebhook(input: RawWebhookInput): Promise<NormalizedChannelEvent[]>;
+
+  /**
+   * Split a raw webhook body into one group per destination account, for the
+   * SHARED (account-less) webhook endpoint.
+   *
+   * Only providers reached through a single platform-owned app need this. Meta
+   * is the case that forces it: an app has ONE callback URL for all of its
+   * customers, so the account cannot come from the URL — it has to be derived
+   * from the payload. Each group carries the provider-side ids that identify
+   * the account (Page id, Instagram account id, WhatsApp phone number / WABA
+   * id) plus the sub-body holding only that account's entries, so one tenant's
+   * events can never be parsed under another's account.
+   *
+   * Providers that are always connected per-tenant (Telegram, Web Chat) omit
+   * this and keep using the per-account URL.
+   */
+  splitWebhookByTarget?(body: unknown): WebhookTargetGroup[];
+
+  /**
+   * Validate a SHARED-endpoint signature against the PLATFORM app secret.
+   *
+   * Separate from `validateWebhookSignature`, which authenticates using a
+   * tenant's stored credentials. On the shared endpoint there is no tenant yet
+   * — the payload has not been routed, and routing it before checking the
+   * signature would mean trusting an unverified body to pick whose account to
+   * load. Implemented only by providers that offer splitWebhookByTarget.
+   */
+  validateSharedWebhookSignature?(input: {
+    rawBody: Buffer;
+    headers: Record<string, string | undefined>;
+    appSecret: string;
+  }): Promise<boolean>;
 
   sendMessage(
     input: ChannelSendMessageInput,

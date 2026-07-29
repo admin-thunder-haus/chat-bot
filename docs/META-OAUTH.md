@@ -142,17 +142,62 @@ platform app; customers never create apps).
    under WhatsApp → Embedded Signup, create a configuration and copy its id.
    Its permissions must include `whatsapp_business_management` and
    `whatsapp_business_messaging`.
-5. **Webhooks**: configure the Webhooks product with the callback URLs this
-   platform already exposes per channel account
-   (`/api/v1/webhooks/<provider>/<channelAccountId>` — shown in the dashboard
-   after connecting) and subscribe to the `messages` fields for Page,
-   Instagram, and WhatsApp Business Account objects. The OAuth flow calls
-   `subscribed_apps` automatically, but the app-level webhook endpoint +
-   verify token must exist once in the Meta dashboard.
+5. **Webhooks**: use the SHARED endpoints (see below). Set the callback URL and
+   the verify token ONCE per object type and never touch them again — they do
+   not contain a channel account id, so they serve every customer. Subscribe to
+   the `messages` field for the Page, Instagram, and WhatsApp Business Account
+   objects. The OAuth flow calls `subscribed_apps` per connected asset
+   automatically; the app-level callback URL + verify token are what tell Meta
+   where to deliver.
 6. **App Review / Live mode**: to connect assets owned by arbitrary customers,
    the app must be in **Live** mode with Advanced Access approved for the
    permissions above. In Development mode only assets owned by app
    roles/testers connect.
+
+## Webhooks: one URL for every customer
+
+A Meta app has exactly **one** callback URL per object type, shared by every
+business that connects through it. The per-account URL
+(`/api/v1/webhooks/<provider>/<channelAccountId>`) therefore cannot be used
+with one-click connect: it is pinned to a single tenant, so the second customer
+to connect would have their messages delivered to the first customer's account —
+or dropped.
+
+So Meta-owned providers also expose an **account-less** endpoint:
+
+```
+https://<your-backend-host>/api/v1/webhooks/facebook
+https://<your-backend-host>/api/v1/webhooks/instagram
+https://<your-backend-host>/api/v1/webhooks/whatsapp
+```
+
+with a single platform verify token, `META_WEBHOOK_VERIFY_TOKEN`.
+
+The account is resolved from the payload rather than the URL:
+
+| Provider | Matched against the stored account |
+| --- | --- |
+| Messenger | `entry[].id` (Page id) |
+| Instagram | `entry[].id` (Instagram account id) |
+| WhatsApp | `entry[].changes[].value.metadata.phone_number_id`, then `entry[].id` (WABA) |
+
+Because one POST may legitimately batch entries for several tenants, the body is
+**split per entry** and each slice is resolved and parsed on its own — one
+tenant's events can never be parsed under another's account. Entries for a
+target nobody has connected are logged (`webhook.shared.unresolved`) and
+acknowledged: returning an error would make Meta retry forever and eventually
+disable the subscription for **every** tenant.
+
+Signature verification uses `META_APP_SECRET` — the platform app signed the
+request, and there is no tenant to check against until the payload has been
+routed. With either `META_APP_SECRET` or `META_WEBHOOK_VERIFY_TOKEN` unset the
+shared endpoints answer 404 rather than accepting unsigned traffic on a URL that
+fans out to every customer.
+
+**The per-account endpoint is unchanged.** A customer connecting manually with
+their own Meta app keeps their own URL, their own verify token and their own app
+secret. Only Meta providers implement shared routing; Telegram and Web Chat stay
+per-account.
 
 ## Safe error codes
 

@@ -35,6 +35,7 @@ import {
   splitWhatsAppWebhook,
   validateMetaSharedSignature,
 } from '../meta-webhook-routing';
+import { interpretSubscribedApps } from '../meta-webhook-routing';
 
 export const WHATSAPP_PROVIDER_KEY = 'whatsapp';
 export const WHATSAPP_SIGNATURE_HEADER = 'x-hub-signature-256';
@@ -229,6 +230,22 @@ export class WhatsAppChannelProvider implements ChannelProvider {
       accessToken: creds.accessToken,
       nodeId: wabaId,
     });
+  }
+
+  /** Is this WABA subscribed to send us webhooks? (see interface) */
+  async checkInboundReadiness(input: {
+    externalAccountId: string | null;
+    externalPageId: string | null;
+    credentials: ProviderCredentials | null;
+  }): Promise<{ ready: boolean | null; detail?: string }> {
+    const creds = asCredentials(input.credentials);
+    const wabaId = str(input.externalPageId);
+    if (!creds || !wabaId) return { ready: null, detail: 'NOT_CONFIGURED' };
+    const ids = await whatsAppApiClient.getSubscribedAppIds({
+      accessToken: creds.accessToken,
+      nodeId: wabaId,
+    });
+    return interpretSubscribedApps(ids);
   }
 
   async parseWebhook(input: RawWebhookInput): Promise<NormalizedChannelEvent[]> {

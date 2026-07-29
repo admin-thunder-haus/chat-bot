@@ -335,6 +335,24 @@ export interface ChannelProvider {
     credentials: ProviderCredentials | null;
   }): Promise<{ ok: boolean; detail?: string }>;
 
+  /**
+   * Can this account RECEIVE? The other half of `checkConnection`.
+   *
+   * `checkConnection` proves we can call the provider. It says nothing about
+   * whether the provider calls us, so a channel whose webhook subscription is
+   * missing passes every check, sends fine, and never receives anything. That
+   * gap is why a broken channel could sit at HEALTHY for an hour.
+   *
+   * Returns `ready: null` for "cannot tell" — an unknown must stay unknown
+   * rather than be reported as broken. A health signal that cries wolf is worth
+   * less than no signal at all.
+   */
+  checkInboundReadiness?(input: {
+    externalAccountId: string | null;
+    externalPageId: string | null;
+    credentials: ProviderCredentials | null;
+  }): Promise<{ ready: boolean | null; detail?: string }>;
+
   sendMessage(
     input: ChannelSendMessageInput,
   ): Promise<ChannelSendMessageResult>;

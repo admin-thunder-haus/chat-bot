@@ -25,6 +25,8 @@ export function makeWhatsAppTransport(
     check?: () => { status: number; ok: boolean; json: unknown };
     /** POST /{waba}/subscribed_apps — connect-time webhook subscription. */
     subscribe?: () => { status: number; ok: boolean; json: unknown };
+    /** GET /{waba}/subscribed_apps — inbound-readiness probe. */
+    subscribedApps?: () => { status: number; ok: boolean; json: unknown };
   } = {},
 ): { transport: WhatsAppTransport; calls: { method: string; url: string }[] } {
   const calls: { method: string; url: string }[] = [];
@@ -32,6 +34,15 @@ export function makeWhatsAppTransport(
     async request(input) {
       calls.push({ method: input.method, url: input.url });
       if (input.url.includes('/subscribed_apps')) {
+        if (input.method === 'GET') {
+          return (
+            overrides.subscribedApps?.() ?? {
+              status: 200,
+              ok: true,
+              json: { data: [] },
+            }
+          );
+        }
         return (
           overrides.subscribe?.() ?? { status: 200, ok: true, json: { success: true } }
         );

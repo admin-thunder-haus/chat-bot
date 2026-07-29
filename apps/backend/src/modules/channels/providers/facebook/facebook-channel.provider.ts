@@ -31,6 +31,7 @@ import {
   splitMetaMessagingWebhook,
   validateMetaSharedSignature,
 } from '../meta-webhook-routing';
+import { interpretSubscribedApps } from '../meta-webhook-routing';
 
 export const FACEBOOK_PROVIDER_KEY = 'facebook';
 export const FACEBOOK_SIGNATURE_HEADER = 'x-hub-signature-256';
@@ -183,6 +184,22 @@ export class FacebookChannelProvider implements ChannelProvider {
       nodeId: pageId,
       subscribedFields: 'messages',
     });
+  }
+
+  /** Is this Page actually subscribed to send us webhooks? (see interface) */
+  async checkInboundReadiness(input: {
+    externalAccountId: string | null;
+    externalPageId: string | null;
+    credentials: ProviderCredentials | null;
+  }): Promise<{ ready: boolean | null; detail?: string }> {
+    const creds = asCredentials(input.credentials);
+    const pageId = str(input.externalAccountId);
+    if (!creds || !pageId) return { ready: null, detail: 'NOT_CONFIGURED' };
+    const ids = await facebookApiClient.getSubscribedAppIds({
+      accessToken: creds.accessToken,
+      nodeId: pageId,
+    });
+    return interpretSubscribedApps(ids);
   }
 
   async parseWebhook(input: RawWebhookInput): Promise<NormalizedChannelEvent[]> {

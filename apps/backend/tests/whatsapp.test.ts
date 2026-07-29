@@ -328,3 +328,111 @@ describe('WhatsApp — connect subscribes the WABA to our app', () => {
     );
   });
 });
+
+/**
+ * Regression: a health check must report INBOUND readiness separately.
+ *
+ * `checkConnection` only proves we can call Meta. A channel whose WABA is not
+ * subscribed to our app sends fine and receives nothing, yet reported HEALTHY —
+ * which is exactly why a broken channel went unnoticed for an hour. The signal
+ * is reported alongside connectionState, never merged into it: a legacy channel
+ * connected with the customer's own Meta app would otherwise start alarming.
+ */
+describe('WhatsApp — health check reports inbound readiness', () => {
+  const APP_ID = '2235812173866533';
+
+  afterEach(() => {
+    delete process.env.META_APP_ID;
+  });
+
+  async function runHealth(accountId: string) {
+    return request(app)
+      .post(`/api/v1/channels/${accountId}/health-check`)
+      .set(authHeader(acme.tokens.owner));
+  }
+
+  it('reports ready when OUR app is subscribed to the WABA', async () => {
+    process.env.META_APP_ID = APP_ID;
+    setWhatsAppTransportForTesting(
+      makeWhatsAppTransport({
+        subscribedApps: () => ({
+          status: 200,
+          ok: true,
+          json: { data: [{ whatsapp_business_api_data: { id: APP_ID } }] },
+        }),
+      }).transport,
+    );
+    const connected = await connectWhatsApp(app, acme.tokens.owner);
+    const res = await runHealth(connected.body.data.account.id);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.account.inbound.ready).toBe(true);
+  });
+
+  it('reports NOT ready when only somebody else is subscribed', async () => {
+    // The real failure: the WABA was subscribed to Meta's own test app and not
+    // to ours. A "list is non-empty" check would have called this healthy.
+    process.env.META_APP_ID = APP_ID;
+    setWhatsAppTransportForTesting(
+      makeWhatsAppTransport({
+        subscribedApps: () => ({
+          status: 200,
+          ok: true,
+          json: { data: [{ whatsapp_business_api_data: { id: '999999999' } }] },
+        }),
+      }).transport,
+    );
+    const connected = await connectWhatsApp(app, acme.tokens.owner);
+    const res = await runHealth(connected.body.data.account.id);
+
+    expect(res.body.data.account.inbound.ready).toBe(false);
+    expect(res.body.data.account.inbound.detail).toBe('APP_NOT_SUBSCRIBED');
+    // Outbound is fine, so the channel itself must NOT be marked down.
+    expect(res.body.data.account.connectionState).toBe('HEALTHY');
+  });
+
+  it('says "unknown" rather than "broken" when it cannot tell', async () => {
+    // No platform app id configured (a customer using their own Meta app), so
+    // our id is legitimately absent. Claiming failure here would be a false
+    // alarm, and one false alarm makes every later warning ignorable.
+    setWhatsAppTransportForTesting(
+      makeWhatsAppTransport({
+        subscribedApps: () => ({
+          status: 200,
+          ok: true,
+          json: { data: [{ whatsapp_business_api_data: { id: 'someone-else' } }] },
+        }),
+      }).transport,
+    );
+    const connected = await connectWhatsApp(app, acme.tokens.owner);
+    const res = await runHealth(connected.body.data.account.id);
+
+    expect(res.body.data.account.inbound.ready).toBeNull();
+  });
+
+  it('is conclusive when NOTHING is subscribed, even without an app id', async () => {
+    setWhatsAppTransportForTesting(
+      makeWhatsAppTransport({
+        subscribedApps: () => ({ status: 200, ok: true, json: { data: [] } }),
+      }).transport,
+    );
+    const connected = await connectWhatsApp(app, acme.tokens.owner);
+    const res = await runHealth(connected.body.data.account.id);
+
+    expect(res.body.data.account.inbound.ready).toBe(false);
+    expect(res.body.data.account.inbound.detail).toBe('NO_SUBSCRIBERS');
+  });
+
+  it('stays "unknown" when the subscription lookup itself fails', async () => {
+    process.env.META_APP_ID = APP_ID;
+    setWhatsAppTransportForTesting(
+      makeWhatsAppTransport({
+        subscribedApps: () => ({ status: 500, ok: false, json: null }),
+      }).transport,
+    );
+    const connected = await connectWhatsApp(app, acme.tokens.owner);
+    const res = await runHealth(connected.body.data.account.id);
+
+    expect(res.body.data.account.inbound.ready).toBeNull();
+  });
+});

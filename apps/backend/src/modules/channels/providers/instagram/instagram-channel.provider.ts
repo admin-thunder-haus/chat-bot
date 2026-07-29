@@ -31,6 +31,7 @@ import {
   splitMetaMessagingWebhook,
   validateMetaSharedSignature,
 } from '../meta-webhook-routing';
+import { interpretSubscribedApps } from '../meta-webhook-routing';
 
 export const INSTAGRAM_PROVIDER_KEY = 'instagram';
 export const INSTAGRAM_SIGNATURE_HEADER = 'x-hub-signature-256';
@@ -224,6 +225,22 @@ export class InstagramChannelProvider implements ChannelProvider {
       nodeId,
       subscribedFields: 'messages',
     });
+  }
+
+  /** Is the linked Page subscribed to send us webhooks? (see interface) */
+  async checkInboundReadiness(input: {
+    externalAccountId: string | null;
+    externalPageId: string | null;
+    credentials: ProviderCredentials | null;
+  }): Promise<{ ready: boolean | null; detail?: string }> {
+    const creds = asCredentials(input.credentials);
+    const nodeId = str(input.externalPageId) ?? str(input.externalAccountId);
+    if (!creds || !nodeId) return { ready: null, detail: 'NOT_CONFIGURED' };
+    const ids = await instagramApiClient.getSubscribedAppIds({
+      accessToken: creds.accessToken,
+      nodeId,
+    });
+    return interpretSubscribedApps(ids);
   }
 
   async parseWebhook(input: RawWebhookInput): Promise<NormalizedChannelEvent[]> {

@@ -327,4 +327,43 @@ export const facebookApiClient = {
     }
   },
 
+
+  /**
+   * Read which apps are subscribed to a node's webhooks.
+   *
+   * This is the INBOUND half of reachability. `checkConnection` only proves we
+   * can call Meta; it says nothing about whether Meta calls us, and a channel
+   * missing this subscription looks perfectly healthy while receiving nothing.
+   * Never throws — returns null when the answer cannot be determined, so an
+   * unknown stays unknown rather than becoming a false alarm.
+   */
+  async getSubscribedAppIds(input: {
+    accessToken: string;
+    nodeId: string;
+  }): Promise<string[] | null> {
+    try {
+      const res = await transport.request({
+        url: graphUrl(`${encodeURIComponent(input.nodeId)}/subscribed_apps`),
+        method: 'GET',
+        accessToken: input.accessToken,
+        timeoutMs: env.FACEBOOK_API_TIMEOUT_MS,
+      });
+      if (!res.ok) return null;
+      const data = (res.json as { data?: unknown } | null)?.data;
+      if (!Array.isArray(data)) return null;
+      return data
+        .map((entry) => {
+          const rec = entry as Record<string, unknown>;
+          const nested = rec.whatsapp_business_api_data as
+            | Record<string, unknown>
+            | undefined;
+          const id = rec.id ?? nested?.id;
+          return typeof id === 'string' ? id : undefined;
+        })
+        .filter((v): v is string => Boolean(v));
+    } catch {
+      return null;
+    }
+  },
+
 };

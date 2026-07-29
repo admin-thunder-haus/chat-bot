@@ -21,6 +21,13 @@ import {
  * (access token, app secret, verify token) are sent ONCE to the backend,
  * encrypted at rest, and NEVER returned.
  */
+/** URL-safe random token, generated in the browser (never leaves this form). */
+function randomToken(): string {
+  const bytes = new Uint8Array(24);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 export function WhatsAppConnectModal({
   open,
   onClose,
@@ -51,6 +58,14 @@ export function WhatsAppConnectModal({
   // Reopening the dialog always starts on the recommended one-click path.
   useEffect(() => {
     if (!open) setManualOpen(false);
+  }, [open]);
+
+  // Give the verify token a value the operator never has to think about. It is
+  // a secret WE choose and hand to Meta, not one Meta gives us, so an empty
+  // required field just invites a guess (or a real secret pasted in by mistake).
+  useEffect(() => {
+    if (!open) return;
+    setForm((f) => (f.verifyToken ? f : { ...f, verifyToken: randomToken() }));
   }, [open]);
 
   const showManual = !oauthAvailable || manualOpen;
@@ -233,13 +248,22 @@ export function WhatsAppConnectModal({
                   </Label>
                   <Input
                     id="wa-verify"
-                    type="password"
+                    type="text"
                     autoComplete="off"
                     value={form.verifyToken}
                     disabled={saving}
                     invalid={Boolean(fieldErrors.verifyToken)}
                     onChange={(e) => set('verifyToken', e.target.value)}
                   />
+                  {/* This field used to be an empty required box with no way to
+                      know what belongs in it — the value is ours to choose, not
+                      something Meta hands you. Pre-filling removes the decision
+                      entirely; the note says why it usually does not matter. */}
+                  <p className="mt-1 text-xs text-slate-500">
+                    Generated for you. Only used if you point Meta&apos;s webhook at
+                    this channel&apos;s own URL — with the shared webhook, leave it
+                    as is.
+                  </p>
                   <FieldError message={fieldErrors.verifyToken} />
                 </div>
               </div>

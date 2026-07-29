@@ -81,6 +81,37 @@ export function validateMetaSharedSignature(input: {
   return timingSafeEqual(provided, expected);
 }
 
+/**
+ * Turn a node's subscribed-app list into an inbound-readiness verdict.
+ *
+ * Membership is checked against META_APP_ID, not merely "the list is non-empty".
+ * The real failure looked like this: the WABA was subscribed to Meta's own
+ * `WA DevX Webhook Events 1P App` and not to ours, so a non-empty list would
+ * have reported everything fine while nothing was delivered.
+ *
+ * Returns null — "cannot tell" — rather than false whenever the answer is
+ * genuinely unknown: the API call failed, or no app id is configured (which is
+ * normal for a customer connecting with their own Meta app, where our id would
+ * legitimately be absent). Reporting those as broken would be a false alarm,
+ * and one false alarm makes every later warning ignorable.
+ */
+export function interpretSubscribedApps(
+  ids: string[] | null,
+): { ready: boolean | null; detail?: string } {
+  if (ids === null) return { ready: null, detail: 'UNKNOWN' };
+  const appId = process.env.META_APP_ID;
+  if (!appId) {
+    // No platform app to look for. An empty list is still conclusive: nothing
+    // at all is subscribed, so nothing can possibly be delivered.
+    return ids.length === 0
+      ? { ready: false, detail: 'NO_SUBSCRIBERS' }
+      : { ready: null, detail: 'UNKNOWN' };
+  }
+  return ids.includes(appId)
+    ? { ready: true }
+    : { ready: false, detail: 'APP_NOT_SUBSCRIBED' };
+}
+
 /** Messenger / Instagram: the entry id IS the Page / Instagram account id. */
 export function splitMetaMessagingWebhook(body: unknown): WebhookTargetGroup[] {
   return splitMetaWebhookByEntry(body, (entry) => [str(entry.id)]);

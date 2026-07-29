@@ -135,6 +135,16 @@ export interface HealthTransition {
  * health score + connection state, are recorded in an append-only history, and
  * surface degradation/recovery — without ever exposing provider internals.
  */
+/**
+ * A health-check result: the account as usual, plus whether the provider can
+ * actually reach US. The two are deliberately separate — outbound and inbound
+ * fail independently, and a channel that sends but cannot receive was
+ * previously indistinguishable from a fully working one.
+ */
+export interface ChannelHealthCheckView extends ChannelAccountView {
+  inbound: { ready: boolean | null; detail: string | null };
+}
+
 export const channelHealthService = {
   /**
    * Fold a delivery outcome into the account's health. Runs INSIDE the delivery
@@ -223,7 +233,7 @@ export const channelHealthService = {
     companyId: string,
     channelAccountId: string,
     actorUserId: string,
-  ): Promise<ChannelAccountView> {
+  ): Promise<ChannelHealthCheckView> {
     const account = await channelsRepository.findByIdScoped(
       companyId,
       channelAccountId,
@@ -266,6 +276,34 @@ export const channelHealthService = {
           companyId,
           channelAccountId,
           error: err instanceof Error ? err.message : 'unknown',
+        });
+      }
+    }
+
+    // INBOUND readiness, reported separately from connectionState on purpose.
+    // Folding it in would mean a legacy channel connected with the customer's
+    // own Meta app (where our app id is legitimately absent) starts alarming.
+    // The operator needs to see "sends fine, cannot receive" as its own fact.
+    let inbound: { ready: boolean | null; detail?: string } = { ready: null };
+    if (provider && typeof provider.checkInboundReadiness === 'function') {
+      try {
+        const credentials = provider.requiresCredentials
+          ? await channelCredentialsService.load(companyId, account.id)
+          : null;
+        inbound = await provider.checkInboundReadiness({
+          externalAccountId: account.externalAccountId,
+          externalPageId: account.externalPageId,
+          credentials,
+        });
+      } catch {
+        inbound = { ready: null, detail: 'UNKNOWN' };
+      }
+      if (inbound.ready === false) {
+        logger.warn('channel.inbound.notReady', {
+          companyId,
+          channelAccountId,
+          providerKey: account.providerKey,
+          detail: inbound.detail,
         });
       }
     }
@@ -346,7 +384,12 @@ export const channelHealthService = {
       );
     }
 
-    return serializeChannelAccount(updated as ChannelAccount);
+    return {
+      ...serializeChannelAccount(updated as ChannelAccount),
+      // Reported alongside connectionState, never merged into it. `null` means
+      // "could not determine", which is different from "not ready".
+      inbound: { ready: inbound.ready, detail: inbound.detail ?? null },
+    };
   },
 
   /**

@@ -165,6 +165,29 @@ describe('Facebook — health, hard-delete, isolation', () => {
     expect(JSON.stringify(diag.body)).not.toContain(FB.accessToken);
   });
 
+  it('probes subscribed_apps, NOT the Page node, so it needs no extra permission', async () => {
+    // Regression. The check used to read `GET /{page-id}?fields=id,name`, which
+    // requires `pages_read_engagement` — a permission a messaging integration
+    // never otherwise needs. A Page that could send and receive perfectly well
+    // was reported UNAVAILABLE just for asking its name, and because a flip to
+    // UNAVAILABLE raises a SYSTEM_ALERT, that false negative pages the owner
+    // about a healthy channel. Found against the real Graph API, not a mock.
+    const { transport, calls } = makeFacebookTransport();
+    setFacebookTransportForTesting(transport);
+    const id = await connectedAccountId(acme);
+
+    calls.length = 0;
+    const health = await request(app)
+      .post(`/api/v1/channels/${id}/health-check`)
+      .set(authHeader(acme.tokens.owner));
+    expect(health.body.data.account.connectionState).toBe('HEALTHY');
+
+    const probes = calls.filter((c) => c.method === 'GET');
+    expect(probes).not.toHaveLength(0);
+    expect(probes.every((c) => c.url.includes('/subscribed_apps'))).toBe(true);
+    expect(probes.some((c) => c.url.includes('fields=id,name'))).toBe(false);
+  });
+
   it('permanently deletes a channel, freeing the slot to reconnect the same Page', async () => {
     const id = await connectedAccountId(acme);
     // Duplicate connect is blocked while it exists.

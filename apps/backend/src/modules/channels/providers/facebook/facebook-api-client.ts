@@ -8,7 +8,6 @@ import {
 } from './facebook-error-classifier';
 import type {
   FacebookConversationsResponse,
-  FacebookPageResponse,
   FacebookSendResponse,
 } from './facebook.types';
 
@@ -256,22 +255,38 @@ export const facebookApiClient = {
     }
   },
 
-  /** Validate the connection by reading the Page node. Never throws. */
+  /**
+   * Validate the connection by reading the Page's subscribed apps. Never throws.
+   *
+   * NOT `GET /{page-id}?fields=id,name`, which is the obvious choice and is
+   * wrong: reading the Page node requires `pages_read_engagement`, a permission
+   * a messaging integration never otherwise needs. A Page that could send and
+   * receive messages perfectly well was reported UNAVAILABLE purely because we
+   * asked for its name — and since a flip to UNAVAILABLE raises a SYSTEM_ALERT,
+   * that false negative pages the owner about a healthy channel. One false
+   * alarm is enough to make every later alert ignorable.
+   *
+   * `/{page-id}/subscribed_apps` needs only `pages_manage_metadata`, which the
+   * integration already requires, and it is the stronger signal anyway: it
+   * proves the token still controls the Page (403/190 otherwise) AND that the
+   * webhook subscription behind inbound messages is still readable.
+   */
   async checkPage(input: {
     accessToken: string;
     pageId: string;
   }): Promise<FacebookConnectionOutcome> {
     try {
       const res = await transport.request({
-        url: graphUrl(`${encodeURIComponent(input.pageId)}?fields=id,name`),
+        url: graphUrl(`${encodeURIComponent(input.pageId)}/subscribed_apps`),
         method: 'GET',
         accessToken: input.accessToken,
         timeoutMs: env.FACEBOOK_API_TIMEOUT_MS,
       });
       if (res.ok) {
-        // A 200 proves the token controls this Page (403 otherwise).
-        const j = res.json as FacebookPageResponse | null;
-        return { state: 'HEALTHY', name: j?.name ?? null };
+        // A 200 proves the token controls this Page (403 otherwise). The Page
+        // name is not read here — no caller uses it, and fetching it is exactly
+        // what needed the extra permission.
+        return { state: 'HEALTHY', name: null };
       }
       const c = classifyFacebookHttp(res.status, res.json);
       return { state: stateFromCategory(c.category), code: c.code, reason: describeMetaError(res.json, safeFacebookReason(c.category)) };

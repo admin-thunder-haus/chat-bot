@@ -4,7 +4,7 @@
  * exposes a helper to reset the database between tests.
  *
  * A dedicated TEST database must be reachable via TEST_DATABASE_URL (falls back
- * to a local Postgres on port 5433). NEVER point this at the dev database.
+ * to a local Postgres on port 5435). NEVER point this at the dev database.
  */
 
 process.env.NODE_ENV = 'test';
@@ -44,7 +44,7 @@ process.env.WIDGET_SESSION_SECRET =
 process.env.DATABASE_URL =
   process.env.TEST_DATABASE_URL ??
   process.env.DATABASE_URL ??
-  'postgresql://postgres:postgres@localhost:5433/ai_support_test?schema=public';
+  'postgresql://postgres:postgres@localhost:5435/ai_support_test?schema=public';
 
 // Import after env is configured so the env validation sees the test values.
 // eslint-disable-next-line @typescript-eslint/no-var-requires

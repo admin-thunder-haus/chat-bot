@@ -1909,7 +1909,7 @@ Then open:
 
 - Frontend → <http://localhost:3000>
 - Backend  → <http://localhost:4000>
-- Postgres → `localhost:5433` (host) / `postgres:5432` (inside the network)
+- Postgres → `localhost:5435` (host) / `postgres:5432` (inside the network)
 
 Migrations run automatically inside the backend container on startup
 (`prisma migrate deploy` — it **applies** committed migrations and **never**
@@ -1932,7 +1932,7 @@ docker compose down
 ## Local development (without Docker)
 
 ```bash
-# Start only Postgres (exposed on 5433 to avoid clashing with a local install)
+# Start only Postgres (exposed on 5435 to avoid clashing with a local install)
 docker compose up -d postgres
 
 # Backend
@@ -1967,7 +1967,7 @@ Copy `.env.example` → `.env` (root, used by Docker Compose). Key variables:
 | `NEXT_PUBLIC_API_URL` | Browser-facing backend URL | `http://localhost:4000` |
 | `DATABASE_URL` | Postgres connection string | `postgresql://postgres:postgres@postgres:5432/ai_support?schema=public` |
 | `POSTGRES_DB/USER/PASSWORD` | Postgres container credentials | `ai_support` / `postgres` / `postgres` |
-| `POSTGRES_HOST_PORT` | Host port mapped to Postgres | `5433` |
+| `POSTGRES_HOST_PORT` | Host port mapped to Postgres | `5435` |
 | `JWT_ACCESS_SECRET` | Access-token secret (≥ 32 chars) | *generate* |
 | `JWT_REFRESH_SECRET` | Refresh-token secret (≥ 32 chars, ≠ access) | *generate* |
 | `JWT_ACCESS_EXPIRES_IN` | Access-token lifetime | `15m` |
@@ -2066,13 +2066,13 @@ full profile, owner/admin/agent users, 3 services, 7 business-hour rows, 3 FAQs,
 ## Testing
 
 The suite uses **Jest + Supertest** and runs against a **separate test
-database** (`TEST_DATABASE_URL`, defaults to `ai_support_test` on port 5433).
+database** (`TEST_DATABASE_URL`, defaults to `ai_support_test` on port 5435).
 
 ```bash
 # 1. Ensure Postgres is running and the test DB exists + is migrated
 docker compose up -d postgres
 docker compose exec postgres psql -U postgres -c "CREATE DATABASE ai_support_test;"
-TEST_DATABASE_URL="postgresql://postgres:postgres@localhost:5433/ai_support_test?schema=public" \
+TEST_DATABASE_URL="postgresql://postgres:postgres@localhost:5435/ai_support_test?schema=public" \
   npm run prisma:migrate -w apps/backend   # apply schema to the test DB
 
 # 2. Run the tests
@@ -2102,7 +2102,7 @@ npm run e2e -w apps/frontend
 ```
 
 Deliberately **not** part of `npm test`. It needs a local backend on a local
-seeded database (`ai_support_e2e` on port 5433) and refuses to run against any
+seeded database (`ai_support_e2e` on port 5435) and refuses to run against any
 non-loopback URL — it writes real records, so it must never see the deployed
 backend or the Neon database. Playwright starts the frontend dev server itself.
 
@@ -2282,9 +2282,9 @@ The demo company is seeded with a full profile, 3 services, a 7-day schedule,
 
 ## Troubleshooting
 
-- **Port 5432/5433 already in use** — a local Postgres is running. This project
-  maps the container to host port **5433** by default; change
-  `POSTGRES_HOST_PORT` in `.env` if 5433 is also taken.
+- **Port 5432/5435 already in use** — a local Postgres is running. This project
+  maps the container to host port **5435** by default; change
+  `POSTGRES_HOST_PORT` in `.env` if 5435 is also taken.
 - **Backend exits with "Invalid environment configuration"** — set
   `JWT_ACCESS_SECRET` and `JWT_REFRESH_SECRET` (≥ 32 chars, different values) in
   `.env`.

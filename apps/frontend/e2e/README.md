@@ -40,7 +40,7 @@ Five steps. Run each from the **repo root** unless stated otherwise.
 docker start ai_support_postgres
 ```
 
-Postgres is exposed on `localhost:5433`. Create the e2e database once:
+Postgres is exposed on `localhost:5435`. Create the e2e database once:
 
 ```powershell
 docker exec ai_support_postgres psql -U postgres -c "CREATE DATABASE ai_support_e2e"
@@ -53,7 +53,7 @@ fall back to `apps/backend/.env`:
 
 ```powershell
 cd apps\backend
-$env:DATABASE_URL = "postgresql://postgres:postgres@localhost:5433/ai_support_e2e?schema=public"
+$env:DATABASE_URL = "postgresql://postgres:postgres@localhost:5435/ai_support_e2e?schema=public"
 $env:DIRECT_URL   = $env:DATABASE_URL
 npx prisma migrate deploy
 npm run prisma:seed
@@ -67,7 +67,7 @@ startup:
 
 ```powershell
 cd apps\backend
-$env:DATABASE_URL = "postgresql://postgres:postgres@localhost:5433/ai_support_e2e?schema=public"
+$env:DATABASE_URL = "postgresql://postgres:postgres@localhost:5435/ai_support_e2e?schema=public"
 $env:DIRECT_URL   = $env:DATABASE_URL
 $env:NODE_ENV     = "development"
 $env:BACKEND_PORT = "4000"

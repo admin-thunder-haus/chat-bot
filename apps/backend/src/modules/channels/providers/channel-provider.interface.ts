@@ -315,6 +315,26 @@ export interface ChannelProvider {
     appSecret: string;
   }): Promise<boolean>;
 
+  /**
+   * Subscribe our app to this account's webhook source, so inbound messages are
+   * actually delivered to us.
+   *
+   * Meta splits reachability in two: the app-level callback URL says WHERE
+   * events go, and this per-node subscription says WHICH nodes send them. A
+   * channel missing the second half connects fine, passes its health check and
+   * can send — and silently never receives anything. That combination is close
+   * to undebuggable from the dashboard, which is why this is part of connecting
+   * rather than something an operator is expected to know about.
+   *
+   * Best-effort by contract: returns an outcome instead of throwing, because a
+   * subscription failure must not discard credentials that are otherwise valid.
+   */
+  subscribeToWebhooks?(input: {
+    externalAccountId: string | null;
+    externalPageId: string | null;
+    credentials: ProviderCredentials | null;
+  }): Promise<{ ok: boolean; detail?: string }>;
+
   sendMessage(
     input: ChannelSendMessageInput,
   ): Promise<ChannelSendMessageResult>;

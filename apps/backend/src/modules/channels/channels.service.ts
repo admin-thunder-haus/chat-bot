@@ -2,7 +2,9 @@ import { Prisma } from '@prisma/client';
 import type { ChannelAccount } from '@prisma/client';
 import { prisma } from '../../config/prisma';
 import { AppError } from '../../utils/AppError';
+import { logger } from '../../utils/logger';
 import { isFakeChannelEnabled } from '../../config/env';
+import type { ChannelProvider } from './providers/channel-provider.interface';
 import { channelsRepository } from './channels.repository';
 import { channelRegistry } from './channel-registry';
 import { channelSecurityService } from './channel-security.service';
@@ -22,6 +24,71 @@ import type {
 } from './channels.validation';
 
 const MAX_METADATA_BYTES = 4_000;
+
+/**
+ * Subscribe our app to the newly-connected account's webhook source.
+ *
+ * Deliberately NON-FATAL: the credentials are already stored and valid, the
+ * channel can already send, and throwing here would roll a working connection
+ * back over a step that can be retried. But the failure is RECORDED rather than
+ * swallowed — a silent miss here is what makes a channel look healthy while
+ * receiving nothing, which is precisely the failure this function exists to
+ * prevent.
+ *
+ * Providers without the capability (Telegram registers its own webhook at
+ * connect time; Web Chat has none) are skipped without noise.
+ */
+async function subscribeToWebhooksSafely(
+  provider: ChannelProvider,
+  companyId: string,
+  channelAccountId: string,
+  actorUserId: string,
+  input: {
+    externalAccountId: string | null;
+    externalPageId: string | null;
+    credentials: Record<string, unknown>;
+  },
+): Promise<void> {
+  if (typeof provider.subscribeToWebhooks !== 'function') return;
+
+  let outcome: { ok: boolean; detail?: string };
+  try {
+    outcome = await provider.subscribeToWebhooks({
+      externalAccountId: input.externalAccountId,
+      externalPageId: input.externalPageId,
+      credentials: input.credentials as never,
+    });
+  } catch (err) {
+    outcome = {
+      ok: false,
+      detail: err instanceof Error ? err.message.slice(0, 80) : 'unknown',
+    };
+  }
+
+  if (!outcome.ok) {
+    logger.warn('channel.webhookSubscription.failed', {
+      companyId,
+      channelAccountId,
+      providerKey: provider.key,
+      detail: outcome.detail,
+    });
+  }
+
+  try {
+    await channelsRepository.logChannelActivity(prisma, {
+      companyId,
+      channelAccountId,
+      actorUserId,
+      activityType: 'CHANNEL_ACCOUNT_UPDATED',
+      metadata: {
+        webhookSubscription: outcome.ok ? 'subscribed' : 'failed',
+        ...(outcome.detail ? { detail: outcome.detail } : {}),
+      },
+    });
+  } catch {
+    /* audit only — never let it affect the connect result */
+  }
+}
 
 function assertMetadataSize(metadata: unknown): void {
   if (metadata === undefined) return;
@@ -301,6 +368,17 @@ export const channelsService = {
       }
       throw err;
     }
+
+    // Wire inbound delivery. The OAuth flow has always done this; the manual
+    // flow never did, so a manually-connected Meta channel connected cleanly,
+    // reported HEALTHY, sent messages fine — and silently received nothing,
+    // with no error anywhere to explain it. Doing it here means both paths
+    // produce a channel that actually works in both directions.
+    await subscribeToWebhooksSafely(provider, companyId, accountId, actorUserId, {
+      externalAccountId: prep.externalAccountId ?? null,
+      externalPageId: prep.externalPageId ?? null,
+      credentials: prep.secretCredentials,
+    });
 
     const account = await channelsRepository.findByIdScoped(companyId, accountId);
     return serializeChannelAccount(account as ChannelAccount);

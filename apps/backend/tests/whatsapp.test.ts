@@ -277,3 +277,54 @@ describe('WhatsApp — health, diagnostics, tenant isolation', () => {
     expect(await prisma.message.count({ where: { companyId: globex.company.id } })).toBe(0);
   });
 });
+
+/**
+ * Regression: connecting must also SUBSCRIBE our app to the WABA.
+ *
+ * Meta splits reachability in two — the app-level callback URL says where
+ * events go, the per-WABA subscription says which accounts send them. The
+ * manual connect path used to do only the first half, so a channel connected
+ * cleanly, reported HEALTHY, sent messages fine and silently received nothing.
+ * That cost a live debugging session to find, because nothing anywhere was an
+ * error.
+ */
+describe('WhatsApp — connect subscribes the WABA to our app', () => {
+  it('POSTs to /{waba-id}/subscribed_apps during a manual connect', async () => {
+    const { transport, calls } = makeWhatsAppTransport();
+    setWhatsAppTransportForTesting(transport);
+
+    const res = await connectWhatsApp(app, acme.tokens.owner);
+    expect(res.status).toBe(201);
+
+    const subscribe = calls.filter(
+      (c) => c.method === 'POST' && c.url.includes('/subscribed_apps'),
+    );
+    expect(subscribe).toHaveLength(1);
+    // The WABA, not the phone number: WhatsApp subscribes the business account.
+    expect(subscribe[0].url).toContain(WA.wabaId);
+  });
+
+  it('still connects when the subscription call fails, and records why', async () => {
+    // A subscription failure must not discard credentials that are valid — but
+    // it must not vanish either, or we are back to the silent channel.
+    const { transport } = makeWhatsAppTransport({
+      subscribe: () => ({ status: 400, ok: false, json: { error: { code: 100 } } }),
+    });
+    setWhatsAppTransportForTesting(transport);
+
+    const res = await connectWhatsApp(app, acme.tokens.owner);
+    expect(res.status).toBe(201);
+
+    const activities = await prisma.channelActivity.findMany({
+      where: { channelAccountId: res.body.data.account.id },
+      select: { activityType: true, metadata: true },
+    });
+    const record = activities.find(
+      (a) => (a.metadata as Record<string, unknown> | null)?.webhookSubscription,
+    );
+    expect(record).toBeDefined();
+    expect((record!.metadata as Record<string, unknown>).webhookSubscription).toBe(
+      'failed',
+    );
+  });
+});

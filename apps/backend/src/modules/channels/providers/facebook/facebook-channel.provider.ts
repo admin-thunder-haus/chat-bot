@@ -169,6 +169,22 @@ export class FacebookChannelProvider implements ChannelProvider {
     return splitMetaMessagingWebhook(body);
   }
 
+  /** Subscribe our app to this Page's webhooks (see the interface). */
+  async subscribeToWebhooks(input: {
+    externalAccountId: string | null;
+    externalPageId: string | null;
+    credentials: ProviderCredentials | null;
+  }): Promise<{ ok: boolean; detail?: string }> {
+    const creds = asCredentials(input.credentials);
+    const pageId = str(input.externalAccountId);
+    if (!creds || !pageId) return { ok: false, detail: 'NOT_CONFIGURED' };
+    return facebookApiClient.subscribeApp({
+      accessToken: creds.accessToken,
+      nodeId: pageId,
+      subscribedFields: 'messages',
+    });
+  }
+
   async parseWebhook(input: RawWebhookInput): Promise<NormalizedChannelEvent[]> {
     try {
       return normalizeFacebookWebhook(input.body);

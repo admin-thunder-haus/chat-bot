@@ -23,12 +23,19 @@ export function makeWhatsAppTransport(
   overrides: {
     send?: () => { status: number; ok: boolean; json: unknown };
     check?: () => { status: number; ok: boolean; json: unknown };
+    /** POST /{waba}/subscribed_apps — connect-time webhook subscription. */
+    subscribe?: () => { status: number; ok: boolean; json: unknown };
   } = {},
 ): { transport: WhatsAppTransport; calls: { method: string; url: string }[] } {
   const calls: { method: string; url: string }[] = [];
   const transport: WhatsAppTransport = {
     async request(input) {
       calls.push({ method: input.method, url: input.url });
+      if (input.url.includes('/subscribed_apps')) {
+        return (
+          overrides.subscribe?.() ?? { status: 200, ok: true, json: { success: true } }
+        );
+      }
       if (input.method === 'POST') {
         return (
           overrides.send?.() ?? {

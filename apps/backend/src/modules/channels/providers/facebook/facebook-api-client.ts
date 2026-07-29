@@ -295,4 +295,36 @@ export const facebookApiClient = {
       return { state: 'UNAVAILABLE', code: c.code, reason: safeFacebookReason(c.category) };
     }
   },
+
+  /**
+   * Subscribe our app to a node's webhooks (POST /{id}/subscribed_apps).
+   *
+   * Without this the app-level callback URL is configured but this particular
+   * Page/WABA never sends to it: the channel connects, passes its health check,
+   * sends fine, and receives nothing. Never throws — a failure here must not
+   * discard otherwise-valid credentials, so it reports an outcome instead.
+   */
+  async subscribeApp(input: {
+    accessToken: string;
+    nodeId: string;
+    subscribedFields?: string;
+  }): Promise<{ ok: boolean; detail?: string }> {
+    try {
+      const res = await transport.request({
+        url: graphUrl(`${encodeURIComponent(input.nodeId)}/subscribed_apps`),
+        method: 'POST',
+        accessToken: input.accessToken,
+        body: input.subscribedFields
+          ? { subscribed_fields: input.subscribedFields }
+          : {},
+        timeoutMs: env.FACEBOOK_API_TIMEOUT_MS,
+      });
+      if (res.ok) return { ok: true };
+      const c = classifyFacebookHttp(res.status, res.json);
+      return { ok: false, detail: c.code };
+    } catch {
+      return { ok: false, detail: 'NETWORK' };
+    }
+  },
+
 };

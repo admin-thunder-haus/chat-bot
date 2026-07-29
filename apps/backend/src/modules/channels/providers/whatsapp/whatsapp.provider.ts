@@ -215,6 +215,22 @@ export class WhatsAppChannelProvider implements ChannelProvider {
     return splitWhatsAppWebhook(body);
   }
 
+  /** Subscribe our app to this WABA's webhooks (see the interface). */
+  async subscribeToWebhooks(input: {
+    externalAccountId: string | null;
+    externalPageId: string | null;
+    credentials: ProviderCredentials | null;
+  }): Promise<{ ok: boolean; detail?: string }> {
+    const creds = asCredentials(input.credentials);
+    // WhatsApp subscribes the WABA as a whole; it takes no subscribed_fields.
+    const wabaId = str(input.externalPageId);
+    if (!creds || !wabaId) return { ok: false, detail: 'NOT_CONFIGURED' };
+    return whatsAppApiClient.subscribeApp({
+      accessToken: creds.accessToken,
+      nodeId: wabaId,
+    });
+  }
+
   async parseWebhook(input: RawWebhookInput): Promise<NormalizedChannelEvent[]> {
     try {
       return this.parse(input.body);

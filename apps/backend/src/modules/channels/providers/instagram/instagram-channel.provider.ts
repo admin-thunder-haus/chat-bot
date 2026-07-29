@@ -208,6 +208,24 @@ export class InstagramChannelProvider implements ChannelProvider {
     return splitMetaMessagingWebhook(body);
   }
 
+  /** Subscribe our app to the linked Page's webhooks (see the interface). */
+  async subscribeToWebhooks(input: {
+    externalAccountId: string | null;
+    externalPageId: string | null;
+    credentials: ProviderCredentials | null;
+  }): Promise<{ ok: boolean; detail?: string }> {
+    const creds = asCredentials(input.credentials);
+    // Instagram messaging is delivered through the LINKED Facebook Page, so the
+    // subscription is on the page node, not the Instagram account.
+    const nodeId = str(input.externalPageId) ?? str(input.externalAccountId);
+    if (!creds || !nodeId) return { ok: false, detail: 'NOT_CONFIGURED' };
+    return instagramApiClient.subscribeApp({
+      accessToken: creds.accessToken,
+      nodeId,
+      subscribedFields: 'messages',
+    });
+  }
+
   async parseWebhook(input: RawWebhookInput): Promise<NormalizedChannelEvent[]> {
     try {
       return normalizeInstagramWebhook(input.body);

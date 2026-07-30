@@ -199,7 +199,8 @@ export class FacebookChannelProvider implements ChannelProvider {
       accessToken: creds.accessToken,
       nodeId: pageId,
     });
-    return interpretSubscribedApps(ids);
+    // Pages are listed under the Facebook app identity.
+    return interpretSubscribedApps(ids, process.env.META_APP_ID);
   }
 
   async parseWebhook(input: RawWebhookInput): Promise<NormalizedChannelEvent[]> {

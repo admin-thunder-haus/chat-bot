@@ -370,12 +370,22 @@ need to end up with, set in Render:
 | `META_APP_SECRET` | same page → App Secret → Show |
 | `WHATSAPP_ES_CONFIG_ID` | WhatsApp → Embedded Signup → configuration id |
 | `META_LOGIN_CONFIG_ID` | Facebook Login for Business → configuration id |
+| `INSTAGRAM_APP_ID` | Instagram → API setup with Instagram login → Instagram App ID |
+| `INSTAGRAM_APP_SECRET` | same page → Instagram App Secret |
 
-Two things that will bite you, both covered in `docs/META-OAUTH.md`:
+The two `INSTAGRAM_*` values are **not** the same as the two `META_*` ones, even
+though they live in the same Meta app. Instagram uses a different login model
+(the only one that can receive DMs) with its own app identity, and its secret is
+what signs Instagram webhooks. See *Instagram: which API* in
+`docs/META-OAUTH.md`.
 
-- the **redirect URI** must be added to the app's allowed list **exactly**, with
-  no trailing slash:
+Three things that will bite you, all covered in `docs/META-OAUTH.md`:
+
+- the **redirect URIs** must be added to the app's allowed lists **exactly**,
+  with no trailing slash — one per flow:
   `https://ai-support-backend-hpub.onrender.com/api/v1/channels/oauth/meta/callback`
+  and
+  `https://ai-support-backend-hpub.onrender.com/api/v1/channels/oauth/instagram-login/callback`
 - your Meta app must be in **Live** mode, not Development, before anyone outside
   your own account can use it — and Live mode requires the `/privacy` and
   `/terms` URLs from step 1.4 to be filled in.

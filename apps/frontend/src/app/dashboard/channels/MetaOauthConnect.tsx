@@ -35,6 +35,9 @@ export function MetaOauthConnect({
 }) {
   const [redirecting, setRedirecting] = useState(false);
   const [error, setError] = useState('');
+  // Instagram authorizes against Instagram itself, not Facebook — naming the
+  // wrong company here makes an operator think they opened the wrong flow.
+  const signInWith = provider === 'instagram' ? 'Instagram' : 'Meta';
 
   async function connectWithMeta() {
     setError('');
@@ -70,18 +73,18 @@ export function MetaOauthConnect({
           Recommended: one-click connect
         </p>
         <p className="mt-1 text-xs text-slate-600">
-          Sign in with Meta and choose your {providerLabel}. Tokens are fetched
-          and stored encrypted, and webhooks are subscribed automatically — no
-          IDs or secrets to copy.
+          Sign in with {signInWith} and choose your {providerLabel}. Tokens are
+          fetched and stored encrypted, and webhooks are subscribed
+          automatically — no IDs or secrets to copy.
         </p>
         <Button
           type="button"
           className="mt-3 w-full sm:w-auto"
           loading={redirecting}
-          loadingLabel="Opening Meta…"
+          loadingLabel={`Opening ${signInWith}…`}
           onClick={() => void connectWithMeta()}
         >
-          Connect with Meta
+          Connect with {signInWith}
         </Button>
         {error && (
           <div className="mt-3">

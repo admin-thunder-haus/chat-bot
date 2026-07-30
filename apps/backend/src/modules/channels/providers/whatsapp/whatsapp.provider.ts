@@ -245,7 +245,8 @@ export class WhatsAppChannelProvider implements ChannelProvider {
       accessToken: creds.accessToken,
       nodeId: wabaId,
     });
-    return interpretSubscribedApps(ids);
+    // WABAs are listed under the Facebook app identity.
+    return interpretSubscribedApps(ids, process.env.META_APP_ID);
   }
 
   async parseWebhook(input: RawWebhookInput): Promise<NormalizedChannelEvent[]> {

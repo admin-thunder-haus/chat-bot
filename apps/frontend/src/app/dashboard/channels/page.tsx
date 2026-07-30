@@ -5,7 +5,10 @@ import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
 import { canWrite } from '@/lib/permissions';
 import { channelsApi } from '@/lib/resources';
-import type { MetaOauthStatus } from '@/lib/resources/channels';
+import type {
+  InstagramLoginStatus,
+  MetaOauthStatus,
+} from '@/lib/resources/channels';
 import { parseApiError } from '@/lib/form';
 import { useToast } from '@/components/toast';
 import { channelLabel, fullTime } from '@/lib/format';
@@ -224,6 +227,7 @@ export default function ChannelsPage() {
   const [facebookOpen, setFacebookOpen] = useState(false);
   const [telegramOpen, setTelegramOpen] = useState(false);
   const [metaOauth, setMetaOauth] = useState<MetaOauthStatus | null>(null);
+  const [igLogin, setIgLogin] = useState<InstagramLoginStatus | null>(null);
   const [oauthBanner, setOauthBanner] = useState<{
     kind: 'success' | 'error';
     message: string;
@@ -233,15 +237,17 @@ export default function ChannelsPage() {
     setLoading(true);
     setError('');
     try {
-      const [p, a, meta] = await Promise.all([
+      const [p, a, meta, ig] = await Promise.all([
         channelsApi.providers(),
         channelsApi.list(),
         // OAuth availability is optional decoration — never fail the page.
         channelsApi.oauthStatus().catch(() => null),
+        channelsApi.instagramLoginStatus().catch(() => null),
       ]);
       setProviders(p.providers);
       setAccounts(a.accounts);
       setMetaOauth(meta);
+      setIgLogin(ig);
     } catch (err) {
       setError(parseApiError(err).message);
     } finally {
@@ -263,7 +269,9 @@ export default function ChannelsPage() {
     if (connected) {
       setOauthBanner({
         kind: 'success',
-        message: `${CONNECTED_LABELS[connected] ?? connected} connected via Meta.`,
+        message: `${CONNECTED_LABELS[connected] ?? connected} connected via ${
+          connected === 'instagram' ? 'Instagram' : 'Meta'
+        }.`,
       });
     } else if (connectError) {
       setOauthBanner({
@@ -287,6 +295,9 @@ export default function ChannelsPage() {
   const loginOauthAvailable = metaConfigured && !!metaOauth?.loginConfigId;
   const whatsappOauthAvailable =
     metaConfigured && !!metaOauth?.whatsappConfigId;
+  // Instagram rides its own app identity, so the Facebook config says nothing
+  // about whether one-click Instagram works.
+  const instagramOauthAvailable = igLogin?.configured === true;
 
   const fakeProvider = providers.find((p) => p.key === 'fake' && p.available);
 
@@ -771,7 +782,7 @@ export default function ChannelsPage() {
         open={instagramOpen}
         onClose={() => setInstagramOpen(false)}
         onConnected={() => void load()}
-        oauthAvailable={loginOauthAvailable}
+        oauthAvailable={instagramOauthAvailable}
       />
 
       <FacebookConnectModal

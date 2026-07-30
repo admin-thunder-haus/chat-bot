@@ -4,6 +4,7 @@ import { authenticate, authorizeRoles } from '../../../middlewares/auth.middlewa
 import { authRateLimiter } from '../../../middlewares/rateLimit.middleware';
 import { validate } from '../../../middlewares/validate.middleware';
 import { asyncHandler } from '../../../utils/asyncHandler';
+import { instagramLoginController } from './instagram-login.controller';
 import { metaOauthController } from './meta-oauth.controller';
 
 /**
@@ -106,6 +107,35 @@ router.post(
   manageRoles,
   validate({ params: selectionParamsSchema, body: connectSelectionSchema }),
   asyncHandler(metaOauthController.connectSelection),
+);
+
+/**
+ * Instagram API with Instagram Login — the one-click Instagram path.
+ *
+ * Separate from /meta/* because it is a different OAuth flow against a
+ * different host with a different app identity, not a provider variant of the
+ * Facebook one. Same shape and same guarantees though: status is readable by
+ * any authenticated role, start is OWNER/ADMIN, and the callback is PUBLIC and
+ * rate limited because the browser returns from Instagram without our JWT —
+ * the signed state carries and authenticates the tenant instead.
+ */
+router.get(
+  '/instagram-login/status',
+  authenticate,
+  asyncHandler(instagramLoginController.status),
+);
+
+router.post(
+  '/instagram-login/start',
+  authenticate,
+  manageRoles,
+  asyncHandler(instagramLoginController.start),
+);
+
+router.get(
+  '/instagram-login/callback',
+  authRateLimiter,
+  asyncHandler(instagramLoginController.callback),
 );
 
 export const metaOauthRoutes = router;

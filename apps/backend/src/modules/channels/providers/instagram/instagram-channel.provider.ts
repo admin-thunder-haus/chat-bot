@@ -36,6 +36,19 @@ import { interpretSubscribedApps } from '../meta-webhook-routing';
 export const INSTAGRAM_PROVIDER_KEY = 'instagram';
 export const INSTAGRAM_SIGNATURE_HEADER = 'x-hub-signature-256';
 
+/**
+ * Which node carries an account's webhook subscription.
+ *
+ * `me` — resolved by graph.instagram.com from the access token itself — rather
+ * than the stored id, because Instagram Login exposes an account under two
+ * different ids (`id` and `user_id`) and only one of them answers here. Letting
+ * the token name its own account sidesteps a choice we cannot make correctly
+ * from stored data alone. The linked Facebook Page id is deliberately NOT used:
+ * it belongs to the Facebook-Login model, which cannot receive `messages`
+ * webhooks at all, so subscribing it would be a call that could only ever fail.
+ */
+const SUBSCRIPTION_NODE = 'me';
+
 /** Safely narrow decrypted credentials to the Instagram shape. */
 function asCredentials(
   credentials: ProviderCredentials | null | undefined,
@@ -196,51 +209,64 @@ export class InstagramChannelProvider implements ChannelProvider {
   // --- Webhook parsing (defensive; never throws on unknown fields) ---------
 
   /** Route a shared-endpoint payload to the right tenant (see the interface). */
-  /** Shared endpoint authenticates the PLATFORM app, not a tenant. */
+  /**
+   * Shared endpoint authenticates the PLATFORM app, not a tenant.
+   *
+   * The engine hands us the Facebook app secret as the platform default, but
+   * Instagram Login notifications are signed with the INSTAGRAM App Secret —
+   * a different value issued by the Instagram product in the same Meta app.
+   * Verifying with the Facebook secret fails every signature, and it fails
+   * silently: Meta gets its 401 and simply stops, so the symptom is an inbox
+   * that never fills rather than an error anyone sees. Preferring our own
+   * secret here keeps that platform quirk inside the provider, where the
+   * framework puts platform specifics.
+   */
   async validateSharedWebhookSignature(input: {
     rawBody: Buffer;
     headers: Record<string, string | undefined>;
     appSecret: string;
   }): Promise<boolean> {
-    return validateMetaSharedSignature(input);
+    return validateMetaSharedSignature({
+      ...input,
+      appSecret: env.INSTAGRAM_APP_SECRET ?? input.appSecret,
+    });
   }
 
   splitWebhookByTarget(body: unknown) {
     return splitMetaMessagingWebhook(body);
   }
 
-  /** Subscribe our app to the linked Page's webhooks (see the interface). */
+  /** Subscribe our app to this account's webhooks (see the interface). */
   async subscribeToWebhooks(input: {
     externalAccountId: string | null;
     externalPageId: string | null;
     credentials: ProviderCredentials | null;
   }): Promise<{ ok: boolean; detail?: string }> {
     const creds = asCredentials(input.credentials);
-    // Instagram messaging is delivered through the LINKED Facebook Page, so the
-    // subscription is on the page node, not the Instagram account.
-    const nodeId = str(input.externalPageId) ?? str(input.externalAccountId);
-    if (!creds || !nodeId) return { ok: false, detail: 'NOT_CONFIGURED' };
+    if (!creds) return { ok: false, detail: 'NOT_CONFIGURED' };
     return instagramApiClient.subscribeApp({
       accessToken: creds.accessToken,
-      nodeId,
+      nodeId: SUBSCRIPTION_NODE,
       subscribedFields: 'messages',
     });
   }
 
-  /** Is the linked Page subscribed to send us webhooks? (see interface) */
+  /** Is this account subscribed to send us webhooks? (see interface) */
   async checkInboundReadiness(input: {
     externalAccountId: string | null;
     externalPageId: string | null;
     credentials: ProviderCredentials | null;
   }): Promise<{ ready: boolean | null; detail?: string }> {
     const creds = asCredentials(input.credentials);
-    const nodeId = str(input.externalPageId) ?? str(input.externalAccountId);
-    if (!creds || !nodeId) return { ready: null, detail: 'NOT_CONFIGURED' };
+    if (!creds) return { ready: null, detail: 'NOT_CONFIGURED' };
     const ids = await instagramApiClient.getSubscribedAppIds({
       accessToken: creds.accessToken,
-      nodeId,
+      nodeId: SUBSCRIPTION_NODE,
     });
-    return interpretSubscribedApps(ids);
+    // Instagram Login subscribes under the Instagram app identity, so that is
+    // the id to look for. When it is unconfigured this deliberately degrades to
+    // "cannot tell" rather than guessing with the Facebook id.
+    return interpretSubscribedApps(ids, env.INSTAGRAM_APP_ID);
   }
 
   async parseWebhook(input: RawWebhookInput): Promise<NormalizedChannelEvent[]> {

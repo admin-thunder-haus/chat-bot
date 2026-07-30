@@ -64,6 +64,16 @@ export interface MetaOauthStatus {
   loginConfigId: string | null;
 }
 
+/**
+ * Instagram Login availability. Separate from {@link MetaOauthStatus} because
+ * it reports a separate app identity: the Instagram App ID, which one-click
+ * Instagram needs and which the Facebook app id says nothing about.
+ */
+export interface InstagramLoginStatus {
+  configured: boolean;
+  appId: string | null;
+}
+
 export const channelsApi = {
   providers(): Promise<{ providers: ChannelProviderDescriptor[] }> {
     return request('/channels/providers', { auth: true });
@@ -108,8 +118,26 @@ export const channelsApi = {
   oauthStatus(): Promise<MetaOauthStatus> {
     return request('/channels/oauth/meta/status', { auth: true });
   },
-  /** Begin the Meta OAuth redirect flow; navigate the browser to `url`. */
+  /** Instagram Login availability (one-click Instagram connect). */
+  instagramLoginStatus(): Promise<InstagramLoginStatus> {
+    return request('/channels/oauth/instagram-login/status', { auth: true });
+  },
+  /**
+   * Begin the one-click redirect flow; navigate the browser to `url`.
+   *
+   * Instagram goes to its own endpoint. It is a genuinely different OAuth flow
+   * (Instagram Login, against instagram.com, with the Instagram app identity),
+   * and it is the only Instagram model that can receive DM webhooks — the
+   * Facebook-Login variant reachable via /meta/start cannot, whatever
+   * permissions it is granted.
+   */
   oauthStart(provider: MetaOauthProvider): Promise<{ url: string }> {
+    if (provider === 'instagram') {
+      return request('/channels/oauth/instagram-login/start', {
+        method: 'POST',
+        auth: true,
+      });
+    }
     return request('/channels/oauth/meta/start', {
       method: 'POST',
       body: { provider },

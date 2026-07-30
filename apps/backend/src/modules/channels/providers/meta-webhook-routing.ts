@@ -94,12 +94,22 @@ export function validateMetaSharedSignature(input: {
  * normal for a customer connecting with their own Meta app, where our id would
  * legitimately be absent). Reporting those as broken would be a false alarm,
  * and one false alarm makes every later warning ignorable.
+ *
+ * `expectedAppId` is REQUIRED, with no default, because the right identity
+ * differs per product: Pages and WABAs are listed under the Facebook app id,
+ * but Instagram Login subscribes under the Instagram one. A default would be
+ * silently wrong for whichever caller did not match it — and being wrong here
+ * means reporting a correctly-subscribed account as APP_NOT_SUBSCRIBED, the
+ * exact false alarm this function exists to avoid. Passing `undefined` is a
+ * legitimate answer meaning "no app id configured", so it must not be
+ * indistinguishable from "argument omitted".
  */
 export function interpretSubscribedApps(
   ids: string[] | null,
+  expectedAppId: string | undefined,
 ): { ready: boolean | null; detail?: string } {
   if (ids === null) return { ready: null, detail: 'UNKNOWN' };
-  const appId = process.env.META_APP_ID;
+  const appId = expectedAppId;
   if (!appId) {
     // No platform app to look for. An empty list is still conclusive: nothing
     // at all is subscribed, so nothing can possibly be delivered.

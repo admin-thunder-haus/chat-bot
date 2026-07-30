@@ -411,6 +411,21 @@ const envSchema = z.object({
   WHATSAPP_ES_CONFIG_ID: z.string().optional(),
   // Facebook Login for Business configuration id (Messenger + Instagram).
   META_LOGIN_CONFIG_ID: z.string().optional(),
+
+  // --- Instagram API with Instagram Login (Business Login for Instagram) ---
+  // A DIFFERENT app identity from META_APP_ID/META_APP_SECRET above, even
+  // though both live in the same Meta app: the Instagram product issues its own
+  // "Instagram App ID" and "Instagram App Secret" (App Dashboard > Instagram >
+  // API setup with Instagram login). Using the Facebook secret to verify an
+  // Instagram webhook fails every signature silently, which is precisely the
+  // bug these separate names exist to prevent.
+  //
+  // Instagram Login is the ONLY Instagram model that can receive `messages`
+  // webhooks — the Facebook-Login variant does not support that field at all —
+  // so this is what one-click Instagram connect uses. Optional: unset simply
+  // disables one-click Instagram and leaves the manual form as the only path.
+  INSTAGRAM_APP_ID: z.string().optional(),
+  INSTAGRAM_APP_SECRET: z.string().optional(),
   // Where the browser is redirected after the OAuth callback completes.
   FRONTEND_APP_URL: z.string().url().default('http://localhost:3000'),
 

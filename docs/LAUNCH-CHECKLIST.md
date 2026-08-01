@@ -448,9 +448,61 @@ update `CORS_ORIGINS`, `FRONTEND_APP_URL`, and the Meta redirect URI to match.
 
 ### 2.4 Deploy the frontend — free, 20 minutes
 
-The dashboard currently runs on your machine. Customers cannot use it that way.
-Deploy `apps/frontend` to Vercel (free tier), set `NEXT_PUBLIC_API_URL` to your
-backend URL, then add the Vercel URL to the backend's `CORS_ORIGINS`.
+> **This is a prerequisite, not an optional extra.** It is filed in Part 2 only
+> because it costs nothing. Nobody can sign up while the dashboard runs on your
+> machine, and the Meta OAuth callback sends the browser to whatever
+> `FRONTEND_APP_URL` says — which, unset, is `http://localhost:3000`. A customer
+> completing a channel connect lands on a dead address.
+
+`apps/frontend` is a normal Next.js app with **no workspace dependencies** and
+`/widget/[publicId]` is server-rendered on demand, so it needs a Node runtime —
+it is **not** a static export and cannot be dropped on shared hosting.
+
+1. **DNS** — at whoever manages `thunder-haus.com`, add a CNAME:
+
+   ```
+   app  ->  cname.vercel-dns.com
+   ```
+
+   A subdomain of a domain you already own costs nothing and is available
+   immediately; a product domain can replace it later by changing two variables.
+
+2. **Vercel** — New Project → import the repo → set **Root Directory** to
+   `apps/frontend`. Next.js is auto-detected. Add one environment variable:
+
+   ```
+   NEXT_PUBLIC_API_URL=https://ai-support-backend-hpub.onrender.com
+   ```
+
+   `NEXT_PUBLIC_*` is inlined at **build** time, not read at runtime — changing
+   it later needs a redeploy, not a restart.
+
+3. **Vercel → Settings → Domains** → add `app.thunder-haus.com`.
+
+4. **Render (backend)** → Environment → set both, then restart:
+
+   ```
+   FRONTEND_APP_URL=https://app.thunder-haus.com
+   CORS_ORIGINS=https://app.thunder-haus.com,http://localhost:3000
+   ```
+
+   They do different jobs and both are required: the first is where OAuth
+   callbacks send the browser, the second is what lets the browser call the API
+   at all. `CORS_ORIGINS` is comma-separated, so keeping `localhost:3000` in the
+   list leaves local development working.
+
+   No Meta change is needed — every OAuth redirect URI points at the *backend*,
+   not the dashboard. Cookies already work cross-site (`COOKIE_SAME_SITE=none`,
+   `COOKIE_SECURE=true` in `render.yaml`).
+
+5. **Verify** — `https://app.thunder-haus.com` shows the login page, and:
+
+   ```bash
+   curl -s -o /dev/null -w "%{redirect_url}\n" "https://ai-support-backend-hpub.onrender.com/api/v1/channels/oauth/instagram-login/callback?code=x&state=y"
+   ```
+
+   must now redirect to `app.thunder-haus.com`, not `localhost:3000`. That one
+   line proves step 4 landed.
 
 ### 2.5 Run the browser smoke tests before each release — free, 5 minutes
 

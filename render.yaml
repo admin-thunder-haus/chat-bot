@@ -28,8 +28,21 @@ services:
         value: "true"
       - key: COOKIE_SAME_SITE
         value: none
+      # The deployed dashboard's origin. Matched EXACTLY (scheme + host, no
+      # trailing slash) and a miss throws rather than silently omitting the
+      # header, so a typo here surfaces as a 500 on every browser request.
+      # Comma-separated; localhost stays so local development keeps working.
+      #
+      # Blueprint-managed values are read-only in the Render dashboard — this
+      # line is the only place it can be changed.
       - key: CORS_ORIGINS
-        value: http://localhost:3000
+        value: https://app.thunder-haus.com,http://localhost:3000
+      # Where OAuth callbacks send the browser once a channel is connected.
+      # Kept here beside CORS_ORIGINS because the two must name the same host:
+      # setting only one yields a dashboard that either cannot call the API or
+      # strands anyone who finishes a Meta connect.
+      - key: FRONTEND_APP_URL
+        value: https://app.thunder-haus.com
       # --- secrets: set these in the dashboard from apps/backend/.env.render ---
       - key: DATABASE_URL
         sync: false

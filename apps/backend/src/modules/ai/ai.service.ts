@@ -325,15 +325,18 @@ async function runGeneration(input: RunInput): Promise<AIGenerationResult> {
     // photo and the reply named nothing matchable, fall back to the first
     // retrieved item that has one so they still get a picture of what was under
     // discussion. Never for handoff replies or action requests.
-    let attachment =
-      lowConfidence || actionRequest
-        ? null
-        : aiContextService.findRecommendedAttachment(text, retrieval);
+    const skipAttachment = lowConfidence || Boolean(actionRequest);
+    let attachment = skipAttachment
+      ? null
+      : aiContextService.findRecommendedAttachment(text, retrieval);
     if (
       attachment === null &&
-      !lowConfidence &&
-      !actionRequest &&
-      detectImageRequest(input.question)
+      !skipAttachment &&
+      detectImageRequest(input.question) &&
+      // Only when the reply named NOTHING. A reply naming several items is a
+      // list, and the guess would illustrate the whole list with one of its
+      // rows — the customer reads that as "this one is the answer".
+      aiContextService.countNamedItems(text, retrieval) === 0
     ) {
       attachment = aiContextService.firstAttachmentCandidate(retrieval);
     }

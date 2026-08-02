@@ -175,7 +175,34 @@ export const aiContextService = {
    * happen routinely when the model replies in another language and
    * translates the generic part of a name. Deterministic — the model never
    * sees or emits URLs; the attachment rides out-of-band next to the text.
+   *
+   * A reply naming SEVERAL items gets no attachment at all. A message carries
+   * one photo, so a five-item price list would ship with a single picture of
+   * whichever name happened to match best — which reads as though that one item
+   * is the answer, and leaves the customer wondering why the others have no
+   * photo. Nothing is the honest attachment for a list; the customer names the
+   * item they want to see and that reply carries its photo.
    */
+  /**
+   * How many retrieved services/products the reply names.
+   *
+   * Callers need to tell "named nothing" from "named several": both leave the
+   * reply without an attachment, but only the first is a case where guessing a
+   * picture helps. Guessing on the second illustrates a list with one of its
+   * rows.
+   */
+  countNamedItems(responseText: string, retrieval: RetrievalResult): number {
+    const lowered = responseText.toLowerCase();
+    let count = 0;
+    for (const s of retrieval.services) {
+      if (mentionScore(lowered, s.name) >= 0) count += 1;
+    }
+    for (const p of retrieval.products) {
+      if (mentionScore(lowered, p.name) >= 0) count += 1;
+    }
+    return count;
+  },
+
   findRecommendedAttachment(
     responseText: string,
     retrieval: RetrievalResult,
@@ -184,13 +211,20 @@ export const aiContextService = {
 
     let best: RecommendedAttachment | null = null;
     let bestScore = -1;
+    let spelledOut = 0;
 
     const consider = (
       item: { id: string; name: string; imageUrl: string | null },
       sourceType: 'service' | 'product',
     ) => {
-      if (!item.imageUrl) return;
       const score = mentionScore(lowered, item.name);
+      // Whole names only. A partial-token match is NOT evidence of a second
+      // item: "Basic Wash" scores against "I recommend our Premium Wash"
+      // purely because both end in "wash", and counting that would strip the
+      // photo from a reply about one service. Items with no image count too —
+      // a list of five where one has a photo is still a list.
+      if (isSpelledOut(score)) spelledOut += 1;
+      if (!item.imageUrl) return;
       if (score > bestScore) {
         bestScore = score;
         best = {
@@ -205,6 +239,7 @@ export const aiContextService = {
     for (const s of retrieval.services) consider(s, 'service');
     for (const p of retrieval.products) consider(p, 'product');
 
+    if (spelledOut >= 2 || looksLikeItemList(responseText)) return null;
     return bestScore >= 0 ? best : null;
   },
 
@@ -295,6 +330,31 @@ function tokenInText(lowered: string, token: string): boolean {
  * ranks competing items ("CRM Pro" prefers "CRM Pro License" over
  * "CRM Basic License").
  */
+/**
+ * Did the reply spell this item's name out in full? {@link mentionScore} adds
+ * the 1000 band only for a verbatim whole-name hit, which is the one signal
+ * strong enough to say "the reply is talking about THIS item" rather than
+ * "the reply happens to share a word with it".
+ */
+function isSpelledOut(score: number): boolean {
+  return score >= 1000;
+}
+
+/**
+ * Does the reply read as a list of items?
+ *
+ * A second, independent signal to the whole-name count, and it catches what
+ * that misses: a list written in the customer's language, where translated
+ * names never match verbatim. Tied to the bullet layout the formatting rules
+ * require, so the two move together.
+ */
+function looksLikeItemList(responseText: string): boolean {
+  const bulletLines = responseText
+    .split(/\r?\n/)
+    .filter((line) => /^\s*[••\-*]\s+\S/.test(line)).length;
+  return bulletLines >= 2;
+}
+
 function mentionScore(lowered: string, name: string): number {
   const full = name.toLowerCase().trim();
   const tokens = tokenizeName(name);

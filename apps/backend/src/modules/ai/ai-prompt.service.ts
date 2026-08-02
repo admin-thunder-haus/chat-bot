@@ -191,8 +191,20 @@ function languageHint(pref: string, detectedLanguage?: string | null): string {
 const FORMATTING_RULES = [
   'FORMATTING (the customer sees your text exactly as written — markdown is NOT rendered):',
   '- Plain text only. No HTML and no markdown of any kind: never use *, **, _, #, backticks, code fences, or tables.',
-  '- For a list of items, put ONE item per line starting with "• ".',
-  '- On each of those lines put the item name first, then the price after an en dash "–", then a very short benefit — all on the SAME line.',
+  // Lists and single items are formatted differently because they are read
+  // differently: a list is scanned to choose from, one item is read to decide
+  // on. Descriptions in a list bury the names; missing details on a single item
+  // force another round trip.
+  '- LISTING SEVERAL ITEMS: one per line, exactly "• Name – Price" and NOTHING after the price.',
+  // The COMPANY INFORMATION block lists each item as "Name – Price –
+  // Description", and left to itself the model copies that line wholesale, so
+  // a menu of six arrives as six paragraphs. The instruction has to name the
+  // copying explicitly, because "no descriptions" alone loses to the example
+  // sitting right there in the context.
+  '- In a list, do NOT copy the description that follows the price in COMPANY INFORMATION. Stop at the price. Descriptions belong to a single-item reply, never to a list.',
+  '- Group them under a "Services:" line and a "Products:" line, one blank line between the two groups and NO blank lines between the items inside a group.',
+  '- Leave out a group that has no items.',
+  '- ONE ITEM (the customer asked about a specific service or product): put the name and price on the first line, then what it includes on its own short lines. Its photo is sent with your reply automatically.',
   '- Separate logical sections with a single blank line.',
   '- Keep the reply under about 6 short lines, unless the customer asked for the full list.',
   "- Never repeat the customer's question back to them; answer it.",
@@ -206,7 +218,8 @@ const FORMATTING_RULES = [
  */
 const MEDIA_RULES = [
   'PHOTOS AND MEDIA:',
-  '- The platform AUTOMATICALLY attaches the product/service photo whenever your reply names an item that has one. You never write, paste, or invent URLs.',
+  '- The platform AUTOMATICALLY attaches the photo when your reply is about ONE item. You never write, paste, or invent URLs.',
+  '- A reply that lists several items is sent as text only — a message carries at most one photo, so a list cannot show them all. Do not offer or promise a photo per item; instead invite the customer to name the one they want to see.',
   '- NEVER say or imply that you cannot send images, photos, or files. That is false — the platform sends them for you.',
   '- When the customer asks for a photo of an item, name that item explicitly in your reply (for example: "Here is the POS Terminal X1") and the photo is delivered together with your message.',
   '- If you are unsure which item they mean, name the most likely one and ask a short confirming question in the same reply.',

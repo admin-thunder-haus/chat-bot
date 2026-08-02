@@ -52,6 +52,29 @@ const HOURS_HINTS = [
   'horario', 'abierto', 'heures', 'ouvert', 'öffnungszeiten', 'geöffnet',
   'saat', 'çalışma', 'orario', 'aperto',
 ];
+/**
+ * "What do you sell?" — a question about the catalogue AS A WHOLE.
+ *
+ * These questions retrieve nothing by term matching, because no product is
+ * called "products". That was survivable while an empty result triggered the
+ * fallback, but a question matching any OTHER category (one knowledge entry is
+ * enough) counts as a match and suppresses it — so "What the products you have"
+ * reached the model with a knowledge snippet and an empty catalogue, and the
+ * model filled the gap with "Product A – 50 JOD". Asking for the catalogue now
+ * retrieves the catalogue, whatever else matched.
+ */
+const CATALOG_HINTS = [
+  'product', 'products', 'service', 'services', 'offer', 'offering', 'sell',
+  'catalog', 'catalogue', 'menu', 'price', 'prices', 'pricing', 'list',
+  'available', 'provide',
+  // Arabic
+  'منتج', 'منتجات', 'خدمة', 'خدمات', 'بضاعة', 'سلع', 'اسعار', 'أسعار',
+  'سعر', 'قائمة', 'كتالوج', 'بتبيعوا', 'عندكم', 'بتقدموا', 'متوفر',
+  // Other common languages
+  'productos', 'servicios', 'precios', 'produits', 'services', 'preise',
+  'produkte', 'ürünler', 'hizmetler', 'prodotti', 'servizi',
+];
+
 const CONTACT_HINTS = [
   'contact', 'phone', 'call', 'email', 'address', 'location', 'where',
   'website', 'reach', 'whatsapp', 'number',
@@ -206,9 +229,19 @@ export const aiRetrievalService = {
       return this.fallback(companyId, includeBusinessHours, includeContact);
     }
 
+    // A catalogue question whose terms matched no item still needs the
+    // catalogue. Term matching cannot serve it — nothing is named "products" —
+    // and leaving it empty is worse than useless: the model does not report an
+    // empty catalogue, it invents one.
+    const wantsCatalog = CATALOG_HINTS.some((h) => lower.includes(h));
+    const [catalogServices, catalogProducts] =
+      wantsCatalog && (rankedServices.length === 0 || rankedProducts.length === 0)
+        ? await this.topCatalog(companyId)
+        : [[], []];
+
     return {
-      services: rankedServices,
-      products: rankedProducts,
+      services: rankedServices.length > 0 ? rankedServices : catalogServices,
+      products: rankedProducts.length > 0 ? rankedProducts : catalogProducts,
       faqs: rankedFaqs,
       knowledge: rankedKnowledge,
       documentChunks: rankedChunks,
@@ -216,6 +249,24 @@ export const aiRetrievalService = {
       includeContact,
       usedFallback: false,
     };
+  },
+
+  /** Top active services and products, used to answer catalogue questions. */
+  async topCatalog(
+    companyId: string,
+  ): Promise<[RetrievalResult['services'], RetrievalResult['products']]> {
+    return Promise.all([
+      prisma.businessService.findMany({
+        where: { companyId, isActive: true },
+        orderBy: { sortOrder: 'asc' },
+        take: MAX_SERVICES,
+      }),
+      prisma.product.findMany({
+        where: { companyId, isActive: true },
+        orderBy: { sortOrder: 'asc' },
+        take: MAX_PRODUCTS,
+      }),
+    ]);
   },
 
   /** Limited general company summary when nothing matches directly. */

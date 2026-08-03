@@ -326,7 +326,8 @@ async function runGeneration(input: RunInput): Promise<AIGenerationResult> {
     // photo and the reply named nothing matchable, fall back to the first
     // retrieved item that has one so they still get a picture of what was under
     // discussion. Never for handoff replies or action requests.
-    const skipAttachment = lowConfidence || Boolean(actionRequest);
+    const skipAttachment =
+      lowConfidence || Boolean(actionRequest) || isRefusalReply(text, settings);
     let attachment = skipAttachment
       ? null
       : aiContextService.findRecommendedAttachment(text, retrieval);
@@ -393,6 +394,29 @@ async function latestInbound(
     select: { id: true, content: true },
   });
   return msg;
+}
+
+/**
+ * Is this reply a refusal — the configured handoff or fallback wording?
+ *
+ * The handoff sentinel is not enough on its own. Both strings are handed to the
+ * model inside the prompt, so it also writes them as ordinary prose without
+ * signalling anything, and the code then treats the reply as a normal answer.
+ * A refusal names no item by definition, which is exactly the condition the
+ * guess-a-photo path waits for — so "Let me connect you with a member of our
+ * team" went out to a customer with an unrelated product photo attached.
+ *
+ * Substring rather than equality: the model routinely appends a line of its own
+ * ("…, they will get back to you shortly").
+ */
+function isRefusalReply(text: string, settings: AISettingsView): boolean {
+  const normalize = (s: string): string =>
+    s.trim().toLowerCase().replace(/\s+/g, ' ');
+  const reply = normalize(text);
+  return [settings.humanHandoffMessage, settings.fallbackMessage]
+    .map(normalize)
+    .filter((s) => s.length > 0)
+    .some((s) => reply.includes(s));
 }
 
 /**

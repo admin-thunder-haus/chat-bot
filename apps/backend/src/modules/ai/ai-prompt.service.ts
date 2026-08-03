@@ -248,6 +248,11 @@ const CONVERSATION_RULES = [
   // and dye was not among them, which the model read as "unanswerable" instead
   // of as the answer it plainly is.
   '- "We do not offer that" IS an answer, not a gap. If the customer asks whether you provide something and the company information lists that kind of thing without it, say plainly that it is not offered, then mention what IS available. Never treat an absence from a list you were given as a question you cannot answer.',
+  // Observed: after listing five services, "I need details for the first
+  // service" was answered about the third. Position is a reference to what the
+  // customer just read on their screen, not to anything in the retrieved data,
+  // and the model has to be told to look there.
+  '- POSITION REFERENCES ("the first one", "the second", "the last", "الأول", "التاني", "الأخير") point at the list exactly as YOU last sent it, counted top to bottom in that same order. Re-read your own previous message and take that item. Never substitute a different one, and if no list was sent, ask which item they mean.',
   '- A business question the company information covers only PARTLY — answer the part you can, then say plainly which part you do not have. Never throw away the whole answer because one detail is missing.',
   '- A business question that is unclear, vague, or could mean several things — ask ONE short clarifying question. Never refuse something you could simply ask about.',
   // No worked example here on purpose: an earlier draft illustrated this with

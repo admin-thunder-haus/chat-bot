@@ -133,6 +133,10 @@ export default function AISettingsPage() {
       handoffOnRequest: settings.handoffOnRequest,
       handoffOnLowConfidence: settings.handoffOnLowConfidence,
       handoffKeywords: parseKeywords(keywordsText),
+      welcomeEnabled: settings.welcomeEnabled,
+      // Empty string is meaningful here: it clears the override and restores
+      // the built-in greeting, rather than sending an empty welcome.
+      welcomeMessage: settings.welcomeMessage?.trim() || null,
     };
 
     setSaving(true);
@@ -326,6 +330,38 @@ export default function AISettingsPage() {
                   label="Use emojis"
                   description="Allow the occasional emoji in replies."
                 />
+              </div>
+            </SectionCard>
+
+            <SectionCard
+              title="Welcome message"
+              description="Sent once, on a customer's first message in a conversation — before the assistant answers."
+            >
+              <div className="space-y-4">
+                <ToggleRow
+                  checked={settings.welcomeEnabled}
+                  disabled={readOnly || saving}
+                  onChange={(v) => update('welcomeEnabled', v)}
+                  label="Greet customers on first contact"
+                  description="A first reply that opens with a bare answer reads as a machine. The greeting names your business first."
+                />
+                <div>
+                  <Label htmlFor="ai-welcome">Your own wording (optional)</Label>
+                  <Textarea
+                    id="ai-welcome"
+                    rows={4}
+                    placeholder="Leave empty to use the built-in greeting, which uses your company name and matches the customer's language (Arabic or English)."
+                    value={settings.welcomeMessage ?? ''}
+                    disabled={readOnly || saving || !settings.welcomeEnabled}
+                    invalid={Boolean(fieldErrors.welcomeMessage)}
+                    onChange={(e) => update('welcomeMessage', e.target.value)}
+                  />
+                  <FieldError message={fieldErrors.welcomeMessage} />
+                  <p className="mt-1 text-xs text-slate-500">
+                    Clearing this box restores the built-in greeting. A short
+                    “Powered by Thunder.AI” line is added underneath either way.
+                  </p>
+                </div>
               </div>
             </SectionCard>
 

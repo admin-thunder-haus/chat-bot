@@ -31,11 +31,20 @@ function mockInbound(
     });
 }
 
+/**
+ * Auto-reply on, first-contact greeting OFF. Every count in this file is about
+ * the AI reply itself; a greeting would add one more message to each and say
+ * nothing about auto-reply. It is covered by `ai-welcome-message.test.ts`.
+ */
 async function enableAutoReply() {
   await prisma.companyAISettings.upsert({
     where: { companyId: acme.company.id },
-    create: { companyId: acme.company.id, autoReplyEnabled: true },
-    update: { autoReplyEnabled: true },
+    create: {
+      companyId: acme.company.id,
+      autoReplyEnabled: true,
+      welcomeEnabled: false,
+    },
+    update: { autoReplyEnabled: true, welcomeEnabled: false },
   });
 }
 

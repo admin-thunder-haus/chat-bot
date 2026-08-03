@@ -153,10 +153,17 @@ describe('Webhook engine — incoming message pipeline', () => {
 
   it('duplicate inbound does not generate a second AI reply', async () => {
     setAIProviderForTesting(makeFakeProvider({ text: 'AI reply.' }).provider);
+    // Greeting off: this asserts "1 inbound + 1 AI reply" exactly, and a
+    // first-contact greeting would add a third message that has nothing to do
+    // with duplicate suppression. The greeting has its own suite.
     await prisma.companyAISettings.upsert({
       where: { companyId: acme.company.id },
-      create: { companyId: acme.company.id, autoReplyEnabled: true },
-      update: { autoReplyEnabled: true },
+      create: {
+        companyId: acme.company.id,
+        autoReplyEnabled: true,
+        welcomeEnabled: false,
+      },
+      update: { autoReplyEnabled: true, welcomeEnabled: false },
     });
     const id = await fakeAccountId(acme.tokens.owner);
     const body = fakeInboundBody({ messageId: 'dup', eventId: 'evt-dup' });

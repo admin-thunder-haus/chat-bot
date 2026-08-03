@@ -45,6 +45,7 @@ import { actionRegistry, actionsService } from '../actions';
 import type { ActionExecutionOutcome } from '../actions';
 import { detectLanguage } from '../../utils/language-detect';
 import { emitDomainEvent } from '../events/domain-events.service';
+import { buildWelcomeMessage } from './welcome-message';
 import { aiRepository } from './ai.repository';
 import { aiUsageService } from './ai-usage.service';
 import { AIError } from './ai.errors';
@@ -392,6 +393,67 @@ async function latestInbound(
     select: { id: true, content: true },
   });
   return msg;
+}
+
+/**
+ * Send the greeting when this inbound is the conversation's FIRST message.
+ *
+ * "First" is measured as "no other message exists in this conversation", not
+ * "the customer is new": a returning customer opening a fresh conversation is
+ * starting a fresh contact and should be greeted, while a second message in the
+ * same thread must not be.
+ *
+ * Never throws. The greeting is a courtesy — a customer who gets an answer and
+ * no hello is mildly worse off, but one who gets nothing because the greeting
+ * failed has been ignored entirely.
+ */
+async function sendWelcomeIfFirstContact(input: {
+  companyId: string;
+  conversation: ConversationDetail;
+  sourceMessageId: string;
+  customer: Customer;
+  question: string;
+  preferredLanguage: string;
+  customMessage: string | null;
+}): Promise<void> {
+  try {
+    const priorMessages = await prisma.message.count({
+      where: {
+        conversationId: input.conversation.id,
+        id: { not: input.sourceMessageId },
+      },
+    });
+    if (priorMessages > 0) return;
+
+    const companyName = await prisma.company
+      .findUnique({
+        where: { id: input.companyId },
+        select: { displayName: true, name: true },
+      })
+      .then((c) => c?.displayName || c?.name || 'us');
+
+    await persistAiReply(
+      input.companyId,
+      input.conversation.id,
+      input.customer.id,
+      null,
+      buildWelcomeMessage({
+        companyName,
+        preferredLanguage: input.preferredLanguage,
+        customerMessage: input.question,
+        customMessage: input.customMessage,
+      }),
+      null,
+      null,
+      'SYSTEM',
+    );
+  } catch (err) {
+    logger.warn('ai.welcome.failed', {
+      companyId: input.companyId,
+      conversationId: input.conversation.id,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 async function persistAiReply(
@@ -795,6 +857,22 @@ export const aiService = {
         });
       }
       return { generated: false, reason: 'handoff_requested' };
+    }
+
+    // Greeting, before the assistant answers anything. Deliberately a separate
+    // message rather than a preamble on the reply: it is the business saying
+    // hello, it is identical every time, and folding it into a generated answer
+    // would put it at the mercy of the model.
+    if (settings.welcomeEnabled) {
+      await sendWelcomeIfFirstContact({
+        companyId,
+        conversation,
+        sourceMessageId,
+        customer,
+        question,
+        preferredLanguage: settings.preferredLanguage,
+        customMessage: settings.welcomeMessage,
+      });
     }
 
     try {

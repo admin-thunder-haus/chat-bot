@@ -244,6 +244,9 @@ export interface AISettings {
   handoffOnRequest: boolean;
   handoffOnLowConfidence: boolean;
   handoffKeywords: string[];
+  welcomeEnabled: boolean;
+  /** Null = the built-in greeting, written from the company's own name. */
+  welcomeMessage: string | null;
   createdAt: string | null;
   updatedAt: string | null;
 }

@@ -27,6 +27,10 @@ export const updateAISettingsSchema = z
     preferredLanguage: languageCode,
     fallbackMessage: z.string().trim().min(1).max(500).optional(),
     humanHandoffMessage: z.string().trim().min(1).max(500).optional(),
+    welcomeEnabled: z.boolean().optional(),
+    // Nullable, not min(1): clearing the field restores the built-in greeting
+    // rather than sending an empty message.
+    welcomeMessage: nullableText(1000),
     maxReplyLength: z
       .number()
       .int()

@@ -14,6 +14,9 @@ export interface AISettingsInput {
   handoffOnRequest?: boolean;
   handoffOnLowConfidence?: boolean;
   handoffKeywords?: string[];
+  welcomeEnabled?: boolean;
+  /** Empty string clears it, restoring the built-in greeting. */
+  welcomeMessage?: string | null;
 }
 
 export const aiSettingsApi = {

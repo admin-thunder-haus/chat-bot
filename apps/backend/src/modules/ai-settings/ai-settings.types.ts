@@ -20,6 +20,10 @@ export interface AISettingsView {
   handoffOnRequest: boolean;
   handoffOnLowConfidence: boolean;
   handoffKeywords: string[];
+  /** Greet the customer on a conversation's first inbound message. */
+  welcomeEnabled: boolean;
+  /** Null = use the built-in greeting, written from the company's own name. */
+  welcomeMessage: string | null;
   createdAt: Date | null;
   updatedAt: Date | null;
 }
@@ -42,6 +46,8 @@ export function buildDefaultSettings(companyId: string): AISettingsView {
     handoffOnRequest: true,
     handoffOnLowConfidence: true,
     handoffKeywords: [],
+    welcomeEnabled: true,
+    welcomeMessage: null,
     createdAt: null,
     updatedAt: null,
   };

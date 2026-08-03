@@ -996,6 +996,15 @@ model CompanyAISettings {
   // Extra company-specific trigger phrases (checked case-insensitively),
   // future rules build on this without schema changes.
   handoffKeywords          String[] @default([])
+  // --- Greeting sent once, on a conversation's first inbound message ---
+  // Separate from the AI reply: it introduces the business before the
+  // assistant answers, so a customer's first contact is never a bare answer
+  // from an unidentified bot.
+  welcomeEnabled           Boolean  @default(true)
+  // NULL means "use the built-in greeting", which is written from the
+  // company's own name in the language the customer wrote in. A company that
+  // sets its own text keeps it verbatim.
+  welcomeMessage           String?
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 

@@ -116,7 +116,7 @@ export function NotificationsBell() {
         type="button"
         onClick={() => void toggleOpen()}
         aria-label={`Notifications${unread > 0 ? ` (${unread} unread)` : ''}`}
-        className="relative rounded-md p-2 text-slate-600 transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900"
+        className="relative rounded-md p-2 text-slate-600 transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600"
       >
         <svg
           width={18}
@@ -172,7 +172,7 @@ export function NotificationsBell() {
                     <button
                       type="button"
                       onClick={() => openNotification(n)}
-                      className={`flex w-full items-start gap-3 px-4 py-3 text-left transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-slate-900 ${
+                      className={`flex w-full items-start gap-3 px-4 py-3 text-left transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-600 ${
                         n.readAt ? 'opacity-60' : ''
                       }`}
                     >

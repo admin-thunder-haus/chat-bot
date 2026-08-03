@@ -648,7 +648,7 @@ export default function IntegrationsPage() {
                   >
                     <input
                       type="checkbox"
-                      className="h-4 w-4 rounded border-slate-300 text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2"
+                      className="h-4 w-4 rounded border-slate-300 text-brand-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 focus-visible:ring-offset-2"
                       checked={hookEvents.includes(option.value)}
                       onChange={(e) => {
                         setHookEventsError('');

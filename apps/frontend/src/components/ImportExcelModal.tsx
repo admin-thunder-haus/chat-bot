@@ -121,7 +121,7 @@ export function ImportExcelModal({
             accept=".xlsx"
             disabled={previewLoading || importing}
             onChange={(e) => onFileChange(e.target.files?.[0] ?? null)}
-            className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-900 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-white hover:file:bg-slate-700"
+            className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-brand-600 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-white hover:file:bg-brand-700"
           />
           <p className="mt-1 text-xs text-slate-500">
             Expected columns: {templateColumns.join(', ')}

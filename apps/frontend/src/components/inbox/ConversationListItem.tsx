@@ -39,7 +39,7 @@ export function ConversationListItem({
       type="button"
       onClick={onClick}
       aria-current={active ? 'true' : undefined}
-      className={`w-full border-b border-slate-100 px-3 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-slate-900 ${
+      className={`w-full border-b border-slate-100 px-3 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-600 ${
         active ? 'bg-slate-100' : 'hover:bg-slate-50'
       }`}
     >
@@ -49,7 +49,7 @@ export function ConversationListItem({
         <span
           aria-hidden="true"
           className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${
-            unread ? 'bg-slate-900' : 'bg-transparent'
+            unread ? 'bg-brand-600' : 'bg-transparent'
           }`}
         />
 
@@ -67,7 +67,7 @@ export function ConversationListItem({
               {name}
             </span>
             {unread && (
-              <span className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-slate-900 px-1.5 text-[11px] font-medium tabular-nums text-white">
+              <span className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-brand-600 px-1.5 text-[11px] font-medium tabular-nums text-white">
                 {conversation.unreadCount}
                 <span className="sr-only"> unread messages</span>
               </span>

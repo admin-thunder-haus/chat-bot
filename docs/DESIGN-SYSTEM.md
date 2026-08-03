@@ -33,12 +33,46 @@ Numbers that change (counts, money, durations) always get `tabular-nums`.
 
 ## 3. Colour meaning (never decorative)
 
-- Primary action / active state: `bg-slate-900 text-white`.
+- Primary action / active state: `bg-brand-600 text-white` (hover
+  `bg-brand-700`).
 - Secondary action: `border border-slate-300 bg-white text-slate-700`.
 - Destructive: `text-red-600`, confirm buttons `bg-red-600 text-white`.
+- Focus ring: `ring-brand-600` — the `FOCUS_RING` constant in `ui.tsx`. Never
+  hand-roll a different one.
 - Status via `Badge`: green = healthy/active/paid, amber = pending/trial/
   warning, red = failed/expired/error, slate = neutral/inactive, blue = info.
 - Never use colour as the ONLY signal — pair it with text or an icon.
+
+### 3a. The brand palette
+
+Defined once in `tailwind.config.ts` as `brand-50 … brand-950`, built around
+the Thunder.AI logo blue. Use the token, never a raw hex and never a stock
+Tailwind `blue-*` — the point of the scale is that the brand can be retuned in
+one file.
+
+| Step | Use it for |
+|---|---|
+| `brand-50` | Tinted backgrounds (selected cards, subtle callouts). |
+| `brand-500` | **Accents and marks only.** The logo blue. |
+| `brand-600` | Primary actions, active nav, focus rings, unread badges. |
+| `brand-700` | Hover on primary, active tab text. |
+| `brand-950` | The logo's near-black backdrop. |
+
+**`brand-500` must never carry white text.** Measured: white on `brand-500` is
+3.01:1, below the 4.5:1 floor; `brand-600` is 4.98:1 and `brand-700` is 6.89:1.
+That split is the whole reason the scale has both — the bright end is for
+things you look at, the darker end for things you read.
+
+`text-slate-900` remains the body and heading colour. Brand blue marks what is
+actionable or selected; using it for prose would destroy that signal.
+
+### 3b. The logo
+
+`components/Logo.tsx` exports `Logo` (mark + wordmark) and `LogoMark` (bolt
+only). Inline SVG, not an image file: it renders from a 20px favicon to a
+36px auth header without going soft, and inherits `currentColor` so one
+component serves both light and dark surfaces. `app/icon.svg` is the favicon —
+Next picks it up by filename, so there is no `<link>` to keep in sync.
 
 ## 4. Required states for every data view
 

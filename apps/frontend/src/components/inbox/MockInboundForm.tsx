@@ -113,7 +113,7 @@ export function MockInboundForm({
           onChange={(e) => setContent(e.target.value)}
           rows={3}
           required
-          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900 focus:ring-1 focus:ring-slate-900"
+          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-600 focus:ring-1 focus:ring-brand-600"
         />
       </div>
       <Button type="submit" loading={busy} disabled={!content.trim() || !externalCustomerId.trim()}>

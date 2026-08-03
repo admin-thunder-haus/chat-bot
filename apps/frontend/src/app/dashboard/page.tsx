@@ -179,7 +179,7 @@ export default function OverviewPage() {
                 aria-label="Setup progress"
               >
                 <div
-                  className="h-full rounded-full bg-slate-900 transition-all"
+                  className="h-full rounded-full bg-brand-600 transition-all"
                   style={{ width: `${stats.setup.progressPercent}%` }}
                 />
               </div>

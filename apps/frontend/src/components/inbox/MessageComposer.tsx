@@ -63,7 +63,7 @@ export function MessageComposer({
           placeholder="Type a reply…"
           aria-label="Message"
           rows={1}
-          className="min-h-10 min-w-0 flex-1 resize-none overflow-y-auto rounded-lg border border-slate-300 px-3 py-2 text-base outline-none transition focus-visible:border-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 disabled:bg-slate-100 sm:text-sm"
+          className="min-h-10 min-w-0 flex-1 resize-none overflow-y-auto rounded-lg border border-slate-300 px-3 py-2 text-base outline-none transition focus-visible:border-brand-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 disabled:bg-slate-100 sm:text-sm"
         />
         <Button
           onClick={onSend}

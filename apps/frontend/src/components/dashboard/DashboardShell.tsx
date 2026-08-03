@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui';
+import { LogoMark } from '@/components/Logo';
 import { Sidebar } from './Sidebar';
 import { NotificationsBell } from './NotificationsBell';
 
@@ -82,11 +83,14 @@ export function DashboardShell({ children }: { children: ReactNode }) {
               onClick={() => setMobileOpen(true)}
               aria-label="Open navigation"
               aria-expanded={mobileOpen}
-              className="rounded-md p-2 text-slate-600 transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 lg:hidden"
+              className="rounded-md p-2 text-slate-600 transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 lg:hidden"
             >
               <MenuIcon />
             </button>
-            <span className="font-semibold text-slate-900">
+            {/* Bolt only: the header is the narrowest surface in the app, and
+                the workspace name is what has to stay readable at 375px. */}
+            <LogoMark className="h-6 w-6 shrink-0 lg:hidden" />
+            <span className="truncate font-semibold text-slate-900">
               {company?.displayName || company?.name}
             </span>
           </div>

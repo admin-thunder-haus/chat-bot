@@ -223,7 +223,7 @@ export default function WebChatConfigPage() {
                         value={config.themeColor}
                         disabled={readOnly || saving}
                         onChange={(e) => update('themeColor', e.target.value)}
-                        className="h-10 w-12 shrink-0 rounded border border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2"
+                        className="h-10 w-12 shrink-0 rounded border border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 focus-visible:ring-offset-2"
                       />
                       <Input
                         value={config.themeColor}

@@ -176,7 +176,7 @@ function SelectAssetInner() {
                       <label
                         className={`flex w-full cursor-pointer items-start gap-3 rounded-lg border p-3 text-left transition-colors ${
                           active
-                            ? 'border-slate-900 bg-slate-50'
+                            ? 'border-brand-600 bg-brand-50'
                             : 'border-slate-200 bg-white hover:bg-slate-50'
                         }`}
                       >

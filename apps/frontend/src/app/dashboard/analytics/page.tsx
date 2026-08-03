@@ -102,7 +102,7 @@ function VolumeChart({ byDay }: { byDay: { date: string; count: number }[] }) {
               >
                 <div
                   className={`w-full rounded-t ${
-                    d.count > 0 ? 'bg-slate-900' : 'bg-slate-100'
+                    d.count > 0 ? 'bg-brand-600' : 'bg-slate-100'
                   }`}
                   style={{
                     height:

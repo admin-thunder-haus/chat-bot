@@ -96,7 +96,7 @@ export function MetaOauthConnect({
       <button
         type="button"
         aria-expanded={manualOpen}
-        className="min-h-10 text-xs font-medium text-slate-500 underline underline-offset-2 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2"
+        className="min-h-10 text-xs font-medium text-slate-500 underline underline-offset-2 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 focus-visible:ring-offset-2"
         onClick={() => onManualOpenChange(!manualOpen)}
       >
         {manualOpen

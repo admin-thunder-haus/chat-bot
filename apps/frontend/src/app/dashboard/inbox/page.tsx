@@ -871,7 +871,7 @@ function InboxInner() {
                               type="button"
                               disabled={suggestLoading}
                               onClick={() => void generateSuggestions()}
-                              className="inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 text-xs font-medium text-indigo-700 transition hover:bg-indigo-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 disabled:opacity-60"
+                              className="inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 text-xs font-medium text-indigo-700 transition hover:bg-indigo-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 disabled:opacity-60"
                             >
                               {suggestLoading ? (
                                 <Spinner size={11} />

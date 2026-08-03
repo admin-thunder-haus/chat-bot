@@ -22,7 +22,7 @@ import {
 
 /** The focus treatment every interactive primitive shares (§6). */
 const FOCUS_RING =
-  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2';
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 focus-visible:ring-offset-2';
 
 /* -------------------------------------------------------------------------- */
 /* Layout                                                                     */
@@ -220,7 +220,7 @@ export function Label({
 // `text-base sm:text-sm` keeps iOS from zooming on focus (§5); `min-h-10`
 // satisfies the 40px tap target.
 const fieldClasses = `w-full rounded-lg border px-3 py-2 text-base outline-none transition disabled:bg-slate-100 disabled:text-slate-500 sm:text-sm ${FOCUS_RING}`;
-const fieldValid = 'border-slate-300 focus-visible:border-slate-900';
+const fieldValid = 'border-slate-300 focus-visible:border-brand-600';
 const fieldInvalid =
   'border-red-300 focus-visible:border-red-600 focus-visible:ring-red-600';
 
@@ -296,7 +296,7 @@ export function Toggle({
       disabled={disabled}
       onClick={() => onChange(!checked)}
       className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition disabled:opacity-50 ${FOCUS_RING} ${
-        checked ? 'bg-slate-900' : 'bg-slate-300'
+        checked ? 'bg-brand-600' : 'bg-slate-300'
       }`}
     >
       <span
@@ -316,7 +316,7 @@ type Variant = 'primary' | 'secondary' | 'danger' | 'ghost';
 type Size = 'sm' | 'md';
 
 const VARIANT_CLASSES: Record<Variant, string> = {
-  primary: 'bg-slate-900 text-white hover:bg-slate-700',
+  primary: 'bg-brand-600 text-white hover:bg-brand-700',
   secondary:
     'border border-slate-300 bg-white text-slate-800 hover:bg-slate-50',
   danger: 'bg-red-600 text-white hover:bg-red-500',
@@ -629,7 +629,7 @@ export function Tabs<T extends string>({
                   TAB_SIZE_CLASSES[size]
                 } ${
                   active
-                    ? 'border-slate-900 text-slate-900'
+                    ? 'border-brand-600 text-brand-700'
                     : 'border-transparent text-slate-500 hover:text-slate-700'
                 }`}
               >
@@ -638,7 +638,7 @@ export function Tabs<T extends string>({
                   <span
                     className={`rounded-full px-1.5 py-0.5 text-[11px] tabular-nums ${
                       active
-                        ? 'bg-slate-900 text-white'
+                        ? 'bg-brand-600 text-white'
                         : 'bg-slate-100 text-slate-600'
                     }`}
                   >

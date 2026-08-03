@@ -59,11 +59,11 @@ export function ConversationFilters({
           type="button"
           onClick={() => setOpen((o) => !o)}
           aria-expanded={open}
-          className="inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 lg:hidden"
+          className="inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 lg:hidden"
         >
           Filters
           {activeCount > 0 && (
-            <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-slate-900 px-1 text-[11px] tabular-nums text-white">
+            <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-brand-600 px-1 text-[11px] tabular-nums text-white">
               {activeCount}
             </span>
           )}
@@ -151,7 +151,7 @@ export function ConversationFilters({
           <label className="inline-flex min-h-10 items-center gap-2">
             <input
               type="checkbox"
-              className="h-4 w-4 rounded border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900"
+              className="h-4 w-4 rounded border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600"
               checked={value.unreadOnly}
               onChange={(e) => onChange({ unreadOnly: e.target.checked })}
             />
@@ -160,7 +160,7 @@ export function ConversationFilters({
           <label className="inline-flex min-h-10 items-center gap-2">
             <input
               type="checkbox"
-              className="h-4 w-4 rounded border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900"
+              className="h-4 w-4 rounded border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600"
               checked={value.archived}
               onChange={(e) => onChange({ archived: e.target.checked })}
             />
@@ -173,7 +173,7 @@ export function ConversationFilters({
             <button
               type="button"
               onClick={() => onChange(CLEARED)}
-              className="inline-flex min-h-10 items-center rounded-lg px-1 text-sm font-medium text-slate-600 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900"
+              className="inline-flex min-h-10 items-center rounded-lg px-1 text-sm font-medium text-slate-600 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600"
             >
               Clear filters
             </button>

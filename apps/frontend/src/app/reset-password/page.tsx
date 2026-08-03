@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { api, ApiClientError } from '@/lib/api';
 import { Alert, Button, Card, FieldError, Input, Label } from '@/components/ui';
+import { Logo } from '@/components/Logo';
 
 /** Mirrors the backend password policy so the user is told before submitting. */
 function passwordProblem(password: string): string | null {
@@ -72,9 +73,7 @@ function ResetPasswordForm() {
   return (
     <main className="flex min-h-dvh items-center justify-center bg-slate-50 px-4 py-10">
       <Card>
-        <p className="text-[11px] font-medium uppercase tracking-wider text-slate-400">
-          AI customer support
-        </p>
+        <Logo className="text-slate-900" markClassName="h-7 w-7" textClassName="text-sm" />
         <h1 className="mt-2 text-xl font-semibold text-slate-900 sm:text-2xl">
           Choose a new password
         </h1>

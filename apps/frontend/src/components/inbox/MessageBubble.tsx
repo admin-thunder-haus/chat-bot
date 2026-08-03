@@ -69,7 +69,7 @@ export function MessageBubble({ message }: { message: Message }) {
   // The tail corner reinforces the direction so colour is not the only signal.
   const bubbleClass = !outbound
     ? 'rounded-bl-md border border-slate-200 bg-white text-slate-800'
-    : 'rounded-br-md bg-slate-900 text-white';
+    : 'rounded-br-md bg-brand-600 text-white';
 
   const delivery = outbound
     ? deliveryLabel(message.status, message.delivery)

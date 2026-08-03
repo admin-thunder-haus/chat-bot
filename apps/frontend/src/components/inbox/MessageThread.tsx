@@ -164,7 +164,7 @@ export function MessageThread({
             <button
               type="button"
               onClick={loadOlder}
-              className="rounded text-xs font-medium text-slate-600 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900"
+              className="rounded text-xs font-medium text-slate-600 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600"
             >
               ↑ Load older messages
             </button>
@@ -216,7 +216,7 @@ export function MessageThread({
         <button
           type="button"
           onClick={scrollToBottom}
-          className="absolute bottom-32 left-1/2 -translate-x-1/2 rounded-full bg-slate-900 px-3 py-2 text-xs font-medium text-white shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2"
+          className="absolute bottom-32 left-1/2 -translate-x-1/2 rounded-full bg-brand-600 px-3 py-2 text-xs font-medium text-white shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 focus-visible:ring-offset-2"
         >
           New messages ↓
         </button>

@@ -112,7 +112,7 @@ export function DetailsDrawer({
             type="button"
             aria-label="Close details"
             onClick={onClose}
-            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900"
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600"
           >
             <span aria-hidden="true">✕</span>
           </button>
@@ -132,9 +132,9 @@ export function DetailsDrawer({
               aria-selected={tab === t.key}
               aria-controls={`details-panel-${t.key}`}
               onClick={() => setTab(t.key)}
-              className={`min-h-11 flex-1 px-3 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-slate-900 ${
+              className={`min-h-11 flex-1 px-3 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-600 ${
                 tab === t.key
-                  ? 'border-b-2 border-slate-900 text-slate-900'
+                  ? 'border-b-2 border-brand-600 text-brand-700'
                   : 'text-slate-500 hover:text-slate-700'
               }`}
             >

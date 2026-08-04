@@ -39,7 +39,8 @@ import type {
   Tag,
   UserSummary,
 } from '@/lib/types';
-import { Button, Spinner } from '@/components/ui';
+import { Button, ConfirmDialog, Spinner } from '@/components/ui';
+import { customerName } from '@/lib/format';
 import { ConversationFilters } from '@/components/inbox/ConversationFilters';
 import { ConversationList } from '@/components/inbox/ConversationList';
 import { CompactConversationHeader } from '@/components/inbox/CompactConversationHeader';
@@ -154,6 +155,7 @@ function InboxInner() {
   const [activities, setActivities] = useState<Activity[]>([]);
   // Right details panel is a drawer, hidden by default.
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   const [composerText, setComposerText] = useState('');
   const [sending, setSending] = useState(false);
@@ -628,6 +630,20 @@ function InboxInner() {
       const { conversation } = await conversationsApi.setArchived(detail!.id, !detail!.isArchived);
       applyDetail(conversation);
     });
+  // Two steps on purpose: the menu item only opens the confirm, and this runs
+  // after it. Nothing here can be undone.
+  const onConfirmDelete = () =>
+    withHeader(async () => {
+      const id = detail!.id;
+      await conversationsApi.remove(id);
+      setDeleteOpen(false);
+      // Clear the selection FIRST: `activeId` drives the loader, and leaving it
+      // set would immediately refetch a conversation that no longer exists.
+      setActiveId(null);
+      setDetail(null);
+      setItems((prev) => prev.filter((c) => c.id !== id));
+      notify('Conversation deleted', 'success');
+    });
   const onAttachTag = (tagId: string) =>
     withHeader(async () => {
       const { tags } = await conversationsApi.attachTag(detail!.id, tagId);
@@ -809,6 +825,7 @@ function InboxInner() {
                   onAttachTag={onAttachTag}
                   onDetachTag={onDetachTag}
                   onArchive={onArchive}
+                  onDelete={() => setDeleteOpen(true)}
                   onSetMode={onSetMode}
                   onToggleAutoReply={onToggleAutoReply}
                   onDraft={() => void generateDraft()}
@@ -910,6 +927,20 @@ function InboxInner() {
           onGenerateSummary={generateSummary}
         />
       )}
+
+      <ConfirmDialog
+        open={deleteOpen}
+        title="Delete this conversation?"
+        message={
+          detail
+            ? `This permanently deletes the conversation with ${customerName(detail.customer)} and every message in it. It cannot be undone. If ${customerName(detail.customer)} messages again it will start a new conversation. To keep the history instead, use Archive.`
+            : ''
+        }
+        confirmLabel="Delete permanently"
+        loading={headerBusy}
+        onConfirm={() => void onConfirmDelete()}
+        onCancel={() => setDeleteOpen(false)}
+      />
 
       <NewConversationModal
         open={newOpen}

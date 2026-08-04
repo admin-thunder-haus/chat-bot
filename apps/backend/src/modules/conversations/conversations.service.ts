@@ -219,6 +219,30 @@ export const conversationsService = {
     return this.getDetail(companyId, id);
   },
 
+  /**
+   * Permanently delete a conversation and everything hanging off it.
+   *
+   * Distinct from archiving, which hides a thread but keeps it. This is the
+   * route for a customer exercising a deletion right, and for clearing test
+   * traffic before a real customer sees the inbox.
+   *
+   * The customer record is deliberately KEPT. Deleting it would orphan their
+   * other conversations on other channels, and the request is about this
+   * thread. A consequence worth knowing: because inbound looks for an
+   * unarchived conversation for that customer, their next message opens a
+   * genuinely new one — and is greeted as a first contact again.
+   *
+   * Cascades handle messages, notes, tags and activity. Two things survive on
+   * purpose: AI generation rows keep the spend audit with `conversationId` set
+   * to null, and business records created from the thread — orders,
+   * appointments, tickets — hold a plain id with no foreign key, so deleting a
+   * conversation never destroys an order the business still has to fulfil.
+   */
+  async remove(companyId: string, id: string): Promise<void> {
+    await this.requireScoped(companyId, id);
+    await conversationsRepository.deleteScoped(companyId, id);
+  },
+
   async markRead(companyId: string, id: string): Promise<ConversationDetail> {
     await this.requireScoped(companyId, id);
     await conversationsRepository.updateScoped(companyId, id, { unreadCount: 0 });

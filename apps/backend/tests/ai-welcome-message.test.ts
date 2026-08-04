@@ -8,6 +8,7 @@ import { makeFakeProvider } from './ai-helpers';
 import {
   buildWelcomeMessage,
   PLATFORM_BRAND,
+  PLATFORM_URL,
 } from '../src/modules/ai/welcome-message';
 
 /**
@@ -76,6 +77,22 @@ describe('buildWelcomeMessage', () => {
     expect(
       buildWelcomeMessage({ ...base, preferredLanguage: 'en', customerMessage: 'مرحبا' }),
     ).toContain('Welcome to');
+  });
+
+  it('links to the platform in both languages', () => {
+    for (const msg of ['hello', 'مرحبا']) {
+      expect(buildWelcomeMessage({ ...base, customerMessage: msg })).toContain(
+        PLATFORM_URL,
+      );
+    }
+  });
+
+  it('writes the link bare, not as markdown', () => {
+    // These channels render text verbatim: `[Thunder.AI](https://…)` would
+    // arrive with the brackets showing, while a plain URL auto-links.
+    const msg = buildWelcomeMessage({ ...base, customerMessage: 'hello' });
+    expect(msg).not.toMatch(/\]\(https?:/);
+    expect(msg).not.toMatch(/<a\s/i);
   });
 
   it('carries the business name, never the platform name, as the greeting', () => {

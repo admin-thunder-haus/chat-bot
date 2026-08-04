@@ -87,6 +87,10 @@ export const conversationsApi = {
       auth: true,
     });
   },
+  /** Permanent. Archiving hides a thread; this destroys it. OWNER/ADMIN only. */
+  remove(id: string): Promise<null> {
+    return request(`/conversations/${id}`, { method: 'DELETE', auth: true });
+  },
   markRead(id: string): Promise<{ conversation: ConversationDetail }> {
     return request(`/conversations/${id}/read`, { method: 'PATCH', auth: true });
   },

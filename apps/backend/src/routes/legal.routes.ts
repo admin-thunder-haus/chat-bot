@@ -196,6 +196,57 @@ within the period required by applicable law.</p>
   );
 }
 
+/**
+ * Standalone data-deletion instructions.
+ *
+ * Meta requires a "User data deletion" URL to publish an app, and rejects one
+ * that merely repeats the privacy policy URL. More usefully, it is the page a
+ * reviewer actually reads to check the deletion route is real — so this
+ * describes the two paths that genuinely exist in the product (a business
+ * deleting its own workspace, and an end customer asking the business), rather
+ * than being a URL that exists only to satisfy a form.
+ */
+function dataDeletionHtml(): string {
+  const b = blanks();
+  return page(
+    'Deleting your data',
+    `<h1>Deleting your data</h1>
+<p class="muted">Last updated ${escapeHtml(env.LEGAL_LAST_UPDATED)}</p>
+<p>How to have data held by ${APP_NAME} deleted. See also our
+<a href="/privacy">Privacy Policy</a>.</p>
+
+<h2>If you use the dashboard (a business)</h2>
+<p>Sign in and open <strong>Company Profile</strong>. The danger zone at the
+bottom of that page deletes your entire workspace: users, customers,
+conversations, messages, uploaded files and connected channels. It is immediate
+and permanent, and it cannot be undone. Export your data first from the same
+page if you want a copy — you will not be able to retrieve it afterwards.</p>
+<p>Disconnecting a channel on the <strong>Channels</strong> page removes that
+channel's stored access tokens on its own, without deleting the workspace.</p>
+
+<h2>If you messaged a business that uses ${APP_NAME}</h2>
+<p>Your messages belong to the conversation you had with that business, and the
+business controls them. Ask the business directly and it can delete the
+conversation from its inbox, which removes the messages permanently.</p>
+<p>If you cannot reach them, contact ${fill(b.contact)} with the name of the
+business and the channel you used (WhatsApp, Instagram, Messenger, Telegram or
+their website chat), and we will act on the request within the period required
+by applicable law.</p>
+
+<h2>Revoking access instead</h2>
+<p>Removing this app from a connected Facebook Page, Instagram account or
+WhatsApp Business Account stops all further data being received. It does not by
+itself delete what was already stored — use one of the routes above for that.</p>
+
+<h2>Retention</h2>
+<p>After an account is closed, remaining data is deleted within
+${fill(b.retention)}.</p>
+
+<h2>Contact</h2>
+<p>${fill(b.contact)}</p>`,
+  );
+}
+
 function termsHtml(): string {
   const b = blanks();
   return page(
@@ -269,6 +320,12 @@ router.get('/privacy', (_req, res) => {
 
 router.get('/terms', (_req, res) => {
   res.status(200).type('html').send(termsHtml());
+});
+
+// Meta requires this as its own URL to publish an app, and rejects one that is
+// merely the privacy policy URL repeated.
+router.get('/data-deletion', (_req, res) => {
+  res.status(200).type('html').send(dataDeletionHtml());
 });
 
 export const legalRoutes = router;

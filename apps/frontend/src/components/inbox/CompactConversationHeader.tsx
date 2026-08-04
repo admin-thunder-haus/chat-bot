@@ -90,6 +90,7 @@ export function CompactConversationHeader({
   onAttachTag,
   onDetachTag,
   onArchive,
+  onDelete,
   onSetMode,
   onToggleAutoReply,
   onDraft,
@@ -115,6 +116,8 @@ export function CompactConversationHeader({
   onAttachTag: (tagId: string) => void;
   onDetachTag: (tagId: string) => void;
   onArchive: () => void;
+  /** Opens the delete confirmation. Omitted where deletion is not offered. */
+  onDelete?: () => void;
   onSetMode: (mode: AIConversationMode) => void;
   onToggleAutoReply: (next: boolean) => void;
   onDraft: () => void;
@@ -235,6 +238,20 @@ export function CompactConversationHeader({
                     {conversation.isArchived ? 'Unarchive' : 'Archive'}
                   </Button>
                 )}
+                {writable && onDelete && (
+                  // Only opens the confirm — nothing is destroyed from a menu.
+                  <Button
+                    variant="danger"
+                    fullWidth
+                    disabled={busy}
+                    onClick={() => {
+                      close();
+                      onDelete();
+                    }}
+                  >
+                    Delete conversation
+                  </Button>
+                )}
               </>
             )}
           </OverflowMenu>
@@ -322,6 +339,20 @@ export function CompactConversationHeader({
         {writable && (
           <Button size="sm" variant="ghost" disabled={busy} onClick={onArchive}>
             {conversation.isArchived ? 'Unarchive' : 'Archive'}
+          </Button>
+        )}
+        {writable && onDelete && (
+          // `ghost` rather than `danger`: this sits in a row of everyday
+          // controls, and a permanently red button there invites the misclick
+          // it is trying to prevent. The confirm carries the warning.
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={busy}
+            onClick={onDelete}
+            className="text-red-600 hover:bg-red-50"
+          >
+            Delete
           </Button>
         )}
         <div className="w-full xl:w-auto">

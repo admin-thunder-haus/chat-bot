@@ -77,6 +77,14 @@ export const conversationsController = {
     sendSuccess(res, { conversation }, 'Conversation archive state updated successfully');
   },
 
+  async remove(req: Request, res: Response): Promise<void> {
+    await conversationsService.remove(
+      req.user!.companyId,
+      req.params.conversationId,
+    );
+    sendSuccess(res, null, 'Conversation deleted successfully');
+  },
+
   async markRead(req: Request, res: Response): Promise<void> {
     const conversation = await conversationsService.markRead(
       req.user!.companyId,

@@ -136,6 +136,14 @@ router.patch(
   validate({ params: convParam }),
   asyncHandler(conversationsController.markRead),
 );
+// Permanent, so OWNER/ADMIN only — an agent can archive, not destroy. Declared
+// after the nested sub-resource routers above so `/:id/messages` still wins.
+router.delete(
+  '/:conversationId',
+  writeRoles,
+  validate({ params: convParam }),
+  asyncHandler(conversationsController.remove),
+);
 router.get(
   '/:conversationId/activity',
   validate({ params: convParam }),

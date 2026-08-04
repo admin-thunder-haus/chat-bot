@@ -20,6 +20,15 @@ import { detectLanguage } from '../../utils/language-detect';
 export const PLATFORM_BRAND = 'Thunder.AI';
 
 /**
+ * Where the attribution line points.
+ *
+ * Bare URL, no markdown link syntax: these channels render our text verbatim,
+ * so `[Thunder.AI](https://…)` would arrive with the brackets visible while
+ * every one of them auto-links a plain URL on its own.
+ */
+export const PLATFORM_URL = 'https://ai.thunder-haus.com/';
+
+/**
  * Languages with a hand-written greeting. Anything else falls back to English
  * rather than machine-translating, because a greeting is the one message where
  * awkward phrasing is most visible.
@@ -63,8 +72,8 @@ function defaultBody(locale: WelcomeLocale, companyName: string): string {
 
 function attribution(locale: WelcomeLocale): string {
   return locale === 'ar'
-    ? `⚡ مدعوم بواسطة ${PLATFORM_BRAND}`
-    : `⚡ Powered by ${PLATFORM_BRAND}`;
+    ? `⚡ مدعوم بواسطة ${PLATFORM_BRAND} — ${PLATFORM_URL}`
+    : `⚡ Powered by ${PLATFORM_BRAND} — ${PLATFORM_URL}`;
 }
 
 /**

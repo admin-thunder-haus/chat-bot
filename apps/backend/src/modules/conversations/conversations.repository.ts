@@ -106,6 +106,20 @@ export const conversationsRepository = {
 
   // --- simple single-record update (no activity needed) ---
 
+  /**
+   * Hard-delete a conversation, scoped to its company.
+   *
+   * `deleteMany` rather than `delete` so the company filter is part of the
+   * statement itself — a mismatched tenant deletes nothing instead of throwing
+   * after the fact.
+   */
+  async deleteScoped(companyId: string, id: string): Promise<boolean> {
+    const result = await prisma.conversation.deleteMany({
+      where: { id, companyId },
+    });
+    return result.count > 0;
+  },
+
   async updateScoped(
     companyId: string,
     id: string,

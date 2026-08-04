@@ -287,6 +287,50 @@ export const whatsAppApiClient = {
    * sends fine, and receives nothing. Never throws — a failure here must not
    * discard otherwise-valid credentials, so it reports an outcome instead.
    */
+  /**
+   * Register a business phone number for Cloud API use.
+   *
+   * Subscribing the WABA to webhooks is only one of the steps Meta requires
+   * after Embedded Signup; without this one the number is attached but not
+   * enabled, and every send fails. It is the step most easily missed because
+   * connecting appears to succeed and the health check — which only proves the
+   * token works — still reports HEALTHY.
+   *
+   * The PIN sets (or must match) the number's two-step verification PIN, so a
+   * number that already has one set to something else cannot be registered
+   * here; that surfaces as a failed outcome rather than an exception.
+   *
+   * "Already registered" counts as success: re-running connect on a working
+   * number must not look like a failure.
+   */
+  async registerPhoneNumber(input: {
+    accessToken: string;
+    phoneNumberId: string;
+    pin: string;
+  }): Promise<{ ok: boolean; alreadyRegistered?: boolean; detail?: string }> {
+    try {
+      const res = await transport.request({
+        url: graphUrl(`${encodeURIComponent(input.phoneNumberId)}/register`),
+        method: 'POST',
+        accessToken: input.accessToken,
+        body: { messaging_product: 'whatsapp', pin: input.pin },
+        timeoutMs: env.WHATSAPP_REQUEST_TIMEOUT_MS,
+      });
+      if (res.ok) return { ok: true };
+      // Meta reports an already-registered number as a 4xx with subcode
+      // 2388009 ("Phone number already registered"). Treating that as failure
+      // would make every reconnect of a working number look broken.
+      const err = (res.json as { error?: { error_subcode?: number } } | null)
+        ?.error;
+      if (err?.error_subcode === 2388009) {
+        return { ok: true, alreadyRegistered: true };
+      }
+      return { ok: false, detail: classify(res.status).category };
+    } catch {
+      return { ok: false, detail: 'NETWORK' };
+    }
+  },
+
   async subscribeApp(input: {
     accessToken: string;
     nodeId: string;

@@ -10,6 +10,8 @@ import {
   PLATFORM_BRAND,
   PLATFORM_URL,
 } from '../src/modules/ai/welcome-message';
+import { aiPromptService } from '../src/modules/ai/ai-prompt.service';
+import { buildDefaultSettings } from '../src/modules/ai-settings/ai-settings.types';
 
 /**
  * The greeting a customer gets on first contact.
@@ -223,5 +225,32 @@ describe('the greeting is configurable through the API', () => {
       .set(authHeader(globex.tokens.owner));
     expect(res.body.data.settings.welcomeEnabled).toBe(true);
     expect(res.body.data.settings.welcomeMessage).toBeNull();
+  });
+});
+
+describe('the reply does not greet again right under the greeting', () => {
+  it('tells the model a welcome was just sent', () => {
+    // Observed live: greeting went out, then "Hi there! How can I assist you
+    // today? 😊" — the customer's first contact was two hellos and no content.
+    const p = aiPromptService.buildSystemPrompt({
+      companyName: 'Acme',
+      contextText: 'Services: A – 1 JOD.',
+      settings: buildDefaultSettings('c1'),
+      injectionSuspected: false,
+      justGreeted: true,
+    });
+    expect(p).toMatch(/ALREADY GREETED/);
+    expect(p).toMatch(/Do not greet them again/i);
+    expect(p).toMatch(/do not ask "how can I help"/i);
+  });
+
+  it('says nothing about greeting when none was sent', () => {
+    const p = aiPromptService.buildSystemPrompt({
+      companyName: 'Acme',
+      contextText: 'Services: A – 1 JOD.',
+      settings: buildDefaultSettings('c1'),
+      injectionSuspected: false,
+    });
+    expect(p).not.toMatch(/ALREADY GREETED/);
   });
 });

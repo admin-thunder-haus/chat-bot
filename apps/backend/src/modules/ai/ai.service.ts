@@ -169,6 +169,8 @@ interface RunInput {
   settingsOverride?: AISettingsView;
   /** Allow the model to signal low-confidence handoff via the sentinel. */
   allowHandoffSignal?: boolean;
+  /** The welcome greeting was just sent, so the reply must not greet again. */
+  justGreeted?: boolean;
   /**
    * Allow the model to request registered business actions via ACTION_REQUEST
    * lines (default false). Parsing is gated by the same flag, so a run that
@@ -239,6 +241,7 @@ async function runGeneration(input: RunInput): Promise<AIGenerationResult> {
     adjustment: input.adjustment,
     detectedLanguage,
     allowHandoffSignal: input.allowHandoffSignal ?? false,
+    justGreeted: input.justGreeted ?? false,
     allowActions,
     actionCatalog: allowActions
       ? actionRegistry.list().map((h) => ({
@@ -439,7 +442,7 @@ async function sendWelcomeIfFirstContact(input: {
   question: string;
   preferredLanguage: string;
   customMessage: string | null;
-}): Promise<void> {
+}): Promise<boolean> {
   try {
     const priorMessages = await prisma.message.count({
       where: {
@@ -447,7 +450,7 @@ async function sendWelcomeIfFirstContact(input: {
         id: { not: input.sourceMessageId },
       },
     });
-    if (priorMessages > 0) return;
+    if (priorMessages > 0) return false;
 
     const companyName = await prisma.company
       .findUnique({
@@ -471,12 +474,14 @@ async function sendWelcomeIfFirstContact(input: {
       null,
       'SYSTEM',
     );
+    return true;
   } catch (err) {
     logger.warn('ai.welcome.failed', {
       companyId: input.companyId,
       conversationId: input.conversation.id,
       message: err instanceof Error ? err.message : String(err),
     });
+    return false;
   }
 }
 
@@ -887,8 +892,9 @@ export const aiService = {
     // message rather than a preamble on the reply: it is the business saying
     // hello, it is identical every time, and folding it into a generated answer
     // would put it at the mercy of the model.
+    let justGreeted = false;
     if (settings.welcomeEnabled) {
-      await sendWelcomeIfFirstContact({
+      justGreeted = await sendWelcomeIfFirstContact({
         companyId,
         conversation,
         sourceMessageId,
@@ -910,6 +916,8 @@ export const aiService = {
         customer,
         includeHistory: true,
         allowHandoffSignal: settings.handoffOnLowConfidence,
+        // Stops the reply opening with a second hello right under the greeting.
+        justGreeted,
         allowActions: isAiActionsEnabled(),
       });
       // The model asked to perform a business action: execute it (validated,

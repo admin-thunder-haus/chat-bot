@@ -1,10 +1,11 @@
-import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 import { env } from '../../../config/env';
 import { AppError } from '../../../utils/AppError';
 import { logger } from '../../../utils/logger';
 import { channelsService } from '../channels.service';
 import { channelHealthService } from '../channel-health.service';
 import { metaOauthGraphClient } from './meta-oauth.graph';
+import { whatsAppApiClient } from '../providers/whatsapp/whatsapp-api.client';
 import {
   metaOauthSelectionStore,
   selectionNotFound,
@@ -186,6 +187,19 @@ function callbackUrl(publicBaseUrl: string): string {
 
 function newVerifyToken(): string {
   return randomBytes(24).toString('hex');
+}
+
+/**
+ * Six digits for the number's two-step verification PIN.
+ *
+ * Random rather than fixed: it is a credential on the customer's own WhatsApp
+ * number, and a constant baked into the platform would be the same on every
+ * tenant. Not stored — Meta only needs it at registration, and a number that
+ * already carries a different PIN cannot be re-registered here anyway, which
+ * the failed outcome reports.
+ */
+function newRegistrationPin(): string {
+  return String(randomInt(0, 1_000_000)).padStart(6, '0');
 }
 
 /**
@@ -456,6 +470,24 @@ async function connectSelectedWhatsApp(input: {
       verifyToken: newVerifyToken(),
     },
   );
+
+  // Meta requires the number to be REGISTERED for Cloud API use, not merely
+  // shared through signup. Skipping it leaves a channel that connects, passes
+  // its health check (which only proves the token works) and fails every send.
+  // Non-fatal for the same reason the webhook subscription is: the credentials
+  // are already valid and stored, and a failure here is reported rather than
+  // used as a reason to throw them away.
+  const registered = await whatsAppApiClient.registerPhoneNumber({
+    accessToken: input.accessToken,
+    phoneNumberId: phone.phoneNumberId,
+    pin: newRegistrationPin(),
+  });
+  if (!registered.ok) {
+    logger.warn('meta_oauth.whatsapp.register.failed', {
+      channelAccountId: account.id,
+      detail: registered.detail,
+    });
+  }
 
   await finalizeConnection({
     companyId: input.companyId,

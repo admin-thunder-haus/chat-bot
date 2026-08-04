@@ -275,6 +275,12 @@ export interface PromptBuildInput {
   detectedLanguage?: string | null;
   /** When true, the model may emit the HANDOFF_SENTINEL for unanswerable questions. */
   allowHandoffSignal?: boolean;
+  /**
+   * The platform already sent its own greeting immediately before this reply.
+   * Without knowing that, the model greets again and the customer's first
+   * contact is two hellos in a row.
+   */
+  justGreeted?: boolean;
   /** When true (and actionCatalog is non-empty), the model may emit ACTION_REQUEST lines. */
   allowActions?: boolean;
   /** Registered actions advertised to the model (only used when allowActions). */
@@ -367,6 +373,18 @@ export const aiPromptService = {
 
     const parts = [
       platform,
+      // Observed in a live thread: the greeting went out, then the assistant
+      // replied "Hi there! How can I assist you today?" — the customer's first
+      // contact was answered with two hellos and no content.
+      ...(input.justGreeted
+        ? [
+            [
+              'ALREADY GREETED:',
+              '- A welcome message introducing the business has JUST been sent to this customer, immediately before your reply. Do not greet them again, do not welcome them, and do not ask "how can I help" — that has been said.',
+              '- If their message was only a greeting, reply with something short and useful instead: name one or two things you can help with. If it contained an actual question, answer it directly with no preamble.',
+            ].join('\n'),
+          ]
+        : []),
       CONVERSATION_RULES,
       FORMATTING_RULES,
       MEDIA_RULES,

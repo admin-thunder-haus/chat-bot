@@ -83,26 +83,21 @@ function UserSummary() {
  * drawer so the two can never drift apart.
  */
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
-  const { company, logout } = useAuth();
+  const { logout } = useAuth();
   return (
     <>
       {/*
-        The product's mark sits above the workspace name, not instead of it:
-        the operator needs to know WHICH company they are working in at a
-        glance, and that is the line that changes between tenants.
+        The mark alone. The workspace name used to sit here too, but it is
+        already the first thing in the page header on every screen — repeating
+        it inside the sidebar cost two lines of vertical space and told the
+        operator nothing they were not already looking at.
       */}
       <div className="shrink-0 border-b border-slate-200 px-5 py-4">
         <Logo
           className="text-slate-900"
-          markClassName="h-6 w-6"
-          textClassName="text-[13px]"
+          markClassName="h-7 w-7"
+          textClassName="text-sm"
         />
-        <p className="mt-3 truncate text-lg font-semibold text-slate-900">
-          {company?.displayName || company?.name}
-        </p>
-        <p className="text-[11px] font-medium uppercase tracking-wider text-slate-400">
-          Workspace
-        </p>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-4">

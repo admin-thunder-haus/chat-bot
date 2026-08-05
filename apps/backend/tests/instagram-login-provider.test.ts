@@ -26,7 +26,6 @@ const app = createApp();
 const FB_PLATFORM_SECRET = 'test-facebook-platform-secret';
 const IG_PLATFORM_SECRET = 'test-instagram-platform-secret';
 const VERIFY_TOKEN = 'test-platform-verify-token-shared';
-const IG_APP_ID = 'ig-app-777';
 const FB_APP_ID = 'fb-app-111';
 
 let acme: Tenant;
@@ -44,21 +43,35 @@ function postShared(payload: unknown, secret: string) {
     .send(raw);
 }
 
-/** Provider transport whose `subscribed_apps` GET returns the given app ids. */
-function transportWithSubscribers(ids: string[] | null): InstagramTransport {
+/**
+ * Provider transport whose `subscribed_apps` GET returns the given FIELDS.
+ *
+ * Fields, not app ids: `/me/subscribed_apps` on graph.instagram.com resolves
+ * from our own token, so every entry is already ours and the id it carries is
+ * Instagram-scoped — it never equals the Instagram App ID. Verified against a
+ * live account, where the real response was
+ * `{"data":[{"id":"180553…","subscribed_fields":["messages"]}]}` while the
+ * configured app id was `156676…`.
+ */
+function transportWithFields(fields: string[] | null): InstagramTransport {
   return {
     async request(input) {
       if (input.url.includes('/subscribed_apps')) {
         if (input.method === 'POST') {
           return { status: 200, ok: true, json: { success: true } };
         }
-        if (ids === null) {
+        if (fields === null) {
           return { status: 400, ok: false, json: { error: { code: 100 } } };
         }
         return {
           status: 200,
           ok: true,
-          json: { data: ids.map((id) => ({ id })) },
+          json: {
+            data:
+              fields.length === 0
+                ? []
+                : [{ id: 'instagram-scoped-id', subscribed_fields: fields }],
+          },
         };
       }
       return {
@@ -72,7 +85,7 @@ function transportWithSubscribers(ids: string[] | null): InstagramTransport {
 
 beforeEach(async () => {
   acme = await setupTenant('acme');
-  setInstagramTransportForTesting(transportWithSubscribers([IG_APP_ID]));
+  setInstagramTransportForTesting(transportWithFields(['messages']));
   env.META_APP_SECRET = FB_PLATFORM_SECRET;
   env.META_WEBHOOK_VERIFY_TOKEN = VERIFY_TOKEN;
   // Both, because the readiness default reads process.env directly: the point
@@ -158,71 +171,56 @@ describe('Instagram shared webhook — signed with the INSTAGRAM app secret', ()
   });
 });
 
-describe('Instagram inbound readiness — judged against the Instagram app id', () => {
-  it('reports ready when OUR Instagram app is subscribed', async () => {
-    env.INSTAGRAM_APP_ID = IG_APP_ID;
+describe('Instagram inbound readiness — judged by the subscribed FIELDS', () => {
+  it('reports ready when the account is subscribed to messages', async () => {
     const id = await connect();
-
     const res = await healthCheck(id);
     expect(res.status).toBe(200);
     expect(res.body.data.account.inbound.ready).toBe(true);
   });
 
-  it('reports NOT ready when a different app holds the subscription', async () => {
-    env.INSTAGRAM_APP_ID = IG_APP_ID;
-    setInstagramTransportForTesting(transportWithSubscribers(['someone-else']));
+  it('does not compare app ids at all (the false-alarm regression)', async () => {
+    // A correctly-subscribed live account reported APP_NOT_SUBSCRIBED because
+    // Meta's Instagram-scoped id was compared to the Instagram App ID. Neither
+    // configured id may change the verdict now.
+    env.INSTAGRAM_APP_ID = 'some-other-id';
+    process.env.META_APP_ID = 'yet-another-id';
     const id = await connect();
-
     const res = await healthCheck(id);
-    expect(res.body.data.account.inbound.ready).toBe(false);
-    expect(res.body.data.account.inbound.detail).toBe('APP_NOT_SUBSCRIBED');
+    expect(res.body.data.account.inbound.ready).toBe(true);
   });
 
-  it('reports NOT ready when nothing at all is subscribed', async () => {
-    env.INSTAGRAM_APP_ID = IG_APP_ID;
-    setInstagramTransportForTesting(transportWithSubscribers([]));
+  it('reports ready even with no INSTAGRAM_APP_ID configured', async () => {
+    env.INSTAGRAM_APP_ID = undefined;
     const id = await connect();
-
     const res = await healthCheck(id);
-    expect(res.body.data.account.inbound.ready).toBe(false);
+    expect(res.body.data.account.inbound.ready).toBe(true);
   });
 
-  it('does not mistake the Facebook app id for the Instagram one', async () => {
-    // Instagram Login subscribes under the Instagram app identity. Comparing
-    // against META_APP_ID would call a correctly-wired channel broken — a false
-    // alarm, which is worse than no signal at all.
-    env.INSTAGRAM_APP_ID = IG_APP_ID;
-    setInstagramTransportForTesting(transportWithSubscribers([FB_APP_ID]));
+  it('reports NOT ready when nothing is subscribed', async () => {
+    setInstagramTransportForTesting(transportWithFields([]));
     const id = await connect();
-
     const res = await healthCheck(id);
     expect(res.body.data.account.inbound.ready).toBe(false);
+    expect(res.body.data.account.inbound.detail).toBe('NO_SUBSCRIBERS');
+  });
+
+  it('reports NOT ready when subscribed to other fields but not messages', async () => {
+    // Subscribed, but to comments only — it would still receive no DMs.
+    setInstagramTransportForTesting(transportWithFields(['comments']));
+    const id = await connect();
+    const res = await healthCheck(id);
+    expect(res.body.data.account.inbound.ready).toBe(false);
+    expect(res.body.data.account.inbound.detail).toBe(
+      'MESSAGES_FIELD_NOT_SUBSCRIBED',
+    );
   });
 
   it('stays THREE-VALUED: unknown when the probe cannot answer', async () => {
-    env.INSTAGRAM_APP_ID = IG_APP_ID;
-    setInstagramTransportForTesting(transportWithSubscribers(null));
+    setInstagramTransportForTesting(transportWithFields(null));
     const id = await connect();
-
     const res = await healthCheck(id);
     expect(res.body.data.account.inbound.ready).toBeNull();
-  });
-
-  it('degrades to unknown rather than guessing when INSTAGRAM_APP_ID is unset', async () => {
-    // A non-empty list we cannot identify is genuinely unknown; reporting it as
-    // broken would be the false alarm this three-valued signal exists to avoid.
-    const id = await connect();
-
-    const res = await healthCheck(id);
-    expect(res.body.data.account.inbound.ready).toBeNull();
-  });
-
-  it('an empty list is still conclusive with no app id configured', async () => {
-    setInstagramTransportForTesting(transportWithSubscribers([]));
-    const id = await connect();
-
-    const res = await healthCheck(id);
-    expect(res.body.data.account.inbound.ready).toBe(false);
   });
 
   it('probes `me`, not a stored id, on graph.instagram.com', async () => {
@@ -241,9 +239,6 @@ describe('Instagram inbound readiness — judged against the Instagram app id', 
 
     const probes = calls.filter((c) => c.url.includes('/subscribed_apps'));
     expect(probes).not.toHaveLength(0);
-    // Instagram Login exposes an account under two ids; letting the token name
-    // its own account removes a guess we cannot make from stored data. The
-    // linked Page id must never appear — that belongs to the other model.
     expect(probes.every((c) => c.url.includes('/me/subscribed_apps'))).toBe(true);
     expect(probes.every((c) => c.url.includes('graph.instagram.com'))).toBe(true);
     expect(probes.some((c) => c.url.includes(IG.facebookPageId))).toBe(false);

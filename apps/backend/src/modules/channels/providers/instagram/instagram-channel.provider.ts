@@ -31,7 +31,6 @@ import {
   splitMetaMessagingWebhook,
   validateMetaSharedSignature,
 } from '../meta-webhook-routing';
-import { interpretSubscribedApps } from '../meta-webhook-routing';
 
 export const INSTAGRAM_PROVIDER_KEY = 'instagram';
 export const INSTAGRAM_SIGNATURE_HEADER = 'x-hub-signature-256';
@@ -259,14 +258,21 @@ export class InstagramChannelProvider implements ChannelProvider {
   }): Promise<{ ready: boolean | null; detail?: string }> {
     const creds = asCredentials(input.credentials);
     if (!creds) return { ready: null, detail: 'NOT_CONFIGURED' };
-    const ids = await instagramApiClient.getSubscribedAppIds({
+    const fields = await instagramApiClient.getSubscribedFields({
       accessToken: creds.accessToken,
       nodeId: SUBSCRIPTION_NODE,
     });
-    // Instagram Login subscribes under the Instagram app identity, so that is
-    // the id to look for. When it is unconfigured this deliberately degrades to
-    // "cannot tell" rather than guessing with the Facebook id.
-    return interpretSubscribedApps(ids, env.INSTAGRAM_APP_ID);
+    // No app-id comparison here, unlike Messenger and WhatsApp. `me` resolves
+    // from OUR token, so anything this returns is already our subscription;
+    // what matters is whether it covers `messages`. Checked live against a
+    // working account: the id Meta reports is Instagram-scoped and does not
+    // equal the Instagram App ID, so comparing them reported a correctly
+    // subscribed account as broken.
+    if (fields === null) return { ready: null, detail: 'UNKNOWN' };
+    if (fields.length === 0) return { ready: false, detail: 'NO_SUBSCRIBERS' };
+    return fields.includes('messages')
+      ? { ready: true }
+      : { ready: false, detail: 'MESSAGES_FIELD_NOT_SUBSCRIBED' };
   }
 
   async parseWebhook(input: RawWebhookInput): Promise<NormalizedChannelEvent[]> {

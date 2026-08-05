@@ -325,6 +325,44 @@ export const instagramApiClient = {
    * Never throws — returns null when the answer cannot be determined, so an
    * unknown stays unknown rather than becoming a false alarm.
    */
+  /**
+   * Which webhook fields THIS app is subscribed to on the account.
+   *
+   * Fields rather than app ids, because on graph.instagram.com the id cannot be
+   * compared to anything we hold: `/me/subscribed_apps` is resolved from our own
+   * access token, so every entry it returns is already ours, and the id it
+   * reports is an Instagram-scoped one that differs from the Instagram App ID
+   * used as the OAuth client_id. Comparing them declared a correctly-subscribed
+   * account APP_NOT_SUBSCRIBED — the exact false alarm the three-valued
+   * readiness signal exists to prevent.
+   *
+   * Returns null when the answer cannot be determined, so unknown stays unknown.
+   */
+  async getSubscribedFields(input: {
+    accessToken: string;
+    nodeId: string;
+  }): Promise<string[] | null> {
+    try {
+      const res = await transport.request({
+        url: graphUrl(`${encodeURIComponent(input.nodeId)}/subscribed_apps`),
+        method: 'GET',
+        accessToken: input.accessToken,
+        timeoutMs: env.INSTAGRAM_API_TIMEOUT_MS,
+      });
+      if (!res.ok) return null;
+      const data = (res.json as { data?: unknown } | null)?.data;
+      if (!Array.isArray(data)) return null;
+      return data.flatMap((entry) => {
+        const fields = (entry as Record<string, unknown>).subscribed_fields;
+        return Array.isArray(fields)
+          ? fields.filter((f): f is string => typeof f === 'string')
+          : [];
+      });
+    } catch {
+      return null;
+    }
+  },
+
   async getSubscribedAppIds(input: {
     accessToken: string;
     nodeId: string;

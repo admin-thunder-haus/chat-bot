@@ -8,6 +8,7 @@ import { makeFakeProvider } from './ai-helpers';
 import {
   buildWelcomeMessage,
   PLATFORM_BRAND,
+  PLATFORM_BRAND_IN_MESSAGE,
   PLATFORM_URL,
 } from '../src/modules/ai/welcome-message';
 import { aiPromptService } from '../src/modules/ai/ai-prompt.service';
@@ -63,13 +64,13 @@ describe('buildWelcomeMessage', () => {
   it('greets in Arabic when the customer wrote Arabic', () => {
     const msg = buildWelcomeMessage({ ...base, customerMessage: 'مرحبا' });
     expect(msg).toContain('أهلاً وسهلاً بك في Acme Barbers');
-    expect(msg).toContain(`مدعوم بواسطة ${PLATFORM_BRAND}`);
+    expect(msg).toContain(`مدعوم بواسطة ${PLATFORM_BRAND_IN_MESSAGE}`);
   });
 
   it('greets in English when the customer wrote English', () => {
     const msg = buildWelcomeMessage({ ...base, customerMessage: 'hello there' });
     expect(msg).toContain('Welcome to Acme Barbers');
-    expect(msg).toContain(`Powered by ${PLATFORM_BRAND}`);
+    expect(msg).toContain(`Powered by ${PLATFORM_BRAND_IN_MESSAGE}`);
   });
 
   it('honours an explicit language preference over what was written', () => {
@@ -86,6 +87,24 @@ describe('buildWelcomeMessage', () => {
       expect(buildWelcomeMessage({ ...base, customerMessage: msg })).toContain(
         PLATFORM_URL,
       );
+    }
+  });
+
+  it('never writes the brand as a hostname, so clients cannot auto-link it', () => {
+    // Found in a live Telegram thread: `.ai` is a real TLD, so "Thunder.AI"
+    // was auto-linked to thunder.ai — a domain we do not own. Every customer
+    // of every tenant was one tap from a stranger's site, from the one line
+    // whose entire job is to point at ours.
+    for (const customerMessage of ['hello', 'مرحبا']) {
+      const msg = buildWelcomeMessage({ ...base, customerMessage });
+      expect(msg).not.toContain(PLATFORM_BRAND); // the dotted spelling
+      expect(msg).toContain(PLATFORM_BRAND_IN_MESSAGE);
+      // Nothing OUTSIDE the real URL may look like a hostname either, or the
+      // client will link that too. Remove our own URL first, then scan what is
+      // left — otherwise the check trips on "thunder-haus.com" inside it.
+      const withoutOurUrl = msg.split(PLATFORM_URL).join(' ');
+      const hostLike = withoutOurUrl.match(/[A-Za-z][\w-]*\.[A-Za-z]{2,}/g) ?? [];
+      expect(hostLike).toEqual([]);
     }
   });
 
@@ -118,16 +137,16 @@ describe('buildWelcomeMessage', () => {
     // Otherwise every company removes it within a week by writing their own.
     expect(
       buildWelcomeMessage({ ...base, customerMessage: 'hi', customMessage: 'Hey.' }),
-    ).toContain(PLATFORM_BRAND);
+    ).toContain(PLATFORM_BRAND_IN_MESSAGE);
   });
 
   it('does not duplicate the attribution when the custom text already has it', () => {
     const msg = buildWelcomeMessage({
       ...base,
       customerMessage: 'hi',
-      customMessage: `Hey. Powered by ${PLATFORM_BRAND}`,
+      customMessage: `Hey. Powered by ${PLATFORM_BRAND_IN_MESSAGE}`,
     });
-    expect(msg.match(new RegExp(PLATFORM_BRAND, 'g'))).toHaveLength(1);
+    expect(msg.match(new RegExp(PLATFORM_BRAND_IN_MESSAGE, 'g'))).toHaveLength(1);
   });
 
   it('falls back to English for a language it has no greeting for', () => {
@@ -153,7 +172,7 @@ describe('the greeting in a real conversation', () => {
     const msgs = await messagesOf(res.body.data.conversation.id);
     // customer message, greeting, then the answer — in that order.
     expect(msgs.map((m) => m.senderType)).toEqual(['CUSTOMER', 'SYSTEM', 'AI']);
-    expect(msgs[1].content).toContain(PLATFORM_BRAND);
+    expect(msgs[1].content).toContain(PLATFORM_BRAND_IN_MESSAGE);
     expect(msgs[2].content).toBe('Sure, we open at 10.');
   });
 

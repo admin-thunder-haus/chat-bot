@@ -16,15 +16,27 @@ import { detectLanguage } from '../../utils/language-detect';
  * customer of every tenant, quiet enough not to intrude on the relationship.
  */
 
-/** Shown in the attribution line under every greeting. */
+/** The product's name as written everywhere except inside a sent message. */
 export const PLATFORM_BRAND = 'Thunder.AI';
+
+/**
+ * The same name, written so a messaging client cannot turn it into a link.
+ *
+ * `.ai` is a real top-level domain, so Telegram, WhatsApp and Messenger all
+ * read "Thunder.AI" as a hostname and auto-link it to `thunder.ai` — a domain
+ * we do not own. Every customer of every tenant would have been one tap away
+ * from a stranger's site, from a line whose whole purpose is to point at ours.
+ * Dropping the dot removes the hostname pattern and reads identically.
+ */
+export const PLATFORM_BRAND_IN_MESSAGE = 'Thunder AI';
 
 /**
  * Where the attribution line points.
  *
  * Bare URL, no markdown link syntax: these channels render our text verbatim,
- * so `[Thunder.AI](https://…)` would arrive with the brackets visible while
- * every one of them auto-links a plain URL on its own.
+ * so `[Thunder AI](https://…)` would arrive with the brackets visible, while
+ * every one of them auto-links a plain URL on its own. This is therefore the
+ * ONLY thing in the line that should ever become tappable.
  */
 export const PLATFORM_URL = 'https://ai.thunder-haus.com/';
 
@@ -72,8 +84,8 @@ function defaultBody(locale: WelcomeLocale, companyName: string): string {
 
 function attribution(locale: WelcomeLocale): string {
   return locale === 'ar'
-    ? `⚡ مدعوم بواسطة ${PLATFORM_BRAND} — ${PLATFORM_URL}`
-    : `⚡ Powered by ${PLATFORM_BRAND} — ${PLATFORM_URL}`;
+    ? `⚡ مدعوم بواسطة ${PLATFORM_BRAND_IN_MESSAGE} — ${PLATFORM_URL}`
+    : `⚡ Powered by ${PLATFORM_BRAND_IN_MESSAGE} — ${PLATFORM_URL}`;
 }
 
 /**
@@ -93,7 +105,13 @@ export function buildWelcomeMessage(input: {
   const body = custom || defaultBody(locale, input.companyName);
   const line = attribution(locale);
   // A company that pasted the attribution into its own text gets one line, not
-  // two — cheaper to tolerate here than to police in validation.
-  if (body.includes(PLATFORM_BRAND)) return body;
+  // two — cheaper to tolerate here than to police in validation. Both spellings
+  // and the URL count, since whichever they copied is still an attribution.
+  const alreadyAttributed = [
+    PLATFORM_BRAND,
+    PLATFORM_BRAND_IN_MESSAGE,
+    PLATFORM_URL,
+  ].some((needle) => body.includes(needle));
+  if (alreadyAttributed) return body;
   return `${body}\n\n${line}`;
 }

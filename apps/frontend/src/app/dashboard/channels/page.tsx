@@ -776,6 +776,8 @@ export default function ChannelsPage() {
         onClose={() => setWhatsAppOpen(false)}
         onConnected={() => void load()}
         oauthAvailable={whatsappOauthAvailable}
+        metaAppId={metaOauth?.appId ?? null}
+        whatsappConfigId={metaOauth?.whatsappConfigId ?? null}
       />
 
       <InstagramConnectModal

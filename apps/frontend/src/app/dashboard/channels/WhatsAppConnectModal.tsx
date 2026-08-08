@@ -5,6 +5,7 @@ import { channelsApi } from '@/lib/resources';
 import { parseApiError } from '@/lib/form';
 import { useToast } from '@/components/toast';
 import { MetaOauthConnect } from './MetaOauthConnect';
+import { WhatsAppEmbeddedSignup } from './WhatsAppEmbeddedSignup';
 import {
   Alert,
   Button,
@@ -33,11 +34,16 @@ export function WhatsAppConnectModal({
   onClose,
   onConnected,
   oauthAvailable = false,
+  metaAppId,
+  whatsappConfigId,
 }: {
   open: boolean;
   onClose: () => void;
   onConnected: () => void;
   oauthAvailable?: boolean;
+  /** Needed to open Metas signup popup — not required for the manual form. */
+  metaAppId?: string | null;
+  whatsappConfigId?: string | null;
 }) {
   const { notify } = useToast();
   const [form, setForm] = useState({
@@ -135,6 +141,15 @@ export function WhatsAppConnectModal({
         oauthAvailable={oauthAvailable}
         manualOpen={manualOpen}
         onManualOpenChange={setManualOpen}
+        primaryAction={
+          metaAppId && whatsappConfigId ? (
+            <WhatsAppEmbeddedSignup
+              appId={metaAppId}
+              configId={whatsappConfigId}
+              onConnected={onConnected}
+            />
+          ) : undefined
+        }
       >
         <form
           id="whatsapp-connect-form"

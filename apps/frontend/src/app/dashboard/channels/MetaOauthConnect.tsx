@@ -23,6 +23,7 @@ export function MetaOauthConnect({
   oauthAvailable,
   manualOpen,
   onManualOpenChange,
+  primaryAction,
   children,
 }: {
   provider: MetaOauthProvider;
@@ -30,6 +31,12 @@ export function MetaOauthConnect({
   oauthAvailable: boolean;
   manualOpen: boolean;
   onManualOpenChange: (open: boolean) => void;
+  /**
+   * Replaces the default redirect button. WhatsApp needs it: its signup runs
+   * inside Metas own JS-SDK popup, because a customer with no WhatsApp
+   * Business Account has nothing to share on the plain consent screen.
+   */
+  primaryAction?: React.ReactNode;
   /** The existing manual connect form. */
   children: React.ReactNode;
 }) {
@@ -68,7 +75,8 @@ export function MetaOauthConnect({
 
   return (
     <div className="space-y-4">
-      <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+      {primaryAction ?? (
+      <div className="rounded-lg border border-brand-200 bg-brand-50 p-4">
         <p className="text-sm font-semibold text-slate-900">
           Recommended: one-click connect
         </p>
@@ -92,6 +100,7 @@ export function MetaOauthConnect({
           </div>
         )}
       </div>
+      )}
 
       <button
         type="button"

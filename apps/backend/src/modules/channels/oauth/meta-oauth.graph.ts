@@ -93,6 +93,22 @@ function asRecord(v: unknown): Record<string, unknown> | null {
   return v && typeof v === 'object' ? (v as Record<string, unknown>) : null;
 }
 
+/**
+ * Meta's own explanation of a failed OAuth call, trimmed for display.
+ *
+ * Safe to show the operator: this endpoint is authenticated and OWNER/ADMIN,
+ * the failure is from their own Meta app, and the payload carries no token —
+ * the code and secret travel in the request, never in the error.
+ */
+function describeOauthError(json: unknown): string | undefined {
+  const err = asRecord(asRecord(json)?.error);
+  if (!err) return undefined;
+  const message = typeof err.message === 'string' ? err.message : '';
+  const sub = typeof err.error_user_msg === 'string' ? err.error_user_msg : '';
+  const text = (sub || message).trim();
+  return text ? text.slice(0, 300) : undefined;
+}
+
 export const metaOauthGraphClient = {
   /**
    * Exchange an OAuth authorization code for an access token.
@@ -105,7 +121,7 @@ export const metaOauthGraphClient = {
     appSecret: string;
     code: string;
     redirectUri?: string;
-  }): Promise<{ ok: boolean; accessToken?: string }> {
+  }): Promise<{ ok: boolean; accessToken?: string; reason?: string }> {
     const params = new URLSearchParams({
       client_id: input.appId,
       client_secret: input.appSecret,
@@ -122,9 +138,14 @@ export const metaOauthGraphClient = {
       if (res.ok && typeof token === 'string' && token.length > 0) {
         return { ok: true, accessToken: token };
       }
-      return { ok: false };
+      // Meta says exactly why — a mismatched redirect_uri, a reused code, an
+      // app-secret problem, a config that is not an Embedded Signup config —
+      // and swallowing it left "Could not exchange the authorization code" as
+      // the only signal, which is true of every one of those causes and
+      // actionable for none. The message never contains the code or secret.
+      return { ok: false, reason: describeOauthError(res.json) };
     } catch {
-      return { ok: false };
+      return { ok: false, reason: 'network error reaching Meta' };
     }
   },
 

@@ -155,7 +155,11 @@ export function verifyOauthState(
 // ---------------------------------------------------------------------------
 
 class MetaFlowError extends Error {
-  constructor(public readonly safeCode: string) {
+  constructor(
+    public readonly safeCode: string,
+    /** Meta's own explanation, when it gave one — shown to the operator. */
+    public readonly detail?: string,
+  ) {
     super(safeCode);
     this.name = 'MetaFlowError';
   }
@@ -274,7 +278,7 @@ async function discoverPageAssets(input: {
     redirectUri: input.redirectUri,
   });
   if (!exchange.ok || !exchange.accessToken) {
-    throw new MetaFlowError('TOKEN_EXCHANGE_FAILED');
+    throw new MetaFlowError('TOKEN_EXCHANGE_FAILED', exchange.reason);
   }
 
   const pagesRes = await metaOauthGraphClient.getPages({
@@ -387,7 +391,7 @@ async function discoverWhatsAppAssets(input: {
     redirectUri: input.redirectUri,
   });
   if (!exchange.ok || !exchange.accessToken) {
-    throw new MetaFlowError('TOKEN_EXCHANGE_FAILED');
+    throw new MetaFlowError('TOKEN_EXCHANGE_FAILED', exchange.reason);
   }
   const businessToken = exchange.accessToken;
 
@@ -742,8 +746,9 @@ export const metaOauthService = {
       return { selection: toClientView(loaded!) };
     } catch (err) {
       if (err instanceof MetaFlowError) {
+        const base = FLOW_ERROR_MESSAGES[err.safeCode] ?? 'Meta connection failed';
         throw AppError.badRequest(
-          FLOW_ERROR_MESSAGES[err.safeCode] ?? 'Meta connection failed',
+          err.detail ? `${base} — Meta said: ${err.detail}` : base,
           [],
           err.safeCode,
         );
@@ -833,8 +838,9 @@ export const metaOauthService = {
       });
     } catch (err) {
       if (err instanceof MetaFlowError) {
+        const base = FLOW_ERROR_MESSAGES[err.safeCode] ?? 'Meta connection failed';
         throw AppError.badRequest(
-          FLOW_ERROR_MESSAGES[err.safeCode] ?? 'Meta connection failed',
+          err.detail ? `${base} — Meta said: ${err.detail}` : base,
           [],
           err.safeCode,
         );

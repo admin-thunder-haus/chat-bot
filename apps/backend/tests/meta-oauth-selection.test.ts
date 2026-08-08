@@ -591,3 +591,88 @@ describe('stored selection payload', () => {
     expect(await prisma.metaOauthSelection.count({ where: { id } })).toBe(0);
   });
 });
+
+describe("Meta's own reason for a failed code exchange reaches the operator", () => {
+  /**
+   * "Could not exchange the Meta authorization code for an access token" is
+   * true of a mismatched redirect_uri, a reused code, a wrong app secret and a
+   * config that is not an Embedded Signup config — and actionable for none of
+   * them. Meta says which; we were discarding it and guessing instead.
+   */
+  it('appends what Meta said to the error message', async () => {
+    setMetaOauthTransportForTesting({
+      async request(input) {
+        if (input.url.includes('/oauth/access_token')) {
+          return {
+            status: 400,
+            ok: false,
+            json: {
+              error: {
+                message:
+                  'This authorization code has been used.',
+                type: 'OAuthException',
+                code: 100,
+              },
+            },
+          };
+        }
+        return { status: 200, ok: true, json: {} };
+      },
+    });
+
+    const res = await request(app)
+      .post('/api/v1/channels/oauth/meta/whatsapp/complete')
+      .set(authHeader(acme.tokens.owner))
+      .send({ code: 'already-used' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('TOKEN_EXCHANGE_FAILED');
+    expect(res.body.message).toContain('This authorization code has been used.');
+  });
+
+  it('still reads cleanly when Meta gave no explanation', async () => {
+    setMetaOauthTransportForTesting({
+      async request(input) {
+        if (input.url.includes('/oauth/access_token')) {
+          return { status: 500, ok: false, json: null };
+        }
+        return { status: 200, ok: true, json: {} };
+      },
+    });
+
+    const res = await request(app)
+      .post('/api/v1/channels/oauth/meta/whatsapp/complete')
+      .set(authHeader(acme.tokens.owner))
+      .send({ code: 'boom' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toBe(
+      'Could not exchange the Meta authorization code for an access token',
+    );
+    expect(res.body.message).not.toContain('Meta said');
+  });
+
+  it('never leaks the code or the app secret into the message', async () => {
+    setMetaOauthTransportForTesting({
+      async request(input) {
+        if (input.url.includes('/oauth/access_token')) {
+          return {
+            status: 400,
+            ok: false,
+            json: { error: { message: 'Invalid verification code format.' } },
+          };
+        }
+        return { status: 200, ok: true, json: {} };
+      },
+    });
+
+    const res = await request(app)
+      .post('/api/v1/channels/oauth/meta/whatsapp/complete')
+      .set(authHeader(acme.tokens.owner))
+      .send({ code: 'super-secret-code' });
+
+    const dump = JSON.stringify(res.body);
+    expect(dump).not.toContain('super-secret-code');
+    expect(dump).not.toContain(META.appSecret);
+  });
+});

@@ -222,6 +222,32 @@ is set and falls back to `META_APP_SECRET` otherwise. Getting this wrong is
 invisible from the outside — Meta receives a 401 and simply stops, so the only
 symptom is an inbox that never fills.
 
+
+## WhatsApp: Embedded Signup needs Tech Provider verification
+
+The signup popup opens, runs, and then stops with Meta's own message:
+
+> Thunder Haus can't onboard customers right now
+
+That is the **Access verification** gate on the Publish page — "verify that
+your business is a Tech Provider". A Tech Provider Embedded Signup
+configuration exists to onboard OTHER businesses' WhatsApp accounts, and Meta
+blocks it until the business behind the app is verified as one. Publishing the
+app is not enough, and nothing in our code can detect it: Meta handles the
+whole exchange inside its popup and never returns a code.
+
+So there are two paths, and they need different things:
+
+| Goal | Path | Meta requires |
+| --- | --- | --- |
+| Connect YOUR OWN number | Advanced / manual setup | Nothing beyond a WABA you created in WhatsApp Manager |
+| Let CUSTOMERS connect theirs | Embedded Signup popup | Business verification **and** Access verification (Tech Provider) |
+
+For the manual path, create the WhatsApp Business Account and add the number in
+WhatsApp Manager first, then paste the phone number id, WABA id, access token,
+app secret and a verify token into the form. The number still has to be one
+that is not currently live on WhatsApp.
+
 ## Instagram: which API
 
 Meta ships two Instagram messaging models, and only one of them can receive
